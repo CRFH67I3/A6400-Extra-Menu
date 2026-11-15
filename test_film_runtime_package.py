@@ -113,7 +113,9 @@ class FilmRuntimePackageTests(unittest.TestCase):
 
  def run_script(self,path,**env):
   return subprocess.run(['sh',str(path)],capture_output=True,text=True,
-     env=dict(os.environ,FILM_PACKAGE_FIXTURE=str(self.base),**env),timeout=10)
+     # Python command doubles can take longer on an ARM development board.
+     # This host deadline does not change camera readiness or I/O limits.
+     env=dict(os.environ,FILM_PACKAGE_FIXTURE=str(self.base),**env),timeout=30)
 
  def test_build_pins_all_artifacts_and_matching_persistent_module(self):
   r=self.build();self.assertEqual(r.returncode,0,r.stdout+r.stderr)

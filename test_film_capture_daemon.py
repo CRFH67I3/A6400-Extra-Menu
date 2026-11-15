@@ -294,7 +294,7 @@ class FilmCaptureDaemonTests(unittest.TestCase):
 
     def test_settings_child_exit_and_signal_are_distinguished(self):
         for fault,reason,code,sig in [('exit127','stdout_empty','127','0'),
-                                    ('signal','child_signal','-1',str(signal.SIGTERM))]:
+                                    ('signal','child_signal','-1',str(int(signal.SIGTERM)))]:
             with self.subTest(fault=fault):
                 rc,out=self.run_daemon(settings_fault=fault,events=[(.04,lambda _:self.new()),
                                     (.06,self.stop_after_settings())])

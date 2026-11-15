@@ -356,8 +356,10 @@
     {
       "path": "test_film_capture_daemon.py",
       "source_sha256": "4f631aa8d92fc8f154a3895a0bd9b9ac7fb16daf3bb1f2cd9b24f24699468b04",
-      "release_sha256": "4f631aa8d92fc8f154a3895a0bd9b9ac7fb16daf3bb1f2cd9b24f24699468b04",
-      "release_adjustments": []
+      "release_sha256": "27f62698e5603e487135fb1549afd7f3067a5faf0e5e12441efdd879755ba711",
+      "release_adjustments": [
+        "Host-test portability: convert SIGTERM to int before str so Python 3.10 and newer versions expect the same numeric native diagnostic."
+      ]
     },
     {
       "path": "test_film_native_command.py",
@@ -380,8 +382,10 @@
     {
       "path": "test_film_runtime_package.py",
       "source_sha256": "d76a007f87f83b3b00ef3fa3f6b9ee2813d12a1d802f296cc73f9b582c3b5bb2",
-      "release_sha256": "d76a007f87f83b3b00ef3fa3f6b9ee2813d12a1d802f296cc73f9b582c3b5bb2",
-      "release_adjustments": []
+      "release_sha256": "ebd0b7873650bc3ebd49337f5e10852f97a5696cb38bb0c4674b5806665b97d8",
+      "release_adjustments": [
+        "Host-test portability: numeric signal formatting for Python 3.10; allow 30 seconds for synthetic Python command doubles on ARM. Camera limits unchanged."
+      ]
     }
   ]
 }

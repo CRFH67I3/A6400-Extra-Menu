@@ -401,7 +401,8 @@ static int inventory(struct transport *t,struct catalogue *out) {
             if(!item.directory && jpeg_name(item.name)) {
                 if(out->count==MAX_FILES)return diagnostic(t,"file_capacity",0);
                 struct entry *e=&out->items[out->count++];
-                snprintf(e->path,sizeof(e->path),"%s/%.12s",directories[d],item.name);
+                /* ms:/DCIM/ plus eight validated DCF characters; JPEG is twelve. */
+                snprintf(e->path,sizeof(e->path),"%.17s/%.12s",directories[d],item.name);
                 strcpy(e->time,item.time);e->size=item.size;
                 for(unsigned i=0;i+1<out->count;++i)if(!strcmp(out->items[i].path,e->path))return diagnostic(t,"duplicate_path",0);
             }

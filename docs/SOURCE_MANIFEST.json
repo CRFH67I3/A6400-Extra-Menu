@@ -130,8 +130,10 @@
     {
       "path": "camera/native_capture_probe.c",
       "source_sha256": "684372bd34274b06019f0baaf2ff5025849997e02aa7dbbd11bf5380f12b6186",
-      "release_sha256": "684372bd34274b06019f0baaf2ff5025849997e02aa7dbbd11bf5380f12b6186",
-      "release_adjustments": []
+      "release_sha256": "1ace8feeb9e848e7dca499b82e9a1620b892becc2e6cccc0476f46065771161e",
+      "release_adjustments": [
+        "Bound the already validated 17-character ms:/DCIM/ directory prefix in path formatting so GCC -Wformat-truncation accepts the host build; preserve the validated path and camera behavior."
+      ]
     },
     {
       "path": "camera/film_runtime_log.c",

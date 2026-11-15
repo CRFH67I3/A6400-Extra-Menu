@@ -4,7 +4,7 @@
   "excluded": [
     "Sony firmware, libraries, memory dumps and monitors",
     "DevCrashDay preset implementations and derived curves/worker binaries",
-    "User photographs, LUT files, media, private logs and credentials"
+    "Unapproved user photographs, LUT files, media, private logs and credentials"
   ],
   "files": [
     {
@@ -386,6 +386,14 @@
       "release_adjustments": [
         "Host-test portability: numeric signal formatting for Python 3.10; allow 30 seconds for synthetic Python command doubles on ARM. Camera limits unchanged."
       ]
+    }
+  ],
+  "approved_documentation_assets": [
+    {
+      "path": "docs/images/a6400-extra-menu-camera.jpg",
+      "release_sha256": "d689dc9801bdefaf1c4711665278e28baba223e9b700a2e6e04dbcf94c91b04d",
+      "approval": "Explicit user request on 2026-11-15 for the GitHub README showcase",
+      "processing": "Resized to 1600x1200; EXIF, GPS and other image metadata removed; original private photo not published"
     }
   ]
 }

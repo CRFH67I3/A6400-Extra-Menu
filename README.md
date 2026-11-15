@@ -1,5 +1,9 @@
 # A6400 Extra-Menu
 
+![A6400 機身顯示自製觸控選單，包含 LUT 開關、Film 選擇與 Close](docs/images/a6400-extra-menu-camera.jpg)
+
+*開發中的 A6400 自製觸控選單實機展示。*
+
 以 **MENU＋放大鏡** 召喚自製觸控選單，在相機上管理 LUT 開關和 Film 選項的研究專案。
 
 **本專案仍在持續開發與更新，目前處於實驗階段。** 選單操作、LUT 管理與拍攝後處理會隨實機驗證逐步完善；已驗證的功能、已知限制及待完成項目會同步更新在下方的「實際進度」與 [功能狀態](docs/功能狀態.md) 中。
@@ -59,7 +63,7 @@ python3 -m unittest discover -p 'test_*.py' -v
 
 - 本專案新增部分：[PolyForm Noncommercial 1.0.0](LICENSE)。
 - 沿用的 MIT 研究元件：維持其原有授權及聲明，見 [THIRD_PARTY.md](THIRD_PARTY.md)。
-- Sony 韌體、專有函式庫、記憶體 dump、個人照片、音檔、私人 LUT 及憑證均不在本倉庫內。
+- Sony 韌體、專有函式庫、記憶體 dump、未經指定公開的照片、音檔、私人 LUT 及憑證均不在本倉庫內。
 - 歡迎提交自己有權提供的修正與研究結果，見 [貢獻指南](CONTRIBUTING.md)。
 
 ## 致謝

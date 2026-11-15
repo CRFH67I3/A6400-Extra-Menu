@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """檢查 Git 已追蹤的公開檔案，不讀取憑證或連接任何服務。"""
 from pathlib import Path
+import hashlib
 import re
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+# Only this user-approved, resized, metadata-free documentation image is public.
+# Other photographs/media remain forbidden; a replacement needs a new review.
+APPROVED_IMAGES = {
+    'docs/images/a6400-extra-menu-camera.jpg':
+        'd689dc9801bdefaf1c4711665278e28baba223e9b700a2e6e04dbcf94c91b04d',
+}
 FORBIDDEN_SUFFIXES = {
     '.elf', '.so', '.dylib', '.o', '.a', '.bin', '.dump', '.req',
     '.tar', '.gz', '.zip', '.img', '.dat', '.log', '.sock', '.pem', '.key',
@@ -27,10 +34,19 @@ def main():
         print('尚未有已追蹤檔案；請先建立待發布的 Git 索引。')
         return 1
     errors = []
+    images = 0
     for name in names:
         p = ROOT / name
         if p.is_symlink() or not p.is_file():
             errors.append((name, '不是一般檔案'))
+            continue
+        if name in APPROVED_IMAGES:
+            data = p.read_bytes()
+            if (len(data) > 300000 or not data.startswith(b'\xff\xd8\xff') or
+                    not data.endswith(b'\xff\xd9') or
+                    hashlib.sha256(data).hexdigest() != APPROVED_IMAGES[name]):
+                errors.append((name, '展示照與已核准的版本不符'))
+            images += 1
             continue
         if p.suffix.lower() in FORBIDDEN_SUFFIXES or p.name.startswith('.env'):
             errors.append((name, '不應公開的檔案類型'))
@@ -48,7 +64,7 @@ def main():
         print(f'{name}: {reason}')
     if errors:
         return 1
-    print(f'公開檔案檢查通過：{len(names)} 個文字檔案。')
+    print(f'公開檔案檢查通過：{len(names)-images} 個文字檔案、{images} 張已核准展示照。')
     print('這是有限範圍的自動檢查，不取代來源及授權審閱。')
     return 0
 

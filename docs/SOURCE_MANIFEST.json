@@ -1,0 +1,385 @@
+{
+  "format": 1,
+  "scope": "Original menu/control integration sources, plus identified MIT research components.",
+  "excluded": [
+    "Sony firmware, libraries, memory dumps and monitors",
+    "DevCrashDay preset implementations and derived curves/worker binaries",
+    "User photographs, LUT files, media, private logs and credentials"
+  ],
+  "files": [
+    {
+      "path": "camera/film_menu.c",
+      "source_sha256": "2b8cdd97ee380eb9fc11088a87d18476d7a73e11ef348e0ae59aae865aa7b3c1",
+      "release_sha256": "2b8cdd97ee380eb9fc11088a87d18476d7a73e11ef348e0ae59aae865aa7b3c1",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_menu.h",
+      "source_sha256": "77202fc73b17fa2a6a38e67214a2dfad1597685401c2f10d038cbf4c86ca3f24",
+      "release_sha256": "77202fc73b17fa2a6a38e67214a2dfad1597685401c2f10d038cbf4c86ca3f24",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_native_view.c",
+      "source_sha256": "c9d71df8fc15147ac853d65daf5793713d743c2fdce9730374b2d7b4bb56f532",
+      "release_sha256": "c9d71df8fc15147ac853d65daf5793713d743c2fdce9730374b2d7b4bb56f532",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_native_view.h",
+      "source_sha256": "4f2378f0defa356cb30b64be985b2fc32ef31b56d54d6134676950b8b80a035c",
+      "release_sha256": "4f2378f0defa356cb30b64be985b2fc32ef31b56d54d6134676950b8b80a035c",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_paths.h",
+      "source_sha256": "99281f07ce9082a86b8de7894f351f673adf60fe9531169d4cde5b6205cf5c54",
+      "release_sha256": "99281f07ce9082a86b8de7894f351f673adf60fe9531169d4cde5b6205cf5c54",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_menu_job_cli.c",
+      "source_sha256": "fabd1096a53cf741a233123602eed05af067c5a6ff71e6faab0d3c20bf668492",
+      "release_sha256": "fabd1096a53cf741a233123602eed05af067c5a6ff71e6faab0d3c20bf668492",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_settings_gate.c",
+      "source_sha256": "972db2d72fefd8f5f549fb1c5f49fd5cd2abc5f24e23e567451c8934079f487a",
+      "release_sha256": "972db2d72fefd8f5f549fb1c5f49fd5cd2abc5f24e23e567451c8934079f487a",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_settings_gate.h",
+      "source_sha256": "2e392880a1c2eadf2c3dbf73417f6efa209fc5766ae84a1351f9b56b4bc28a50",
+      "release_sha256": "2e392880a1c2eadf2c3dbf73417f6efa209fc5766ae84a1351f9b56b4bc28a50",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_settings_io.c",
+      "source_sha256": "7a5169544767903b25d275a3443305c28d0d8ebf80d8b7edf80003450c49289e",
+      "release_sha256": "7a5169544767903b25d275a3443305c28d0d8ebf80d8b7edf80003450c49289e",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_settings_io.h",
+      "source_sha256": "57a3e2d3e4da42f2557ac68641169e056d2e21926d87cfa59b6f8b1cce1f4ac0",
+      "release_sha256": "57a3e2d3e4da42f2557ac68641169e056d2e21926d87cfa59b6f8b1cce1f4ac0",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_settings_maps.c",
+      "source_sha256": "99cd819b7a6206d6ab7c172636d72239a7d2ba36c487ab533ef4afb15f57c0d0",
+      "release_sha256": "99cd819b7a6206d6ab7c172636d72239a7d2ba36c487ab533ef4afb15f57c0d0",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_settings_maps.h",
+      "source_sha256": "648527d0d16229cbaea3636763d26ca0c473f148bdb3ce814bcdc576372b9d17",
+      "release_sha256": "648527d0d16229cbaea3636763d26ca0c473f148bdb3ce814bcdc576372b9d17",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_settings_snapshot.c",
+      "source_sha256": "ad7217dae2639fd7044f1f212a75adb536788c617561d881b72dd351a7fc0970",
+      "release_sha256": "ad7217dae2639fd7044f1f212a75adb536788c617561d881b72dd351a7fc0970",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_settings_snapshot.h",
+      "source_sha256": "d535ab3e7da801591c80d5c2473882957e5846f5e5098d0ea25b7173bf756e13",
+      "release_sha256": "d535ab3e7da801591c80d5c2473882957e5846f5e5098d0ea25b7173bf756e13",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_settings_source.c",
+      "source_sha256": "13c33b48fa5320de8491fe2c1aef61a5c2725367d2007e2aad7e401646aa4f27",
+      "release_sha256": "13c33b48fa5320de8491fe2c1aef61a5c2725367d2007e2aad7e401646aa4f27",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_settings_source.h",
+      "source_sha256": "efc8496a8a1bf393660eb321d1e46d0a8c56f899a66f969f6ce2c310b4bd5153",
+      "release_sha256": "efc8496a8a1bf393660eb321d1e46d0a8c56f899a66f969f6ce2c310b4bd5153",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_settings_start.S",
+      "source_sha256": "9b3aa6eab39069506a73c9adfe8e57805ab8a6cdcc9fb7751856be64e917a7b4",
+      "release_sha256": "9b3aa6eab39069506a73c9adfe8e57805ab8a6cdcc9fb7751856be64e917a7b4",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_settings_relay.c",
+      "source_sha256": "1772d34158abf1aa3aaf7b851d724d4f2b3bfb502c154a0bbaa5aef835009f25",
+      "release_sha256": "1772d34158abf1aa3aaf7b851d724d4f2b3bfb502c154a0bbaa5aef835009f25",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_native_command.c",
+      "source_sha256": "30f6dfb4db150e012ac57064c342036cdcea61145e4f996454361d71e6167d23",
+      "release_sha256": "30f6dfb4db150e012ac57064c342036cdcea61145e4f996454361d71e6167d23",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_capture_daemon.c",
+      "source_sha256": "5af7047e8650ccd956044c13e3d31d7f7f2dc02ab96c2f4f87f22b14a03cac92",
+      "release_sha256": "5af7047e8650ccd956044c13e3d31d7f7f2dc02ab96c2f4f87f22b14a03cac92",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/native_capture_probe.c",
+      "source_sha256": "684372bd34274b06019f0baaf2ff5025849997e02aa7dbbd11bf5380f12b6186",
+      "release_sha256": "684372bd34274b06019f0baaf2ff5025849997e02aa7dbbd11bf5380f12b6186",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_runtime_log.c",
+      "source_sha256": "f144fdae2e7308dcb11249f795971502a10409fa4fa873a7bb7a4b7a918aad39",
+      "release_sha256": "f144fdae2e7308dcb11249f795971502a10409fa4fa873a7bb7a4b7a918aad39",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_runtime_log.h",
+      "source_sha256": "5ed9ca84ea3854ae8bd783fb5a49321d3a055c2e5414b87dbb31f7412573d6ec",
+      "release_sha256": "5ed9ca84ea3854ae8bd783fb5a49321d3a055c2e5414b87dbb31f7412573d6ec",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_ram_job.sh",
+      "source_sha256": "4618893a465ddc77b918c655a5f429d4c8f37d7a2bda932fc30aaeb7cc7c32f9",
+      "release_sha256": "4618893a465ddc77b918c655a5f429d4c8f37d7a2bda932fc30aaeb7cc7c32f9",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/film_ui_stop_cli.c",
+      "source_sha256": "cff1d64fd64804a1fbcb5187ada49e7f4088d6d59bc9019c008aca05bcb8afa8",
+      "release_sha256": "cff1d64fd64804a1fbcb5187ada49e7f4088d6d59bc9019c008aca05bcb8afa8",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/native_film_ui_trial3.c",
+      "source_sha256": "c71fda1f237d7898f43e65002bcfe6287689996e8029d9e107297b84de8460fc",
+      "release_sha256": "c71fda1f237d7898f43e65002bcfe6287689996e8029d9e107297b84de8460fc",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/native_freeze.h",
+      "source_sha256": "8e76b571259fb97548f07f1867574685f7d5158c2c497c70194108b1ad86a432",
+      "release_sha256": "8e76b571259fb97548f07f1867574685f7d5158c2c497c70194108b1ad86a432",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/native_ui_load_guard.c",
+      "source_sha256": "dc934648a571f91dc24e062d9ea8231260f60b75d58df4dec1e41994d95d60c2",
+      "release_sha256": "dc934648a571f91dc24e062d9ea8231260f60b75d58df4dec1e41994d95d60c2",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/native_ui_load_payload.c",
+      "source_sha256": "e693818aea2f2331eaaa20c7fd4bf34683386cf57ceb1a551bc1b826f5880089",
+      "release_sha256": "e693818aea2f2331eaaa20c7fd4bf34683386cf57ceb1a551bc1b826f5880089",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/native_ui_trampoline.S",
+      "source_sha256": "e63506a30008ff634af29412eed6e4b896bab0ca96548ff98a347f95502e4393",
+      "release_sha256": "e63506a30008ff634af29412eed6e4b896bab0ca96548ff98a347f95502e4393",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/native_ui_payload.ld",
+      "source_sha256": "11267ae9b3256894b9cf979a2ce4d9dc71ba94c684a44d214bd4c5eba3f39d52",
+      "release_sha256": "11267ae9b3256894b9cf979a2ce4d9dc71ba94c684a44d214bd4c5eba3f39d52",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/native_ui_probe.c",
+      "source_sha256": "8985a6d71c4500f78ee6118706f0ae6fc3ae664b9a3999134b8e476609811b76",
+      "release_sha256": "8985a6d71c4500f78ee6118706f0ae6fc3ae664b9a3999134b8e476609811b76",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/native_start.S",
+      "source_sha256": "2c2144324b7f7cb41accaac0ef8d424fae2455c359e71bfae12dcf90526ab8d6",
+      "release_sha256": "2c2144324b7f7cb41accaac0ef8d424fae2455c359e71bfae12dcf90526ab8d6",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/ui_input_journal.h",
+      "source_sha256": "de15da18a06fc7c8f1a91f5047a4120a48b4c864d73cda1cf1cc3adeaa7799db",
+      "release_sha256": "de15da18a06fc7c8f1a91f5047a4120a48b4c864d73cda1cf1cc3adeaa7799db",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/ui_trial_trace.h",
+      "source_sha256": "c1892347327bd7cddc1edd45e5d367d88f3a14834d8b68666c33d16a71c13dff",
+      "release_sha256": "c1892347327bd7cddc1edd45e5d367d88f3a14834d8b68666c33d16a71c13dff",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/ui_recorder_storage.sh",
+      "source_sha256": "04f51e3631a170c03ed56b44d718ad7686c04cc34b82062a251ec47d20b1b014",
+      "release_sha256": "04f51e3631a170c03ed56b44d718ad7686c04cc34b82062a251ec47d20b1b014",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/test_film_menu.c",
+      "source_sha256": "e0e65a9fecf70e94010164780a2faf409eaef18059f97998fb4adfa1dd2c6bd3",
+      "release_sha256": "e0e65a9fecf70e94010164780a2faf409eaef18059f97998fb4adfa1dd2c6bd3",
+      "release_adjustments": []
+    },
+    {
+      "path": "camera/test_film_native_view.c",
+      "source_sha256": "38cd769cc010cd382410753930ffb89d6c1907b828197cfc1c33c45f5e6666ef",
+      "release_sha256": "38cd769cc010cd382410753930ffb89d6c1907b828197cfc1c33c45f5e6666ef",
+      "release_adjustments": []
+    },
+    {
+      "path": "host-tests/build_ui_trial3.sh",
+      "source_sha256": "630dff42769ea9fb3466932999a31aa195b9e93ea58ddd27b955ca0e421e82f1",
+      "release_sha256": "630dff42769ea9fb3466932999a31aa195b9e93ea58ddd27b955ca0e421e82f1",
+      "release_adjustments": []
+    },
+    {
+      "path": "host-tests/build_native_ui_loader.sh",
+      "source_sha256": "bdb500007eeaff2f02f5242bedcdf165011269767b42214d6fc93ef3d7fdd878",
+      "release_sha256": "bdb500007eeaff2f02f5242bedcdf165011269767b42214d6fc93ef3d7fdd878",
+      "release_adjustments": []
+    },
+    {
+      "path": "host-tests/build_film_menu_job_cli.sh",
+      "source_sha256": "824e5cf608052bf9d9fc19239564ce84eaef745c4f847a1a42b9adac7c7cbc66",
+      "release_sha256": "824e5cf608052bf9d9fc19239564ce84eaef745c4f847a1a42b9adac7c7cbc66",
+      "release_adjustments": []
+    },
+    {
+      "path": "host-tests/build_native_capture_probe.sh",
+      "source_sha256": "c31cc426e44d0728c9d2c10a5914383b94d07937682f2d2164f06af4afd1a0b1",
+      "release_sha256": "c31cc426e44d0728c9d2c10a5914383b94d07937682f2d2164f06af4afd1a0b1",
+      "release_adjustments": []
+    },
+    {
+      "path": "host-tests/build_film_capture_daemon.sh",
+      "source_sha256": "2cde8937edc062bfa4ef3eebbf16a5fc43a7f3732609a4405422c583ea5dd731",
+      "release_sha256": "2cde8937edc062bfa4ef3eebbf16a5fc43a7f3732609a4405422c583ea5dd731",
+      "release_adjustments": []
+    },
+    {
+      "path": "host-tests/build_film_native_command.sh",
+      "source_sha256": "ca26ae5c4e8fb0566ab6eb125958b19b9e45ac594305720ba6a3bb73056f84c9",
+      "release_sha256": "ca26ae5c4e8fb0566ab6eb125958b19b9e45ac594305720ba6a3bb73056f84c9",
+      "release_adjustments": []
+    },
+    {
+      "path": "host-tests/build_film_ui_stop_cli.sh",
+      "source_sha256": "98d82b070466c5019e6feaf356e394214d816a9a561d9c3b8040dc1718e872b9",
+      "release_sha256": "98d82b070466c5019e6feaf356e394214d816a9a561d9c3b8040dc1718e872b9",
+      "release_adjustments": []
+    },
+    {
+      "path": "host-tests/build_film_runtime_package.py",
+      "source_sha256": "464b07d58814b868ca3b50ed11ef5c754a4169713a84b09bb5a3e24a57d7971d",
+      "release_sha256": "464b07d58814b868ca3b50ed11ef5c754a4169713a84b09bb5a3e24a57d7971d",
+      "release_adjustments": []
+    },
+    {
+      "path": "host-tests/film-runtime-v2-templates/prepare.sh",
+      "source_sha256": "77b54ec546ebc2d2ab3e324d4a506d6b639c5cc1153c9739bf030eef3858e778",
+      "release_sha256": "77b54ec546ebc2d2ab3e324d4a506d6b639c5cc1153c9739bf030eef3858e778",
+      "release_adjustments": []
+    },
+    {
+      "path": "host-tests/film-runtime-v2-templates/bootstrap-v2.sh",
+      "source_sha256": "6e44ae98d19600836a55e0df38e2cee8bdfd1cfb0a97ddc28305285ff7a0038e",
+      "release_sha256": "6e44ae98d19600836a55e0df38e2cee8bdfd1cfb0a97ddc28305285ff7a0038e",
+      "release_adjustments": []
+    },
+    {
+      "path": "host-tests/film-runtime-v2-templates/runtime-start.sh",
+      "source_sha256": "d412b3f47fa0c8b26244fcad1f2f1c6202f8c21d7cb4a065cc99857ee1db8f8a",
+      "release_sha256": "d412b3f47fa0c8b26244fcad1f2f1c6202f8c21d7cb4a065cc99857ee1db8f8a",
+      "release_adjustments": []
+    },
+    {
+      "path": "test_film_menu.py",
+      "source_sha256": "e1ab08ea8052aefb517fdeec5bdec17f58bf827599d23e3a1d1342d404456831",
+      "release_sha256": "e1ab08ea8052aefb517fdeec5bdec17f58bf827599d23e3a1d1342d404456831",
+      "release_adjustments": []
+    },
+    {
+      "path": "test_native_film_view.py",
+      "source_sha256": "09339a21f86a02a30b847333ac3d0fd3ef3cc9fb6f9e28fbad5e4144911f3084",
+      "release_sha256": "09339a21f86a02a30b847333ac3d0fd3ef3cc9fb6f9e28fbad5e4144911f3084",
+      "release_adjustments": []
+    },
+    {
+      "path": "test_film_settings_snapshot.py",
+      "source_sha256": "d204e723180dd4388dca888839029a2837e9029ada1d301416cabda802b84e32",
+      "release_sha256": "12efb1b75449a83bc3a60b397038666ccf039635bffb8ae6cc8f41085d921475",
+      "release_adjustments": [
+        "Replaced private UI dump with an explicit synthetic layout fixture."
+      ]
+    },
+    {
+      "path": "test_film_settings_gate.py",
+      "source_sha256": "0adc10ee7c2695850831a34c14b992524ba0555a52cef2078136a971a154b0d9",
+      "release_sha256": "0adc10ee7c2695850831a34c14b992524ba0555a52cef2078136a971a154b0d9",
+      "release_adjustments": []
+    },
+    {
+      "path": "test_film_settings_io.py",
+      "source_sha256": "ebc9359da438a76e343a846e0379b4157dd26c9d5de6be15a4ebc8c814336be9",
+      "release_sha256": "ebc9359da438a76e343a846e0379b4157dd26c9d5de6be15a4ebc8c814336be9",
+      "release_adjustments": []
+    },
+    {
+      "path": "test_film_settings_maps.py",
+      "source_sha256": "064e540ca40aca7a4dcdf28854db4793809ac18cded419911d90034ead26cc30",
+      "release_sha256": "064e540ca40aca7a4dcdf28854db4793809ac18cded419911d90034ead26cc30",
+      "release_adjustments": []
+    },
+    {
+      "path": "test_native_capture_probe.py",
+      "source_sha256": "aa92a6e909e8a86abe3df80e15f8ec78c88556243c50f884e4faaa9d16e1f584",
+      "release_sha256": "4705577503061f46545d731507220aa7292d07bfbdbf85ff67d4b8c58a6fb7b6",
+      "release_adjustments": [
+        "Omitted private-recording-only test: test_recorded_history_overflow_and_old_ffirst_are_drained_before_send",
+        "Omitted private-recording-only test: test_real_space_joined_prompt_suffix_keeps_complete_root_inventory",
+        "Omitted private-recording-only test: test_real_joined_async_tail_with_restored_strict_end_keeps_inventory",
+        "Omitted private-recording-only test: test_clipped_real_async_tail_with_restored_header_keeps_complete_frame",
+        "Omitted private-recording-only test: test_real_ffirst_retry_frame_preserves_native_metadata"
+      ]
+    },
+    {
+      "path": "test_film_capture_daemon.py",
+      "source_sha256": "4f631aa8d92fc8f154a3895a0bd9b9ac7fb16daf3bb1f2cd9b24f24699468b04",
+      "release_sha256": "4f631aa8d92fc8f154a3895a0bd9b9ac7fb16daf3bb1f2cd9b24f24699468b04",
+      "release_adjustments": []
+    },
+    {
+      "path": "test_film_native_command.py",
+      "source_sha256": "ea1202f271f4c8a35ab354fdb3324be3214e06364f688abbf824031244acb6f6",
+      "release_sha256": "ea1202f271f4c8a35ab354fdb3324be3214e06364f688abbf824031244acb6f6",
+      "release_adjustments": []
+    },
+    {
+      "path": "test_ui_trial_trace.py",
+      "source_sha256": "1ed6f4745ab85eb492cb8fc32ae92c3639658e79a571694d6d0e46ec13072284",
+      "release_sha256": "1ed6f4745ab85eb492cb8fc32ae92c3639658e79a571694d6d0e46ec13072284",
+      "release_adjustments": []
+    },
+    {
+      "path": "test_recorder_storage.py",
+      "source_sha256": "9d86b110e15d58d1ddc0988802028f82614e2ba68c61fbc028c07afce3bdd87c",
+      "release_sha256": "9d86b110e15d58d1ddc0988802028f82614e2ba68c61fbc028c07afce3bdd87c",
+      "release_adjustments": []
+    },
+    {
+      "path": "test_film_runtime_package.py",
+      "source_sha256": "d76a007f87f83b3b00ef3fa3f6b9ee2813d12a1d802f296cc73f9b582c3b5bb2",
+      "release_sha256": "d76a007f87f83b3b00ef3fa3f6b9ee2813d12a1d802f296cc73f9b582c3b5bb2",
+      "release_adjustments": []
+    }
+  ]
+}

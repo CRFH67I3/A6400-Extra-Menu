@@ -1,0 +1,41 @@
+# 本地憑證與連線資料
+.env
+.env.*
+*.pem
+*.key
+*.sock
+.ssh*
+credentials*
+private/
+local-inputs/
+
+# Sony 二進位、韌體、dump、套件與照片
+*.elf
+*.so
+*.dylib
+*.o
+*.a
+*.bin
+*.dump
+*.req
+*.tar
+*.tar.gz
+*.zip
+*.img
+*.dat
+*.log
+*.JPG
+*.jpg
+*.jpeg
+*.png
+*.mp3
+*.wma
+*.cube
+
+# 本地編譯與 Python 暫存
+build/
+camera/*-build*/
+__pycache__/
+*.pyc
+.venv/
+.DS_Store

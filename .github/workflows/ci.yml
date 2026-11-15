@@ -1,0 +1,21 @@
+name: 電腦端測試
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    name: 合成資料與控制邏輯
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 取得原始碼
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: 執行公開測試
+        run: python3 -m unittest discover -p 'test_*.py' -v
+      - name: 檢查公開檔案
+        run: python3 tools/check_public_tree.py

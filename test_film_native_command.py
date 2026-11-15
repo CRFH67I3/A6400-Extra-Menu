@@ -1,0 +1,399 @@
+"""Process tests for one serialized command; only the Sony monitor is replaced.
+
+NATIVE_RETURN deliberately does not establish copy success. The real caller must
+verify copied bytes and JPEG integrity before dispatch or accepting an SD write.
+"""
+import os
+from pathlib import Path
+import signal
+import subprocess
+import tempfile
+import time
+import unittest
+
+ROOT = Path(__file__).resolve().parent
+SOURCE = ROOT / 'camera/film_native_command.c'
+CAPTURE = 'A:/DCIM/10061115/A6409686.JPG'
+TARGET = 'A:/A6400/TEST/F1234567.JPG'
+
+MONITOR = r'''#!/usr/bin/env python3
+import os,sys,time
+from pathlib import Path
+root=Path(os.environ['FILM_NATIVE_FIXTURE'])
+fault=os.environ.get('FILM_NATIVE_FAULT','')
+(root/'monitor.pid').write_text(str(os.getpid()))
+if fault!='startup_empty':print('old error history\nMWF>',flush=True)
+if fault=='startup_late_history':
+ time.sleep(.015);print('late old history\nMWF>',flush=True)
+ (root/'last-noise').write_text(str(time.monotonic()))
+if fault=='startup_never_quiet':
+ for i in range(100):
+  print('startup noise',flush=True);time.sleep(.01)
+for request in sys.stdin:
+ command=request.rstrip('\n')
+ (root/'command').write_text(command)
+ (root/'command-at').write_text(str(time.monotonic()))
+ if fault in ('pre_echo_overflow','pre_echo_then_fresh_overflow','absent_old_overflow'):
+  print('[IF_DB] NotLoad\n###OVERFLOW###',flush=True)
+ if fault=='absent_stale':
+  print("[IFSYS]Can't open file "+command.split()[2],flush=True)
+ if fault=='pre_echo_large':print(('old history '*1000+'\n')*4,flush=True)
+ if fault=='pre_echo_capacity':print('x'*140000+'\n',flush=True)
+ if fault=='pre_echo_suffix_trap':
+  print('x'*33000+command+'\nMWF>',flush=True);continue
+ if fault=='pre_echo_fragmented':
+  print('old ###OVERFLOW###',flush=True)
+  sys.stdout.write(command[:12]);sys.stdout.flush();time.sleep(.04)
+  print(command[12:]+'\nMWF>',flush=True);continue
+ if fault=='prompt_before_echo':
+  print('MWF>',flush=True);time.sleep(.12)
+ if fault=='no_echo':
+  print('historical '+command+'\nMWF>',flush=True);continue
+ if fault=='partial_echo':
+  print(command+' EXTRA\nMWF>',flush=True);continue
+ print(('MWF>' if fault=='prefix_echo' else '')+command,flush=True)
+ if fault.startswith('absent_') and fault!='absent_stale':
+  expected="[IFSYS]Can't open file "+command.split()[2]
+  if fault=='absent_wrong_target':expected=expected.replace('F1234567','F7654321')
+  if fault=='absent_suffix':expected+=' EXTRA'
+  if fault=='absent_incomplete':
+   print(expected+'MWF>',flush=True);continue
+  print(expected,flush=True)
+  if fault=='absent_duplicate':print(expected,flush=True)
+  if fault=='absent_native_error':print('native ERROR 0x123',flush=True)
+  if fault=='absent_lower_error':print('native error writing destination',flush=True)
+  if fault=='absent_partial_input':(root/'input.jpg').write_bytes(b'partial')
+  if fault=='absent_fresh_overflow':print('###OVERFLOW###',flush=True)
+  if fault=='absent_no_prompt':continue
+  print('MWF>',flush=True);continue
+ if fault=='no_prompt':continue
+ if fault=='dies':sys.exit(0)
+ if fault in ('overflow','pre_echo_then_fresh_overflow'):
+  print('MON RING OVERFLOW\nMWF>',flush=True);continue
+ if fault=='capacity':print('x'*33000,flush=True);continue
+ if fault=='open_error':print("Can't open file "+command.split()[-1]+'\nMWF>',flush=True);continue
+ if fault=='native_error':print('native ERROR 0x123\nMWF>',flush=True);continue
+ if fault=='delayed_copy':
+  time.sleep(.16);(root/'input.jpg').write_bytes(b'delayed complete file')
+ if fault=='silent_copy_failure':
+  print('MWF>',flush=True);continue
+ if command.startswith('IFSYS flush ') and fault!='flush_marker_missing':
+  print('Fsys_Flush OK',flush=True)
+ print('MWF>',flush=True)
+'''
+
+
+def fnv(data):
+    result = 2166136261
+    for byte in data:
+        result = ((result ^ byte) * 16777619) & 0xffffffff
+    return result
+
+
+class FilmNativeCommandTests(unittest.TestCase):
+    def setUp(self):
+        self.assertTrue(SOURCE.is_file(), 'bounded native command adapter is missing')
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name)
+        self.monitor = self.base / 'monitor'
+        self.monitor.write_text(MONITOR)
+        self.monitor.chmod(0o700)
+        self.header = self.base / 'film_native_command_build.h'
+        self.header.write_text(
+            f'#define FILM_NATIVE_MONITOR "{self.monitor}"\n'
+            f'#define FILM_NATIVE_INPUT "{self.base}/input.jpg"\n'
+            f'#define FILM_NATIVE_OUTPUT "{self.base}/output.jpg"\n'
+            f'#define FILM_NATIVE_MONITOR_BYTES {self.monitor.stat().st_size}u\n'
+            f'#define FILM_NATIVE_MONITOR_FNV 0x{fnv(self.monitor.read_bytes()):08x}u\n'
+            '#define FILM_NATIVE_STARTUP_MS 200u\n'
+            '#define FILM_NATIVE_QUIET_MS 50u\n'
+            '#define FILM_NATIVE_STARTUP_MAX_MS 800u\n'
+            '#define FILM_NATIVE_COMMAND_MS 450u\n')
+        self.binary = self.base / 'native'
+        subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
+                        '-I', str(self.base), str(SOURCE), '-o', str(self.binary)],
+                       check=True, capture_output=True)
+
+    def run_native(self, operation='read', path=CAPTURE, fault='', timeout=3):
+        env = dict(os.environ, FILM_NATIVE_FIXTURE=str(self.base), FILM_NATIVE_FAULT=fault)
+        return subprocess.run([str(self.binary), operation, path], env=env,
+                              capture_output=True, text=True, timeout=timeout)
+
+    def assert_child_reaped(self):
+        marker = self.base / 'monitor.pid'
+        if marker.exists():
+            with self.assertRaises(ProcessLookupError):
+                os.kill(int(marker.read_text()), 0)
+
+    def test_real_read_command_and_return_only_claim(self):
+        result = self.run_native()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.base / 'command').read_text(),
+                         f'IFSYS cp {CAPTURE} {self.base}/input.jpg')
+        self.assertIn('NATIVE_RETURN', result.stdout)
+        self.assertIn('copy_verified=0', result.stdout)
+        self.assertIn('uncertain=0', result.stdout)
+        self.assert_child_reaped()
+
+    def test_delayed_copy_finishes_before_return(self):
+        start = time.monotonic()
+        result = self.run_native(fault='delayed_copy')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertGreaterEqual(time.monotonic() - start, .16)
+        self.assertEqual((self.base / 'input.jpg').read_bytes(), b'delayed complete file')
+        self.assert_child_reaped()
+
+    def test_prompt_before_fresh_echo_cannot_complete_early(self):
+        start = time.monotonic()
+        result = self.run_native(fault='prompt_before_echo')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertGreaterEqual(time.monotonic() - start, .12)
+
+    def test_command_echo_can_follow_unterminated_prior_prompt(self):
+        result = self.run_native(fault='prefix_echo')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('NATIVE_RETURN', result.stdout)
+
+    def test_missing_exact_echo_or_prompt_is_uncertain(self):
+        for fault in ('no_echo', 'partial_echo', 'no_prompt', 'dies'):
+            with self.subTest(fault=fault):
+                result = self.run_native(fault=fault)
+                self.assertEqual(result.returncode, 21, result.stdout)
+                self.assertIn('uncertain=1', result.stdout)
+                self.assertNotIn('NATIVE_RETURN', result.stdout)
+                self.assert_child_reaped()
+
+    def test_fresh_native_errors_fail_after_command_return(self):
+        for fault in ('open_error', 'native_error'):
+            with self.subTest(fault=fault):
+                result = self.run_native(fault=fault)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn('uncertain=0', result.stdout)
+                self.assertNotIn('NATIVE_RETURN', result.stdout)
+                self.assert_child_reaped()
+
+    def test_ring_or_response_overflow_is_uncertain_and_bounded(self):
+        for fault in ('overflow', 'capacity'):
+            with self.subTest(fault=fault):
+                result = self.run_native(fault=fault)
+                self.assertEqual(result.returncode, 21, result.stdout)
+                self.assertIn('uncertain=1', result.stdout)
+                self.assertLess(len(result.stdout), 2000)
+                self.assert_child_reaped()
+
+    def test_old_overflow_before_exact_echo_is_counted_not_a_command_failure(self):
+        result = self.run_native(fault='pre_echo_overflow')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('NATIVE_RETURN', result.stdout)
+        self.assertIn('pre_echo_overflows=1', result.stdout)
+        self.assertNotIn('ring_overflow', result.stdout)
+
+    def test_large_pre_echo_history_is_bounded_and_not_fresh_response(self):
+        result = self.run_native(fault='pre_echo_large')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('NATIVE_RETURN', result.stdout)
+        self.assertLess(len(result.stdout), 2000)
+
+    def test_overflow_after_echo_still_fails_even_after_old_overflow(self):
+        result = self.run_native(fault='pre_echo_then_fresh_overflow')
+        self.assertEqual(result.returncode, 21, result.stdout)
+        self.assertIn('reason=ring_overflow', result.stdout)
+        self.assertIn('uncertain=1', result.stdout)
+        self.assertIn('pre_echo_overflows=1', result.stdout)
+
+    def test_pre_echo_total_history_cap_still_fails_uncertain(self):
+        result = self.run_native(fault='pre_echo_capacity')
+        self.assertEqual(result.returncode, 21, result.stdout)
+        self.assertIn('reason=history_capacity', result.stdout)
+        self.assertIn('uncertain=1', result.stdout)
+        self.assertLess(len(result.stdout), 2000)
+
+    def test_rolling_history_never_promotes_a_truncated_suffix_to_exact_echo(self):
+        result = self.run_native(fault='pre_echo_suffix_trap')
+        self.assertEqual(result.returncode, 21, result.stdout)
+        self.assertIn('uncertain=1', result.stdout)
+        self.assertNotIn('NATIVE_RETURN', result.stdout)
+
+    def test_old_overflow_and_echo_split_across_reads(self):
+        result = self.run_native(fault='pre_echo_fragmented')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('pre_echo_overflows=1', result.stdout)
+
+    def test_startup_waits_for_quiet_after_late_history(self):
+        result = self.run_native(fault='startup_late_history')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        received = float((self.base / 'command-at').read_text())
+        last_noise = float((self.base / 'last-noise').read_text())
+        self.assertGreaterEqual(received - last_noise, .023)
+
+    def test_empty_startup_ring_still_sends_and_requires_fresh_echo(self):
+        result = self.run_native(fault='startup_empty')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('NATIVE_RETURN', result.stdout)
+        self.assertIn('startup_history_bytes=0', result.stdout)
+        self.assertEqual((self.base / 'command').read_text(),
+                         f'IFSYS cp {CAPTURE} {self.base}/input.jpg')
+        self.assert_child_reaped()
+
+    def test_startup_never_quiet_refuses_before_sending(self):
+        result = self.run_native(fault='startup_never_quiet')
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn('reason=startup_busy', result.stdout)
+        self.assertIn('uncertain=0', result.stdout)
+        self.assertNotIn('NATIVE_SENT', result.stdout)
+        self.assertFalse((self.base / 'command').exists())
+        self.assert_child_reaped()
+
+    def test_readback_write_and_flush_have_fixed_scopes(self):
+        for operation, expected in (
+            ('readback', f'IFSYS cp {TARGET} {self.base}/input.jpg'),
+            ('write', f'IFSYS cp {self.base}/output.jpg {TARGET}'),
+            ('flush', f'IFSYS flush {TARGET}'),
+        ):
+            with self.subTest(operation=operation):
+                result = self.run_native(operation, TARGET)
+                self.assertEqual(result.returncode, 0, result.stdout)
+                self.assertEqual((self.base / 'command').read_text(), expected)
+                self.assertIn('copy_verified=0', result.stdout)
+
+    def test_flush_requires_positive_native_success_marker(self):
+        result = self.run_native('flush', TARGET, 'flush_marker_missing')
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn('uncertain=0', result.stdout)
+        self.assertNotIn('NATIVE_RETURN', result.stdout)
+
+    def test_absent_requires_exact_fresh_source_open_failure_without_input(self):
+        result = self.run_native('absent', TARGET, 'absent_exact')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.base / 'command').read_text(),
+                         f'IFSYS cp {TARGET} {self.base}/input.jpg')
+        self.assertIn('NATIVE_ABSENT operation=absent reason=source_open_failed', result.stdout)
+        self.assertIn('uncertain=0 copy_verified=0', result.stdout)
+        self.assertNotIn('NATIVE_RETURN', result.stdout)
+        self.assertFalse((self.base / 'input.jpg').exists())
+        self.assert_child_reaped()
+
+    def test_absent_rejects_any_preexisting_input_before_sending(self):
+        path = self.base / 'input.jpg'
+        for kind in ('file', 'directory', 'fifo', 'symlink'):
+            with self.subTest(kind=kind):
+                if kind == 'file':
+                    path.write_bytes(b'partial or previous input')
+                elif kind == 'directory':
+                    path.mkdir()
+                elif kind == 'fifo':
+                    os.mkfifo(path)
+                else:
+                    path.symlink_to(self.base / 'missing-file')
+                try:
+                    result = self.run_native('absent', TARGET, 'absent_exact')
+                    self.assertEqual(result.returncode, 1, result.stdout)
+                    self.assertIn('uncertain=0', result.stdout)
+                    self.assertNotIn('NATIVE_ABSENT', result.stdout)
+                    self.assertFalse((self.base / 'command').exists())
+                    self.assertFalse((self.base / 'monitor.pid').exists())
+                finally:
+                    path.rmdir() if kind == 'directory' else path.unlink()
+
+    def test_absent_rejects_new_partial_input_even_with_expected_error(self):
+        result = self.run_native('absent', TARGET, 'absent_partial_input')
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn('uncertain=0', result.stdout)
+        self.assertNotIn('NATIVE_ABSENT', result.stdout)
+        self.assertEqual((self.base / 'input.jpg').read_bytes(), b'partial')
+        self.assert_child_reaped()
+
+    def test_absent_rejects_stale_or_missing_source_open_failure(self):
+        for fault in ('absent_stale', 'silent_copy_failure'):
+            with self.subTest(fault=fault):
+                result = self.run_native('absent', TARGET, fault)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn('uncertain=0', result.stdout)
+                self.assertNotIn('NATIVE_ABSENT', result.stdout)
+                self.assert_child_reaped()
+
+    def test_absent_rejects_wrong_suffix_duplicate_or_additional_error(self):
+        for fault in ('absent_wrong_target', 'absent_suffix', 'absent_incomplete',
+                      'absent_duplicate', 'absent_native_error', 'absent_lower_error'):
+            with self.subTest(fault=fault):
+                result = self.run_native('absent', TARGET, fault)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn('uncertain=0', result.stdout)
+                self.assertNotIn('NATIVE_ABSENT', result.stdout)
+                self.assert_child_reaped()
+
+    def test_absent_ignores_only_historical_overflow(self):
+        result = self.run_native('absent', TARGET, 'absent_old_overflow')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('NATIVE_ABSENT', result.stdout)
+        self.assertIn('pre_echo_overflows=1', result.stdout)
+
+    def test_absent_timeout_or_fresh_overflow_stays_uncertain(self):
+        for fault in ('absent_no_prompt', 'absent_fresh_overflow'):
+            with self.subTest(fault=fault):
+                result = self.run_native('absent', TARGET, fault)
+                self.assertEqual(result.returncode, 21, result.stdout)
+                self.assertIn('uncertain=1', result.stdout)
+                self.assertNotIn('NATIVE_ABSENT', result.stdout)
+                self.assert_child_reaped()
+
+    def test_silent_copy_failure_is_never_labelled_verified(self):
+        result = self.run_native(fault='silent_copy_failure')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('copy_verified=0', result.stdout)
+        self.assertFalse((self.base / 'input.jpg').exists())
+
+    def test_invalid_paths_are_rejected_before_starting_monitor(self):
+        paths = [
+            ('read', 'A:/DCIM/../A6409686.JPG'),
+            ('read', 'A:/DCIM/10061115/A6409686.JPG;reboot'),
+            ('read', 'A:/DCIM/10061115/A6409686.jpg'),
+            ('read', 'A:/DCIM/10061115/../A6409686.JPG'),
+            ('read', TARGET), ('readback', CAPTURE),
+            ('absent', CAPTURE), ('absent', 'A:/A6400/TEST/F12345a7.JPG'),
+            ('write', CAPTURE), ('flush', CAPTURE),
+            ('write', 'A:/A6400/TEST/F12345678.JPG'),
+            ('write', 'A:/A6400/TEST/F12345a7.JPG'),
+            ('write', 'A:/A6400/TEST/../F1234567.JPG'),
+            ('anything', TARGET),
+        ]
+        for operation, path in paths:
+            with self.subTest(operation=operation, path=path):
+                result = self.run_native(operation, path)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('uncertain=0', result.stdout)
+                self.assertFalse((self.base / 'monitor.pid').exists())
+
+    def test_monitor_changed_content_or_length_is_not_executed(self):
+        original = self.monitor.read_bytes()
+        for data in (original + b'\n', original.replace(b'old error', b'bad error')):
+            with self.subTest(bytes=len(data)):
+                self.monitor.write_bytes(data)
+                result = self.run_native()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('reason=monitor_pin', result.stdout)
+                self.assertFalse((self.base / 'monitor.pid').exists())
+
+    def test_signal_after_send_remains_uncertain_and_reaps_monitor(self):
+        env = dict(os.environ, FILM_NATIVE_FIXTURE=str(self.base), FILM_NATIVE_FAULT='no_prompt')
+        process = subprocess.Popen([str(self.binary), 'read', CAPTURE], env=env,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            deadline = time.monotonic() + 2
+            while not (self.base / 'command').exists() and time.monotonic() < deadline:
+                time.sleep(.005)
+            self.assertTrue((self.base / 'command').exists())
+            process.send_signal(signal.SIGTERM)
+            output, error = process.communicate(timeout=2)
+            self.assertEqual(process.returncode, 21, output + error)
+            self.assertIn('uncertain=1', output)
+            self.assert_child_reaped()
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate()
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

@@ -316,6 +316,42 @@ class FilmRuntimePackageTests(unittest.TestCase):
   r=self.run_script(self.bootstrap);self.assertNotEqual(r.returncode,0)
   self.assertFalse((self.base/'events').exists())
 
+ def test_bootstrap_records_native_sd_owner_before_refusing_mount(self):
+  self.stage_fixture();(self.base/'proc/149/fd/68').symlink_to('/dev/mmca')
+  r=self.run_script(self.bootstrap);self.assertNotEqual(r.returncode,0)
+  log=self.ram/'a6400-film-boot.log'
+  self.assertTrue(log.is_file(),'early boot refusal must leave diagnostic evidence')
+  text=log.read_text()
+  self.assertIn('FILM_BOOT_BEGIN',text)
+  self.assertIn('reason=camera_sd_handle',text)
+  self.assertIn('target=/dev/mmca',text)
+  self.assertIn('FILM_BOOT_FAIL stage=not_early_exclusive_boot',text)
+  self.assertFalse((self.base/'events').exists())
+
+ def test_bootstrap_records_late_boot_uptime_before_refusing_mount(self):
+  self.stage_fixture();(self.base/'proc/uptime').write_text('90.25 2.00\n')
+  r=self.run_script(self.bootstrap);self.assertNotEqual(r.returncode,0)
+  log=self.ram/'a6400-film-boot.log'
+  self.assertTrue(log.is_file(),'late boot refusal must leave diagnostic evidence')
+  self.assertIn('reason=late_boot uptime=90.25',log.read_text())
+  self.assertFalse((self.base/'events').exists())
+
+ def test_bootstrap_preserves_existing_diagnostic_log_without_mounting(self):
+  self.stage_fixture();log=self.ram/'a6400-film-boot.log'
+  log.write_bytes(b'prior boot diagnostic evidence\n')
+  r=self.run_script(self.bootstrap);self.assertNotEqual(r.returncode,0)
+  self.assertEqual(log.read_bytes(),b'prior boot diagnostic evidence\n')
+  self.assertFalse((self.base/'events').exists())
+
+ def test_bootstrap_log_keeps_runtime_startup_result(self):
+  self.stage_fixture();r=self.run_script(self.bootstrap)
+  self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+  log=self.ram/'a6400-film-boot.log'
+  self.assertTrue(log.is_file(),'cold runtime must retain startup output')
+  text=log.read_text()
+  self.assertIn('FILM_BOOT_STAGED_AND_UNMOUNTED',text)
+  self.assertIn('FILM_RUNTIME_READY initial_enabled=0',text)
+
  def test_card_disable_gate_unmounts_without_staging(self):
   self.stage_fixture();(self.mnt/'A6400/DISABLE').touch()
   r=self.run_script(self.bootstrap);self.assertEqual(r.returncode,0,r.stdout+r.stderr)

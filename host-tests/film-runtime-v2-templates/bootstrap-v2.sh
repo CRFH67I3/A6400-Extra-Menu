@@ -12,7 +12,15 @@ CAMERA_FDS=/proc/149/fd
 AELOCK=$RAM/ae.lock
 PREPARE=$MOUNT/A6400/RUNTIME/prepare.sh
 RUNTIME=$RAM/a6400-film-runtime-start.sh
+BOOTLOG=$RAM/a6400-film-boot.log
 mounted=0
+# Keep constructor output even if a pre-mount gate refuses startup. Never
+# overwrite an earlier invocation's evidence or follow an existing symlink.
+test ! -e "$BOOTLOG" && test ! -L "$BOOTLOG" || exit 1
+set -C
+exec > "$BOOTLOG" 2>&1 || exit 1
+set +C
+echo "FILM_BOOT_BEGIN pid=$$"
 fail() { echo "FILM_BOOT_FAIL stage=$1"; exit 1; }
 hash_is() {
     test -f "$1" && test ! -L "$1" || return 1
@@ -24,22 +32,38 @@ disabled() {
         test -e "$RAM/a6400-film-capture.stop"
 }
 early_boot() {
-    test -e "$AELOCK" && test ! -L "$AELOCK" || return 1
-    read -r uptime rest < "$UPTIME" || return 1
+    test -e "$AELOCK" && test ! -L "$AELOCK" || {
+        echo FILM_BOOT_GATE reason=ae_lock; return 1;
+    }
+    read -r uptime rest < "$UPTIME" || {
+        echo FILM_BOOT_GATE reason=uptime_read; return 1;
+    }
     seconds=${uptime%%.*}
-    case "$seconds" in ''|*[!0-9]*) return 1;; esac
-    test "${#seconds}" -le 3 && test "$seconds" -le 30 || return 1
+    case "$seconds" in ''|*[!0-9]*) echo FILM_BOOT_GATE reason=uptime_invalid; return 1;; esac
+    test "${#seconds}" -le 3 && test "$seconds" -le 30 || {
+        echo "FILM_BOOT_GATE reason=late_boot uptime=$uptime"; return 1;
+    }
     # The author's userspace FS owns mmca once open. Refuse to mount it then.
     # Expand this fixed proc glob deliberately; all other shell globbing stays off.
-    if test -d "$CAMERA_FDS"; then test -r "$CAMERA_FDS" && test -x "$CAMERA_FDS" || return 1; fi
+    if test -d "$CAMERA_FDS"; then
+        test -r "$CAMERA_FDS" && test -x "$CAMERA_FDS" || {
+            echo "FILM_BOOT_GATE reason=fd_directory_unreadable uptime=$uptime"; return 1;
+        }
+    fi
     set +f
     set -- "$CAMERA_FDS"/*
     set -f
     for fd do
         test -L "$fd" || continue
-        fd_target=$("$BB" readlink "$fd") || return 1
-        case "$fd_target" in /dev/mmca*|/dev/mmcblk*) return 1;; esac
+        fd_target=$("$BB" readlink "$fd") || {
+            echo "FILM_BOOT_GATE reason=fd_readlink uptime=$uptime fd=$fd"; return 1;
+        }
+        case "$fd_target" in /dev/mmca*|/dev/mmcblk*)
+            echo "FILM_BOOT_GATE reason=camera_sd_handle uptime=$uptime fd=$fd target=$fd_target"
+            return 1;;
+        esac
     done
+    echo "FILM_BOOT_GATE result=early_exclusive uptime=$uptime"
     return 0
 }
 clear_mounts() {

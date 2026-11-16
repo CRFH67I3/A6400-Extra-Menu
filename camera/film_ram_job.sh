@@ -14,6 +14,8 @@ SETTINGS=/tmp_bt/a6400-film-menu-job.elf
 MEMINFO=/proc/meminfo
 MOUNTS=/proc/mounts
 BOOTFILE=/proc/sys/kernel/random/boot_id
+CAPTURE_STOP=/tmp_bt/a6400-film-capture.stop
+MEDIA_WAIT_POLLS=60
 NATIVE_SHA=__NATIVE_SHA__
 WORKER_SHA=__WORKER_SHA__
 SETTINGS_SHA=__SETTINGS_SHA__
@@ -46,6 +48,7 @@ native_inflight=0
 worker_inflight=0
 native_pid=0
 worker_pid=0
+media_wait_polls=0
 
 fail() { echo "RAM_JOB_FAIL stage=$1"; exit "${2:-1}"; }
 hash_file() {
@@ -229,6 +232,13 @@ native_run() {
     if test "$native_rc" = 21 || "$BB" grep -q 'uncertain=1' "$LOCK/native.current.log"; then
         NATIVE_UNCERTAIN=1;retain=1;fail native_uncertain 21
     fi
+    if test "$MODE" = apply && test "$TARGET_ATTEMPTED" = 0 &&
+       test "$native_op" = read && test "$native_rc" = 14 &&
+       test ! -e "$INPUT" && test ! -L "$INPUT"; then
+        report_kind=NATIVE_FAIL
+        report_reason=source_unavailable
+        if native_report_ok && test "$report_fields" = 9 && guard; then return 14; fi
+    fi
     if test "$native_rc" != 0; then
         if native_safe_presend_failure; then fail native_presend "$native_rc"; fi
         NATIVE_UNCERTAIN=1;retain=1;fail native_completion_unconfirmed 21
@@ -277,6 +287,38 @@ confirm_settings() {
     if test "$confirm_rc" != 0; then fail "$1" "$confirm_rc"; fi
     test "$SETTING_LINE" = "$INITIAL_PLAN" || fail "$1-changed" 12
 }
+# The camera UDC's configured state can remain stale after physical unplug.
+# Probe actual native media access instead. Only a pinned exact source-open
+# failure (no input created, fresh completion, target not attempted) may wait.
+# Re-read and hash the source after rendering, before fresh target absence.
+# This is not an atomic reservation against later media/USB transitions.
+read_source_ready() {
+    media_stage=$1
+    media_waited_here=0
+    while :; do
+        guard || fail media_wait_guard 13
+        test ! -e "$CAPTURE_STOP" || fail media_wait_stopped 20
+        if test "$media_waited_here" = 1; then confirm_settings settings_after_media_wait; fi
+        native_run read "$SOURCE"
+        media_rc=$?
+        if test "$media_rc" = 0; then
+            if test "$media_waited_here" = 1; then
+                echo "RAM_JOB_MEDIA_RESUMED stage=$media_stage polls=$media_wait_polls"
+            fi
+            return 0
+        fi
+        test "$media_rc" = 14 || fail media_completion_unconfirmed 21
+        if test "$media_waited_here" = 0; then
+            media_waited_here=1
+            PHASE=media_wait_$media_stage
+            manifest || fail manifest_media_wait
+            echo "RAM_JOB_MEDIA_WAIT stage=$media_stage limit_polls=$MEDIA_WAIT_POLLS"
+        fi
+        test "$media_wait_polls" -lt "$MEDIA_WAIT_POLLS" || fail media_wait_timeout 13
+        media_wait_polls=$((media_wait_polls+1))
+        "$BB" sleep 1 || fail media_wait_sleep 13
+    done
+}
 memory_budget() {
     test -r "$MEMINFO" || return 1
     mem_seen=0
@@ -296,6 +338,8 @@ memory_budget() {
     done < "$MEMINFO"
     test "$mem_bad" = 0 && test "$mem_seen" = 15 || return 1
     mem_available=$((mem_free+mem_buffers+mem_cached-mem_shmem))
+    # The worker additionally checks the selected image's RGB/mask requirement
+    # against current memory before allocating; never reserve 24MP RGB blindly.
     mem_required=$(((EXPECTED_BYTES+1023)/1024+${1:-16384}+16384))
     echo "RAM_JOB_MEMORY available_kib=$mem_available required_kib=$mem_required private_mount_bytes=33554432"
     test "$mem_available" -ge "$mem_required"
@@ -356,7 +400,7 @@ mount_state=$?
 if test "$mount_state" = 2; then retain=1;fail mount_unconfirmed 21; fi
 test "$mount_rc" = 0 && test "$mount_state" = 0 || fail mount
 
-native_run read "$SOURCE"
+if test "$MODE" = apply; then read_source_ready before_read; else native_run read "$SOURCE"; fi
 file_bytes "$INPUT" && test "$FILE_BYTES" = "$EXPECTED_BYTES" || fail source_size
 hash_file "$INPUT" || fail source_hash
 INPUT_SHA=$HASH
@@ -390,6 +434,13 @@ if test "$MODE" = apply; then
     # Keep the original hash/size in the manifest, then free only our own input.
     hash_is "$INPUT" "$INPUT_SHA" || fail input_changed
     release_input
+    memory_budget "$(((OUTPUT_BYTES+1023)/1024))" || fail source_readiness_memory
+    read_source_ready before_target
+    file_bytes "$INPUT" && test "$FILE_BYTES" = "$EXPECTED_BYTES" &&
+        hash_is "$INPUT" "$INPUT_SHA" || fail source_changed_before_write
+    release_input
+    # Waiting never reuses a stale absence result. No read, wait or other media
+    # operation intervenes between this new absence and the SD write.
     native_run absent "$TARGET"
     test ! -e "$INPUT" && test ! -L "$INPUT" || { retain=1;fail absence_scratch_unconfirmed 21; }
     confirm_settings settings_before_write

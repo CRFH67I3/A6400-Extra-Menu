@@ -52,6 +52,14 @@ for request in sys.stdin:
  if fault=='partial_echo':
   print(command+' EXTRA\nMWF>',flush=True);continue
  print(('MWF>' if fault=='prefix_echo' else '')+command,flush=True)
+ if fault.startswith('read_unavailable'):
+  source=command.split()[2]
+  if fault=='read_unavailable_wrong':source=source.replace('A6409686','A6409999')
+  print("[IFSYS]Can't open file "+source,flush=True)
+  if fault=='read_unavailable_partial':(root/'input.jpg').write_bytes(b'partial')
+  if fault=='read_unavailable_extra':print('unexpected extra diagnostic',flush=True)
+  if fault!='read_unavailable_no_prompt':print('MWF>',flush=True)
+  continue
  if fault.startswith('absent_') and fault!='absent_stale':
   expected="[IFSYS]Can't open file "+command.split()[2]
   if fault=='absent_wrong_target':expected=expected.replace('F1234567','F7654321')
@@ -134,6 +142,30 @@ class FilmNativeCommandTests(unittest.TestCase):
         self.assertIn('NATIVE_RETURN', result.stdout)
         self.assertIn('copy_verified=0', result.stdout)
         self.assertIn('uncertain=0', result.stdout)
+        self.assert_child_reaped()
+
+    def test_exact_read_source_open_failure_can_be_deferred_without_input(self):
+        result=self.run_native(fault='read_unavailable')
+        self.assertEqual(result.returncode,14,result.stdout)
+        self.assertIn('NATIVE_FAIL operation=read reason=source_unavailable',result.stdout)
+        self.assertIn('uncertain=0',result.stdout)
+        self.assertFalse((self.base/'input.jpg').exists())
+        self.assert_child_reaped()
+
+    def test_read_unavailable_is_not_inferred_from_other_or_partial_replies(self):
+        for fault in ('read_unavailable_wrong','read_unavailable_extra',
+                      'read_unavailable_partial','read_unavailable_no_prompt'):
+            with self.subTest(fault=fault):
+                (self.base/'input.jpg').unlink(missing_ok=True)
+                result=self.run_native(fault=fault)
+                self.assertNotEqual(result.returncode,14,result.stdout)
+                self.assertNotIn('reason=source_unavailable',result.stdout)
+                self.assert_child_reaped()
+
+    def test_readback_open_failure_is_never_retryable_source_unavailability(self):
+        result=self.run_native('readback',TARGET,fault='read_unavailable')
+        self.assertNotEqual(result.returncode,14,result.stdout)
+        self.assertNotIn('reason=source_unavailable',result.stdout)
         self.assert_child_reaped()
 
     def test_delayed_copy_finishes_before_return(self):

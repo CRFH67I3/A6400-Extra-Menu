@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
+from synthetic_native_frames import SYNTHETIC_ROOT_VERSION, SYNTHETIC_FNEXT_UNMOUNTED
 
 ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT/'camera/native_capture_probe.c'
@@ -20,7 +21,7 @@ stream_number=0
 if fault=='restart_partial_overflow':
  marker=root/'monitor-streams';stream_number=int(marker.read_text())+1 if marker.exists() else 1
  marker.write_text(str(stream_number))
-items=[];index=0
+items=[];index=0;directory=''
 print('### monio start ###\nMON>',flush=True)
 if fault=='startup_recorded_history':
  data=(root/'recorded-history').read_bytes()
@@ -39,10 +40,26 @@ for command in sys.stdin:
  (root/'command-at').write_text(str(time.monotonic()))
  args=command.strip().split();verb=args[2]
  header='MprFileIf : '+('FFirst [pathname]' if verb=='FFirst' else "FNext ['c' to cancel]")
+ if verb=='FFirst':directory=args[3]
+ if (root/'recorded-unmounted').exists():
+  with (root/'unmount-commands').open('a') as log:log.write(command)
+  flag=root/'midscan-unmounted'
+  location=('root_next' if directory=='ms:/DCIM/*' else 'sub_next') if verb=='FNext' else 'sub_first'
+  at_end=location!='sub_next' or index+1>=len(items)
+  if flag.exists() and flag.read_text()==location and at_end and not (verb=='FFirst' and directory=='ms:/DCIM/*'):
+   (root/'unmounted-at').write_text(command)
+   with (root/'unmount-commands').open('a') as log:log.write('UNMOUNTED\n')
+   data=(root/'recorded-unmounted').read_bytes()
+   if verb=='FFirst':
+    data=data.replace(b"FNext ['c' to cancel]",b'FFirst [pathname]').replace(b'(696) FindNext()',b'(588) FindFirst()')
+   sys.stdout.buffer.write(data);sys.stdout.buffer.flush();continue
  if fault=='restart_partial_overflow' and stream_number==2:print('FLOW')
  if fault=='retry_recorded' and verb=='FFirst' and args[3]=='ms:/DCIM/*':
   items=[('10061115',True,0)];index=0
   sys.stdout.buffer.write((root/'recorded-retry').read_bytes());sys.stdout.buffer.flush();continue
+ if fault=='wd_version_recorded' and verb=='FFirst' and args[3]=='ms:/DCIM/*':
+  items=[('10061115',True,0)];index=0
+  sys.stdout.buffer.write((root/'recorded-version').read_bytes());sys.stdout.buffer.flush();continue
  if fault=='prompt_recorded_async' and verb=='FFirst' and args[3]=='ms:/DCIM/10061115/*':
   items=[('A6409683.JPG',False,10092544)];index=0
   sys.stdout.buffer.write((root/'recorded-async').read_bytes());sys.stdout.buffer.flush();continue
@@ -65,11 +82,34 @@ for command in sys.stdin:
   print(header[11:])
  else:
   print(header)
+ if fault=='body_noise_lost_tail':print('[native] unexpected\x1b[31m line before filename')
+ if fault=='body_noise_large':print('unexpected native diagnostic '+('x'*2500))
+ version='[MSL][0x1A2BDCD0]: MSLF_WD_Version = 0104'
+ root_first=verb=='FFirst' and args[3]=='ms:/DCIM/*'
+ if fault.startswith('wd_'):
+  if root_first:
+   if fault=='wd_version_duplicate':print(version+'\n'+version)
+   elif fault=='wd_version_unknown':print(version.replace('0104','0105'))
+   elif fault=='wd_version_bad_address':print(version.replace('1A2BDCD0','1A2BDCG0'))
+   elif fault=='wd_version_suffix':print(version+' extra')
+   elif fault=='wd_version_error':print(version+'\nec = 0x00001005')
+   elif fault=='wd_version_missing_ok':print(version)
+   elif fault=='wd_version_end':
+    print(version+'\nNo more Files.\nec = 0x00001008\nMON>',flush=True);continue
+  elif fault=='wd_version_wrong_verb':print(version)
  if fault in ('retry_success','retry_missing_success','retry_missing_metadata') and verb=='FFirst':print('FindFirst Retry.')
  if fault=='retry_wrong_verb':print('FindNext Retry.')
  if fault=='retry_unknown_text':print('FindFirst Retry..')
  if fault=='retry_duplicate':print('FindFirst Retry.\nFindFirst Retry.')
  if fault.startswith('status_'):
+  if fault.startswith('status_info_'):
+   detail='[MMGR][AVI] ## ERROR(MMGR):0x31000007 ## avimmgr/AviMMgrCmd.cpp(16755) GetDeviceInfo()'
+   text='[MMGR][AVI] ## ERROR(MMGR/FileIf):0x0EF10001 ## avimmgr/AviMMgrFileIf.cpp(588) FindFirst()\n[AVIMMGR][MS1]GetDeviceInfo : ER_SEQUENCE  DEVICE Unmounted\n'+detail
+   if fault=='status_info_duplicate':text+='\n'+detail
+   if fault=='status_info_unknown':text+='\nunknown diagnostic'
+   if fault=='status_info_mixed':text+='\nec = 0x00001005'
+   if fault=='status_info_metadata':text+='\nA6400001.JPG\nkind : FILE\nfile length = 1\nmodification time = 1 : 2 : 3'
+   print(text+'\nec = 0x0000100B\nMON>',flush=True);continue
   replies={
    'status_mixed_end':'No more Files.\nec = 0x00001008\nec = 0x00001005',
    'status_prefix_end':'No more Files.\nec = 0x000010080',
@@ -117,12 +157,13 @@ for command in sys.stdin:
  else:
   filename,is_dir,size=items[index];name='../ESCAPE.JPG' if fault=='unsafe_name' else filename
   print(name)
+  if fault=='wd_version_after_name' and root_first:print(version)
   if fault=='retry_after_name':print('FindFirst Retry.')
   if fault=='retry_unknown_after_name':print('FindFirst Retry..')
   print('kind           : '+('DIR' if is_dir else 'FILE'))
   print('file length = '+('-1' if fault=='bad_size' else str(size)))
   if fault!='retry_missing_metadata':print('modification time = 15 : 36 : 16')
-  if fault!='retry_missing_success':print('FindFirst OK.' if verb=='FFirst' else 'FindNext OK.')
+  if fault!='retry_missing_success' and not (fault=='wd_version_missing_ok' and root_first):print('FindFirst OK.' if verb=='FFirst' else 'FindNext OK.')
  if fault=='embedded_prompt_then_error':
   print('diagnostic payload_MON>_is_not_a_prompt\nec = 0x00001005\nMON>',flush=True)
  elif fault=='embedded_prompt':print('diagnostic payload_MON>_is_not_a_prompt',flush=True)
@@ -158,6 +199,7 @@ for command in sys.stdin:
   print('FLOW',flush=True)
  elif fault=='restart_partial_overflow' and stream_number==1:
   sys.stdout.write('MON>\nOVER');sys.stdout.flush()
+ elif fault=='body_noise_lost_tail':print('MON>\n'+('post-prompt asynchronous text '*40),flush=True)
  elif fault=='prompt_no_newline':sys.stdout.write('MON>');sys.stdout.flush()
  elif fault!='no_prompt':print('MON>',flush=True)
  else:sys.stdout.flush()
@@ -227,6 +269,22 @@ class CaptureProbeTests(unittest.TestCase):
         self.assertNotIn('CAPTURE_DIAG ',out)
 
 
+    def test_synthetic_cold_root_version_line_keeps_complete_photo_inventory(self):
+        (self.base/'recorded-version').write_bytes(SYNTHETIC_ROOT_VERSION)
+        rc,out=self.run_probe(fault='wd_version_recorded')
+        self.assertEqual(rc,0,out)
+        self.assertIn('ms:/DCIM/10061115/A6400001.JPG',out)
+        self.assertIn('CAPTURE_BASELINE count=1 ',out)
+        self.assertNotIn('CAPTURE_DIAG ',out)
+
+    def test_root_version_line_does_not_allow_malformed_misplaced_or_failed_reply(self):
+        for fault in ('duplicate','unknown','bad_address','suffix','error',
+                      'missing_ok','end','after_name','wrong_verb'):
+            with self.subTest(fault=fault):
+                rc,out=self.run_probe(fault='wd_version_'+fault)
+                self.assertNotEqual(rc,0,out)
+                self.assertNotIn('CAPTURE_BASELINE ',out)
+
     def test_retry_wrong_verb_unknown_duplicate_or_after_name_is_rejected(self):
         for fault in ('retry_wrong_verb','retry_unknown_text','retry_duplicate','retry_after_name','retry_unknown_after_name'):
             with self.subTest(fault=fault):
@@ -251,6 +309,20 @@ class CaptureProbeTests(unittest.TestCase):
                     self.assertNotEqual(rc,0,out)
                     self.assertEqual(self.diagnostic(out)['reason'],'invalid_retry',out)
                     self.assertNotIn('CAPTURE_BASELINE ',out)
+
+    def test_complete_unmounted_getdeviceinfo_detail_is_recognized(self):
+        rc,out=self.run_probe(fault='status_info_exact')
+        self.assertNotEqual(rc,0,out)
+        self.assertEqual(self.diagnostic(out)['reason'],'baseline_media_unavailable',out)
+        self.assertNotIn('CAPTURE_BASELINE ',out)
+
+    def test_getdeviceinfo_detail_does_not_allow_duplicate_unknown_or_mixed_reply(self):
+        for kind in ('duplicate','unknown','mixed','metadata'):
+            with self.subTest(kind=kind):
+                rc,out=self.run_probe(fault='status_info_'+kind)
+                self.assertNotEqual(rc,0,out)
+                self.assertEqual(self.diagnostic(out)['reason'],'native_status',out)
+                self.assertNotIn('CAPTURE_BASELINE ',out)
 
     def test_retry_does_not_replace_success_marker_or_metadata(self):
         for fault in ('retry_missing_success','retry_missing_metadata'):
@@ -310,6 +382,32 @@ class CaptureProbeTests(unittest.TestCase):
         self.assertEqual(fields['reason'],'native_status',out)
         self.assertIn(b'ec = 0x00001005',bytes.fromhex(fields['response_tail_hex']))
         self.assertNotIn('CAPTURE_CANDIDATE',out)
+
+    def test_parse_failure_preserves_preparse_body_when_raw_tail_is_async(self):
+        rc,out=self.run_probe(fault='body_noise_lost_tail')
+        self.assertNotEqual(rc,0,out)
+        fields=self.diagnostic(out)
+        self.assertEqual(fields['reason'],'invalid_name',out)
+        self.assertNotIn(b'line before filename',bytes.fromhex(fields['response_tail_hex']))
+        records=[line for line in out.splitlines() if line.startswith('CAPTURE_BODY ')]
+        self.assertEqual(len(records),1,out)
+        body=dict(part.split('=',1) for part in records[0].split()[1:])
+        data=bytes.fromhex(body['prefix_hex'])
+        self.assertIn(b'MprFileIf : FFirst [pathname]\n[native] unexpected\x1b[31m line before filename\n',data)
+        self.assertIn(b'FindFirst OK.\n',data)
+        self.assertNotIn(b'post-prompt asynchronous',data)
+        self.assertEqual(body['command_seq'],'1')
+        self.assertNotIn('\x1b',out)
+
+    def test_error_body_diagnostic_fits_one_bounded_runtime_record(self):
+        rc,out=self.run_probe(fault='body_noise_large')
+        self.assertNotEqual(rc,0,out)
+        records=[line for line in out.splitlines() if line.startswith('CAPTURE_BODY ')]
+        self.assertEqual(len(records),1,out)
+        self.assertLessEqual(len(records[0])+1,2048)
+        body=dict(part.split('=',1) for part in records[0].split()[1:])
+        self.assertEqual(len(bytes.fromhex(body['prefix_hex'])),768)
+        self.assertEqual(body['truncated'],'1')
 
     def test_missing_prompt_reports_timeout_and_partial_header(self):
         rc,out=self.run_probe(fault='no_prompt');self.assertNotEqual(rc,0,out)
@@ -519,6 +617,63 @@ done:
                 self.assertEqual(self.diagnostic(out)['reason'],'native_status',out)
                 self.assertNotIn('baseline_media_unavailable',out)
                 self.assertNotIn('CAPTURE_BASELINE ',out)
+
+    def unmounted_inventory_harness(self):
+        harness=self.base/'inventory.c'
+        harness.write_text('#define main scanner_main\n#include "'+str(SOURCE)+'"\n#undef main\n'+r'''
+int main(void) {
+    struct transport t={.pid=-1,.in=-1,.out=-1};struct catalogue c;
+    if(transport_start(&t))return 2;
+    int result=inventory(&t,&c);
+    printf("INVENTORY_RESULT result=%d count=%u\n",result,c.count);
+    transport_stop(&t);return 0;
+}
+''')
+        binary=self.base/'inventory'
+        subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-I',str(self.base),
+                        str(harness),'-o',str(binary)],check=True,capture_output=True)
+        return binary
+
+    def test_synthetic_fnext_unmounted_discards_partial_inventory(self):
+        # Failing to propagate a confirmed loss of media must fail this test;
+        # retaining the first JPEG from an aborted catalogue must also fail it.
+        (self.base/'recorded-unmounted').write_bytes(SYNTHETIC_FNEXT_UNMOUNTED)
+        binary=self.unmounted_inventory_harness()
+        for location in ('root_next','sub_next','sub_first'):
+            with self.subTest(location=location):
+                (self.base/'midscan-unmounted').write_text(location)
+                env=dict(os.environ,CAPTURE_FIXTURE=str(self.base))
+                result=subprocess.run([str(binary)],env=env,text=True,capture_output=True,timeout=4)
+                self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+                self.assertIn('INVENTORY_RESULT result=-2 count=0',result.stdout)
+
+    def test_midscan_unmounted_rejects_mixed_duplicate_wrongverb_and_incomplete_reply(self):
+        recorded=SYNTHETIC_FNEXT_UNMOUNTED
+        detail=b'[MMGR][AVI] ## ERROR(MMGR/FileIf):0x0EF10001 ## avimmgr/AviMMgrFileIf.cpp(696) FindNext()'
+        info=b'[MMGR][AVI] ## ERROR(MMGR):0x31000007 ## avimmgr/AviMMgrCmd.cpp(16755) GetDeviceInfo()'
+        unmounted=b'[AVIMMGR][MS1]GetDeviceInfo : ER_SEQUENCE  DEVICE Unmounted'
+        replies={
+            'second_status':recorded.replace(b'MON>',b'ec = 0x00001005\nMON>'),
+            'metadata':recorded.replace(b'MON>',b'A6400002.JPG\nkind : FILE\nfile length = 12\nmodification time = 1 : 2 : 3\nMON>'),
+            'duplicate_detail':recorded.replace(detail,detail+b'\n'+detail),
+            'duplicate_info':recorded.replace(info,info+b'\n'+info),
+            'duplicate_unmounted':recorded.replace(unmounted,unmounted+b'\n'+unmounted),
+            'wrongverb':recorded.replace(detail,detail.replace(b'(696) FindNext()',b'(588) FindFirst()')),
+            'unknown':recorded.replace(b'MON>',b'unknown native diagnostic\nMON>'),
+            'success':recorded.replace(b'MON>',b'FindNext OK.\nMON>'),
+            'end':recorded.replace(b'MON>',b'No more Files.\nMON>'),
+            'no_status':recorded.replace(b'ec = 0x0000100B',b''),
+            'no_prompt':recorded.replace(b'MON>',b''),
+        }
+        binary=self.unmounted_inventory_harness()
+        (self.base/'midscan-unmounted').write_text('sub_next')
+        for kind,data in replies.items():
+            with self.subTest(kind=kind):
+                (self.base/'recorded-unmounted').write_bytes(data)
+                result=subprocess.run([str(binary)],env=dict(os.environ,CAPTURE_FIXTURE=str(self.base)),
+                                      text=True,capture_output=True,timeout=4)
+                self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+                self.assertIn('INVENTORY_RESULT result=-1',result.stdout)
 
     def test_success_marker_must_be_unique_and_match_command_verb(self):
         for fault in ('status_duplicate_success','status_opposite_success'):

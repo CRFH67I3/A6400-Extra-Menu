@@ -195,7 +195,7 @@ static int report(int result,int uncertain,const char *reason,const char *operat
     }
     return result;
 }
-static int exchange(struct transport *t,const char *command,const char *operation,int flushing,const char *absence_path) {
+static int exchange(struct transport *t,const char *command,const char *operation,int flushing,const char *absence_path,const char *read_source) {
     uint32_t start,now;unsigned used=0,received=0;size_t sent=0;
     char line[ECHO_LINE_BYTES];unsigned line_used=0,overflow_match=0;
     int echoed=0,long_line=0;
@@ -253,6 +253,12 @@ static int exchange(struct transport *t,const char *command,const char *operatio
                         return report(1,0,"absence_unproven",operation,used);
                     return report(0,0,"source_open_failed",operation,used);
                 }
+                /* The pinned IFSYS cp opens its source before its destination.
+                 * Only this exact fresh source-open failure, with no RAM input,
+                 * permits waiting for native media readiness. Never infer this
+                 * from another error, a partial copy, readback, or an SD write. */
+                if(read_source && input_absent() && absent_reply(read_source,command))
+                    return report(14,0,"source_unavailable",operation,used);
                 if(native_error(response))return report(1,0,"native_error",operation,used);
                 if(flushing && !strstr(response,"Fsys_Flush OK"))
                     return report(1,0,"flush_success_missing",operation,used);
@@ -267,8 +273,24 @@ static int exchange(struct transport *t,const char *command,const char *operatio
 
 int main(int argc,char **argv) {
     setvbuf(stdout,NULL,_IONBF,0);
+#ifdef FILM_NATIVE_BOOT_STAGE_PATH
+    /* A separately built boot adapter has no user-selected operation/path.
+     * It can only read one pinned SD bundle into its otherwise absent RAM file.
+     * Photo-runtime builds do not expose this operation. */
+    (void)argv;
+    if(argc!=1)return report(2,0,"arguments","none",0);
+    const char *operation="stage",*path=FILM_NATIVE_BOOT_STAGE_PATH;
+#else
     if(argc!=3)return report(2,0,"arguments","none",0);
-    const char *operation=argv[1],*path=argv[2];char command[512];int flushing=0,n=-1;
+    const char *operation=argv[1],*path=argv[2];
+#endif
+    char command[512];int flushing=0,n=-1;
+#ifdef FILM_NATIVE_BOOT_STAGE_PATH
+    if(!input_absent())return report(1,0,"input_not_absent",operation,0);
+    if(!strcmp(operation,"stage"))
+        n=snprintf(command,sizeof(command),"IFSYS cp %s %s",path,FILM_NATIVE_INPUT);
+    else
+#endif
     if(!strcmp(operation,"read") && capture_path(path))
         n=snprintf(command,sizeof(command),"IFSYS cp %s %s",path,FILM_NATIVE_INPUT);
     else if((!strcmp(operation,"readback") || !strcmp(operation,"absent")) && output_path(path))
@@ -293,7 +315,8 @@ int main(int argc,char **argv) {
         transport_stop(&t);
         return report(5,0,drained==-2?"startup_busy":drained==-3?"history_capacity":"startup",operation,0);
     }
-    int result=exchange(&t,command,operation,flushing,absence_path);
+    int result=exchange(&t,command,operation,flushing,absence_path,
+                        (!strcmp(operation,"read") || !strcmp(operation,"stage"))?path:NULL);
     /* Killing the monitor client does not cancel or prove termination of a
      * Sony in-process operation; uncertain=1 remains authoritative for caller. */
     transport_stop(&t);

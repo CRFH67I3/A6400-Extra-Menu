@@ -5,11 +5,14 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUT=${1:?output directory}
 LIBS=${2:?original camera libc directory}
 MONITOR=${3:-$ROOT/host-tests/author-film-install-20261114/camera-mwf_monio.elf}
+BOOT_STAGE=${FILM_NATIVE_BOOT_STAGE:-0}
 mkdir -p "$OUT"
-python3 - "$MONITOR" "$OUT" <<'PY'
+python3 - "$MONITOR" "$OUT" "$BOOT_STAGE" <<'PY'
 from pathlib import Path
 import hashlib,sys
-monitor,out=map(Path,sys.argv[1:])
+monitor,out=map(Path,sys.argv[1:3])
+stage=sys.argv[3]
+assert stage in ('0','1'),'FILM_NATIVE_BOOT_STAGE must be 0 or 1'
 expected='f2ab9ba60dd0b3d327e64b10b8e6c5451d59e6026a1b6702578852088cfd2a84'
 if not monitor.is_file():
     raise SystemExit('Pinned camera-mwf_monio.elf missing; supply exact original monitor locally')
@@ -17,12 +20,14 @@ data=monitor.read_bytes()
 assert hashlib.sha256(data).hexdigest()==expected,'native monitor SHA-256 mismatch'
 h=2166136261
 for b in data:h=((h^b)*16777619)&0xffffffff
+input_path='/tmp_bt/a6400-film-boot.copy' if stage=='1' else '/tmp_bt/a6400-film-job/input.jpg'
 (out/'film_native_command_build.h').write_text(
  '#define FILM_NATIVE_MONITOR "/usr/bin/mwf_monio.elf"\n'
- '#define FILM_NATIVE_INPUT "/tmp_bt/a6400-film-job/input.jpg"\n'
+ f'#define FILM_NATIVE_INPUT "{input_path}"\n'
  '#define FILM_NATIVE_OUTPUT "/tmp_bt/a6400-film-job/output.jpg"\n'
  f'#define FILM_NATIVE_MONITOR_BYTES {len(data)}u\n'
- f'#define FILM_NATIVE_MONITOR_FNV 0x{h:08x}u\n')
+ f'#define FILM_NATIVE_MONITOR_FNV 0x{h:08x}u\n'+
+ ('#define FILM_NATIVE_BOOT_STAGE_PATH "A:/A6400/RUNTIME/BOOT0014.TAR"\n' if stage=='1' else ''))
 print('PINNED_MONITOR',monitor,expected)
 PY
 CC=arm-linux-gnueabihf-gcc

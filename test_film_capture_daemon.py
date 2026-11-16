@@ -14,6 +14,7 @@ import time
 import unittest
 
 from test_native_capture_probe import MONITOR as SCANNER_MONITOR, fnv
+from synthetic_native_frames import SYNTHETIC_ROOT_VERSION, SYNTHETIC_FNEXT_UNMOUNTED
 
 ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT / 'camera/film_capture_daemon.c'
@@ -59,6 +60,10 @@ if fault=='uncertain':
 if fault=='retained':
  print('RAM_JOB_RETAINED phase=cleanup result=1',flush=True);sys.exit(1)
 (root/'job.lock').rmdir()
+if fault=='failed_first' and len((root/'jobs').read_text().splitlines())==1:
+ print('RAM_JOB_FAIL stage=settings_changed',flush=True);sys.exit(12)
+if fault=='failed_flood':
+ print('x'*4096+'\x1b[31m\nRAM_JOB_FAIL stage=settings_changed',flush=True);sys.exit(12)
 if fault=='missing_receipt':sys.exit(0)
 if fault=='failed':
  print('RAM_JOB_FAIL stage=off',flush=True);sys.exit(10)
@@ -221,6 +226,15 @@ class FilmCaptureDaemonTests(unittest.TestCase):
         self.assertFalse((self.base / 'job.lock').exists())
         self.assertIn('FILM_CAPTURE_JOB_DONE', out)
 
+    def test_cold_root_version_record_still_dispatches_new_photo_once(self):
+        (self.base/'recorded-version').write_bytes(SYNTHETIC_ROOT_VERSION)
+        rc,out=self.run_daemon(monitor_fault='wd_version_recorded',
+                               events=[(.04,lambda _:self.new())])
+        self.assertEqual(rc,0,out)
+        self.assertEqual(len(self.jobs()),1,out)
+        self.assertEqual(self.jobs()[0]['source'],'A:/DCIM/10061115/A6400002.JPG')
+        self.assertIn('FILM_CAPTURE_JOB_DONE result=0 ',out)
+
     def test_off_candidates_are_not_processed_later_when_on(self):
         rc, out = self.run_daemon(settings='FILM_OFF\n', events=[
             (.04, lambda _: self.new()),
@@ -229,6 +243,41 @@ class FilmCaptureDaemonTests(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.jobs(), [], out)
         self.assertIn('FILM_CAPTURE_SKIP_OFF', out)
+
+    def test_failed_job_diagnostic_survives_next_job_log_reuse(self):
+        rc, out = self.run_daemon(fault='failed_first', events=[
+            (.04, lambda _: self.new()),
+            (.06, self.after_record('manifest',
+                'state=failed source=A:/DCIM/10061115/A6400002.JPG ',
+                lambda: self.new(3)))])
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.jobs()), 2, out)
+        records = [dict(field.split('=', 1) for field in line.split()[1:])
+                   for line in out.splitlines() if line.startswith('FILM_CAPTURE_JOB_DIAG ')]
+        self.assertEqual(len(records), 2, out)
+        self.assertEqual(records[0]['exit'], '12')
+        self.assertEqual(records[0]['path'], 'ms:/DCIM/10061115/A6400002.JPG')
+        self.assertIn(b'RAM_JOB_FAIL stage=settings_changed',
+                      bytes.fromhex(records[0]['tail_hex']))
+        self.assertEqual(records[1]['exit'], '0')
+        self.assertIn(b'RAM_JOB_APPLIED ', bytes.fromhex(records[1]['tail_hex']))
+        self.assertGreater(int(records[0]['uptime_ms']), 0)
+        self.assertGreaterEqual(int(records[1]['uptime_ms']), int(records[0]['uptime_ms']))
+        self.assertIn('applied=1 off=0 failed=1 retained=0', out)
+
+    def test_failed_job_diagnostic_tail_is_bounded_and_escape_safe(self):
+        rc, out = self.run_daemon(fault='failed_flood', events=[(.04, lambda _: self.new())])
+        self.assertEqual(rc, 0, out)
+        record = next((line for line in out.splitlines()
+                       if line.startswith('FILM_CAPTURE_JOB_DIAG ')), '')
+        self.assertTrue(record, out)
+        fields = dict(field.split('=', 1) for field in record.split()[1:])
+        self.assertGreater(int(fields['log_bytes']), 4096)
+        tail = bytes.fromhex(fields['tail_hex'])
+        self.assertEqual(len(tail), 512)
+        self.assertIn(b'\x1b[31m\nRAM_JOB_FAIL stage=settings_changed', tail)
+        self.assertNotIn('\x1b', out)
+        self.assertLess(len(record), 2048)
 
     def test_off_marks_entire_pending_batch_before_later_on(self):
         rc, out = self.run_daemon(settings='FILM_OFF\n', events=[
@@ -459,6 +508,48 @@ class FilmCaptureDaemonTests(unittest.TestCase):
         self.assertNotIn('FILM_CAPTURE_BASELINE count=', out)
         self.assertEqual(self.jobs(), [])
         self.assertFalse((self.base / 'capture.lock').exists())
+
+    def synthetic_midscan_unmounted(self, location):
+        (self.base/'recorded-unmounted').write_bytes(SYNTHETIC_FNEXT_UNMOUNTED)
+        (self.base/'midscan-unmounted').write_text(location)
+
+    def test_partial_baseline_waits_then_excludes_existing_photos(self):
+        self.synthetic_midscan_unmounted('sub_next')
+        def restore(_):
+            manifest=(self.base/'manifest').read_text()
+            self.assertIn('phase=baseline_media_wait\n',manifest)
+            self.assertIn('count=0\n',manifest)
+            self.assertEqual(self.jobs(),[])
+            (self.base/'midscan-unmounted').unlink()
+        rc,out=self.run_daemon(ready_events=[(.01,self.after_record('manifest','phase=baseline_media_wait',lambda:restore(None)))],
+                               events=[(.04,lambda _:self.new())])
+        self.assertEqual(rc,0,out)
+        self.assertIn('FILM_CAPTURE_BASELINE count=1',out)
+        self.assertEqual([job['source'] for job in self.jobs()],['A:/DCIM/10061115/A6400002.JPG'],out)
+
+    def test_midscan_media_loss_discards_partial_scan_and_restarts_root_before_dispatch(self):
+        (self.base/'recorded-unmounted').write_bytes(SYNTHETIC_FNEXT_UNMOUNTED)
+        def lose_media(_):
+            (self.base/'midscan-unmounted').write_text('sub_next')
+            self.new()
+        def restore():
+            time.sleep(.15)  # Longer than the real daemon's stability gate.
+            self.assertEqual(self.jobs(),[])
+            manifest=(self.base/'manifest').read_text()
+            self.assertIn('count=1\n',manifest)  # Only the completed baseline.
+            commands=(self.base/'unmount-commands').read_text().splitlines()
+            self.assertEqual(commands[-1],'UNMOUNTED')
+            (self.base/'midscan-unmounted').unlink()
+        rc,out=self.run_daemon(events=[(.04,lose_media),(.06,self.after_record('manifest','phase=media_unavailable',restore))])
+        self.assertEqual(rc,0,out)
+        self.assertEqual([job['source'] for job in self.jobs()],['A:/DCIM/10061115/A6400002.JPG'],out)
+        commands=(self.base/'unmount-commands').read_text().splitlines()
+        interruptions=[i for i,value in enumerate(commands) if value=='UNMOUNTED']
+        self.assertTrue(interruptions)
+        for i in interruptions:
+            self.assertEqual(commands[i+1],'MPR FileIf FFirst ms:/DCIM/*')
+        self.assertEqual(out.count('FILM_CAPTURE_DISPATCH '),1,out)
+        self.assertFalse((self.base/'capture.lock').exists())
 
 
 if __name__ == '__main__':

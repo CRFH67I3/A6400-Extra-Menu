@@ -117,23 +117,21 @@
     },
     {
       "path": "camera/film_native_command.c",
-      "source_sha256": "30f6dfb4db150e012ac57064c342036cdcea61145e4f996454361d71e6167d23",
-      "release_sha256": "30f6dfb4db150e012ac57064c342036cdcea61145e4f996454361d71e6167d23",
+      "source_sha256": "644faa2bb1c27afdd2e473ff8b2a4a418c7381694feed99d509e36dfae558464",
+      "release_sha256": "644faa2bb1c27afdd2e473ff8b2a4a418c7381694feed99d509e36dfae558464",
       "release_adjustments": []
     },
     {
       "path": "camera/film_capture_daemon.c",
-      "source_sha256": "5af7047e8650ccd956044c13e3d31d7f7f2dc02ab96c2f4f87f22b14a03cac92",
-      "release_sha256": "5af7047e8650ccd956044c13e3d31d7f7f2dc02ab96c2f4f87f22b14a03cac92",
+      "source_sha256": "32a79a428c1200f6320db8a233d0409667c5f5ef91dc2af8f318c6cfa885c441",
+      "release_sha256": "32a79a428c1200f6320db8a233d0409667c5f5ef91dc2af8f318c6cfa885c441",
       "release_adjustments": []
     },
     {
       "path": "camera/native_capture_probe.c",
-      "source_sha256": "684372bd34274b06019f0baaf2ff5025849997e02aa7dbbd11bf5380f12b6186",
-      "release_sha256": "1ace8feeb9e848e7dca499b82e9a1620b892becc2e6cccc0476f46065771161e",
-      "release_adjustments": [
-        "Bound the already validated 17-character ms:/DCIM/ directory prefix in path formatting so GCC -Wformat-truncation accepts the host build; preserve the validated path and camera behavior."
-      ]
+      "source_sha256": "5fc2a2d07898d0de8428c73ac3581257310dcbad1126139dd42745b1b8676cc7",
+      "release_sha256": "5fc2a2d07898d0de8428c73ac3581257310dcbad1126139dd42745b1b8676cc7",
+      "release_adjustments": []
     },
     {
       "path": "camera/film_runtime_log.c",
@@ -149,8 +147,8 @@
     },
     {
       "path": "camera/film_ram_job.sh",
-      "source_sha256": "4618893a465ddc77b918c655a5f429d4c8f37d7a2bda932fc30aaeb7cc7c32f9",
-      "release_sha256": "4618893a465ddc77b918c655a5f429d4c8f37d7a2bda932fc30aaeb7cc7c32f9",
+      "source_sha256": "f5cf67cfd69051ed9e7071643017b553e1c53d3b28c0c55443bfbfe7e9b76739",
+      "release_sha256": "f5cf67cfd69051ed9e7071643017b553e1c53d3b28c0c55443bfbfe7e9b76739",
       "release_adjustments": []
     },
     {
@@ -269,8 +267,8 @@
     },
     {
       "path": "host-tests/build_film_native_command.sh",
-      "source_sha256": "ca26ae5c4e8fb0566ab6eb125958b19b9e45ac594305720ba6a3bb73056f84c9",
-      "release_sha256": "ca26ae5c4e8fb0566ab6eb125958b19b9e45ac594305720ba6a3bb73056f84c9",
+      "source_sha256": "41747e260266d03ee8f025ae5173949aa0e40876a07ea18ee26d044f721eee9b",
+      "release_sha256": "41747e260266d03ee8f025ae5173949aa0e40876a07ea18ee26d044f721eee9b",
       "release_adjustments": []
     },
     {
@@ -293,8 +291,8 @@
     },
     {
       "path": "host-tests/film-runtime-v2-templates/bootstrap-v2.sh",
-      "source_sha256": "6e44ae98d19600836a55e0df38e2cee8bdfd1cfb0a97ddc28305285ff7a0038e",
-      "release_sha256": "6e44ae98d19600836a55e0df38e2cee8bdfd1cfb0a97ddc28305285ff7a0038e",
+      "source_sha256": "459636f0b43426ed0da1069842a1379b77745e2605808d472e1a4e4353d52973",
+      "release_sha256": "459636f0b43426ed0da1069842a1379b77745e2605808d472e1a4e4353d52973",
       "release_adjustments": []
     },
     {
@@ -343,28 +341,25 @@
     },
     {
       "path": "test_native_capture_probe.py",
-      "source_sha256": "aa92a6e909e8a86abe3df80e15f8ec78c88556243c50f884e4faaa9d16e1f584",
-      "release_sha256": "4705577503061f46545d731507220aa7292d07bfbdbf85ff67d4b8c58a6fb7b6",
+      "source_sha256": "a05becf21c48bfa95194866075ed60a5b5adb470b704cbe2500dc052c59f1515",
+      "release_sha256": "244103e87b3a28652e5185fa80179f618ef374f5a4d08051109db40732fdc18d",
       "release_adjustments": [
-        "Omitted private-recording-only test: test_recorded_history_overflow_and_old_ffirst_are_drained_before_send",
-        "Omitted private-recording-only test: test_real_space_joined_prompt_suffix_keeps_complete_root_inventory",
-        "Omitted private-recording-only test: test_real_joined_async_tail_with_restored_strict_end_keeps_inventory",
-        "Omitted private-recording-only test: test_clipped_real_async_tail_with_restored_header_keeps_complete_frame",
-        "Omitted private-recording-only test: test_real_ffirst_retry_frame_preserves_native_metadata"
+        "Kept five private-recording-only tests excluded.",
+        "Replaced new version/unmounted recordings with explicitly hand-authored synthetic protocol frames."
       ]
     },
     {
       "path": "test_film_capture_daemon.py",
-      "source_sha256": "4f631aa8d92fc8f154a3895a0bd9b9ac7fb16daf3bb1f2cd9b24f24699468b04",
-      "release_sha256": "27f62698e5603e487135fb1549afd7f3067a5faf0e5e12441efdd879755ba711",
+      "source_sha256": "0d7991e3030c11eaf08b9152859f0dbc93756880d09250e08b05696d5649db83",
+      "release_sha256": "deca81a4b060e9ca068a7bc48ffb64f93791b99ab75ef25cda287aaec1a480bc",
       "release_adjustments": [
-        "Host-test portability: convert SIGTERM to int before str so Python 3.10 and newer versions expect the same numeric native diagnostic."
+        "Replaced private version/unmounted recordings with hand-authored synthetic protocol frames."
       ]
     },
     {
       "path": "test_film_native_command.py",
-      "source_sha256": "ea1202f271f4c8a35ab354fdb3324be3214e06364f688abbf824031244acb6f6",
-      "release_sha256": "ea1202f271f4c8a35ab354fdb3324be3214e06364f688abbf824031244acb6f6",
+      "source_sha256": "82109c748e7b3537678875a98ad396914ed12c9718cdba91a388bb6179df5473",
+      "release_sha256": "82109c748e7b3537678875a98ad396914ed12c9718cdba91a388bb6179df5473",
       "release_adjustments": []
     },
     {
@@ -381,10 +376,16 @@
     },
     {
       "path": "test_film_runtime_package.py",
-      "source_sha256": "d76a007f87f83b3b00ef3fa3f6b9ee2813d12a1d802f296cc73f9b582c3b5bb2",
-      "release_sha256": "ebd0b7873650bc3ebd49337f5e10852f97a5696cb38bb0c4674b5806665b97d8",
+      "source_sha256": "097b28fb8b10b6cf1175a8d4e0178244ef5e1e8e0f4fe510dff3a7bab6f61584",
+      "release_sha256": "097b28fb8b10b6cf1175a8d4e0178244ef5e1e8e0f4fe510dff3a7bab6f61584",
+      "release_adjustments": []
+    },
+    {
+      "path": "synthetic_native_frames.py",
+      "source_sha256": "d8763a64c6cc2dc0608df70d4199ba6c6cfa1f93b10f1d587f32f916c2376fee",
+      "release_sha256": "d8763a64c6cc2dc0608df70d4199ba6c6cfa1f93b10f1d587f32f916c2376fee",
       "release_adjustments": [
-        "Host-test portability: numeric signal formatting for Python 3.10; allow 30 seconds for synthetic Python command doubles on ARM. Camera limits unchanged."
+        "Public-only, hand-authored protocol fixtures; no private recorded data."
       ]
     }
   ],

@@ -46,6 +46,7 @@ struct transport {
     unsigned command_seq,response_bytes,tail_bytes,preamble_bytes,body_bytes,overflow_match;
     int header_seen,prompt_after_header,echo_seen;
     char command[128],expected[40]; unsigned char tail[384];
+    unsigned body_prefix_bytes;unsigned char body_prefix[768];
 };
 static volatile sig_atomic_t stopping;
 static unsigned candidates;
@@ -64,7 +65,9 @@ static void pause_ms(unsigned ms) { (void)poll(NULL,0,(int)ms); }
  * encoding prevents unsolicited native text from injecting terminal controls.
  * Diagnostics do not retry a command or change the shared enumeration cursor. */
 static void response_context(struct transport *t,const char *out,unsigned used) {
-    (void)out;t->body_bytes=used;
+    t->body_bytes=used;
+    t->body_prefix_bytes=used<sizeof(t->body_prefix)?used:sizeof(t->body_prefix);
+    memcpy(t->body_prefix,out,t->body_prefix_bytes);
 }
 static void trace_block(struct transport *t,const char *block,unsigned count) {
     t->response_bytes+=count;
@@ -94,7 +97,18 @@ static int diagnostic(struct transport *t,const char *reason,int error) {
     printf(" response_tail_hex=");
     for(unsigned i=0;i<t->tail_bytes;++i)printf("%02x",(unsigned)t->tail[i]);
     printf(" uptime_ms=%u preamble_bytes=%u body_bytes=%u echo_seen=%d\n",
-           (unsigned)now,t->preamble_bytes,t->body_bytes,t->echo_seen);return -1;
+           (unsigned)now,t->preamble_bytes,t->body_bytes,t->echo_seen);
+    /* The raw read tail can be entirely post-prompt async text. Preserve a
+     * bounded pre-parse body prefix separately, before strtok edits it. Its
+     * hex record fits the runtime logger's 2048-byte per-record limit. */
+    if(t->prompt_after_header && t->body_prefix_bytes) {
+        printf("CAPTURE_BODY command_seq=%u body_bytes=%u prefix_bytes=%u truncated=%u prefix_hex=",
+               t->command_seq,t->body_bytes,t->body_prefix_bytes,
+               t->body_prefix_bytes<t->body_bytes?1u:0u);
+        for(unsigned i=0;i<t->body_prefix_bytes;++i)printf("%02x",(unsigned)t->body_prefix[i]);
+        putchar('\n');
+    }
+    return -1;
 }
 static int exchange_failure(struct transport *t,const char *reason,int error,
                             const char *out,unsigned used) {
@@ -290,9 +304,18 @@ static char *trim(char *s) {
 static int line_equals(const char *line,size_t bytes,const char *value) {
     return strlen(value)==bytes && !memcmp(line,value,bytes);
 }
-/* 1=entry,0=normal end,-1=untrustworthy/incomplete reply,-2=explicitly
- * unmounted media at the root FFirst before any root entries were returned.
- * Never recover a partial subdirectory scan or guess from an error code alone. */
+static int wd_version_line(const char *line,size_t bytes) {
+    static const char prefix[]="[MSL][0x",suffix[]="]: MSLF_WD_Version = 0104";
+    const size_t begin=sizeof(prefix)-1u,end=sizeof(suffix)-1u;
+    if(bytes!=begin+8u+end || memcmp(line,prefix,begin) ||
+       memcmp(line+begin+8u,suffix,end))return 0;
+    for(size_t i=begin;i<begin+8u;++i)
+        if(!isxdigit((unsigned char)line[i]))return 0;
+    return 1;
+}
+/* 1=entry,0=normal end,-1=untrustworthy/incomplete reply,-2=a complete,
+ * explicit unmounted-media outcome. The caller must discard the whole partial
+ * inventory and start a new root FFirst; never resume an invalidated cursor. */
 static int native_item(struct transport *t,const char *directory,int first,struct item *item) {
     char cmd[128],response[RESPONSE_BYTES];const char *verb=first?"FFirst":"FNext";
     if(first)snprintf(cmd,sizeof(cmd),"MPR FileIf FFirst %s/*",directory);
@@ -305,8 +328,9 @@ static int native_item(struct transport *t,const char *directory,int first,struc
      * an empty inventory or a recoverable unmounted-media reply. */
     char *body=response;
     unsigned headers=0,no_more=0,statuses=0,end_status=0,unmounted_status=0;
-    unsigned unmounted=0,unmounted_detail=0,first_ok=0,next_ok=0,other=0;
-    unsigned retries=0;int outcome_started=0,invalid_retry=0;
+    unsigned unmounted=0,unmounted_detail=0,unmounted_info_detail=0;
+    unsigned first_ok=0,next_ok=0,other=0;
+    unsigned retries=0,wd_version=0;int outcome_started=0,invalid_retry=0,invalid_version=0;
     for(const char *line=body;*line;) {
         const char *next=strchr(line,'\n');size_t bytes=next?(size_t)(next-line):strlen(line);
         const char *value=line;
@@ -314,6 +338,13 @@ static int native_item(struct transport *t,const char *directory,int first,struc
         while(bytes && (value[bytes-1]==' '||value[bytes-1]=='\t'))--bytes;
         if(!bytes){}
         else if(line_equals(value,bytes,expected))++headers;
+        else if(bytes>=5u && !memcmp(value,"[MSL]",5u)) {
+            /* Captured on the first cold-media root FFirst. Only this exact
+             * version record, once after the header and before any outcome,
+             * may precede a complete successful directory entry. */
+            if(!first || strcmp(directory,"ms:/DCIM") || headers!=1u ||
+               outcome_started || wd_version++ || !wd_version_line(value,bytes))invalid_version=1;
+        }
         else if((bytes>=15u && !memcmp(value,"FindFirst Retry",15u)) ||
                 (bytes>=14u && !memcmp(value,"FindNext Retry",14u))) {
             /* Sony may announce clearing one old FFirst handle before making
@@ -331,26 +362,33 @@ static int native_item(struct transport *t,const char *directory,int first,struc
             } else if(line_equals(value,bytes,"FindFirst OK."))++first_ok;
             else if(line_equals(value,bytes,"FindNext OK."))++next_ok;
             else if(line_equals(value,bytes,"[AVIMMGR][MS1]GetDeviceInfo : ER_SEQUENCE  DEVICE Unmounted"))++unmounted;
-            else if(line_equals(value,bytes,"[MMGR][AVI] ## ERROR(MMGR/FileIf):0x0EF10001 ## avimmgr/AviMMgrFileIf.cpp(588) FindFirst()"))++unmounted_detail;
+            else if(line_equals(value,bytes,first?
+                "[MMGR][AVI] ## ERROR(MMGR/FileIf):0x0EF10001 ## avimmgr/AviMMgrFileIf.cpp(588) FindFirst()":
+                "[MMGR][AVI] ## ERROR(MMGR/FileIf):0x0EF10001 ## avimmgr/AviMMgrFileIf.cpp(696) FindNext()"))++unmounted_detail;
+            else if(line_equals(value,bytes,"[MMGR][AVI] ## ERROR(MMGR):0x31000007 ## avimmgr/AviMMgrCmd.cpp(16755) GetDeviceInfo()"))++unmounted_info_detail;
             else ++other;
         }
         if(!next)break;
         line=next+1;
     }
+    if(invalid_version)return diagnostic(t,"invalid_wd_version",0);
     if(invalid_retry)return diagnostic(t,"invalid_retry",0);
     if(headers!=1u)return diagnostic(t,"duplicate_header",0);
     if(no_more==1u && statuses==1u && end_status==1u && !unmounted_status &&
-       !unmounted && !unmounted_detail && !first_ok && !next_ok && !other)return 0;
-    if(first && !strcmp(directory,"ms:/DCIM") && !no_more && statuses==1u &&
+       !unmounted && !unmounted_detail && !unmounted_info_detail &&
+       !first_ok && !next_ok && !other && !wd_version)return 0;
+    if(!no_more && statuses==1u &&
        unmounted_status==1u && unmounted==1u && unmounted_detail<=1u &&
-       !end_status && !first_ok && !next_ok && !other)return -2;
-    if(no_more || statuses || unmounted || unmounted_detail ||
+       unmounted_info_detail<=1u &&
+       !end_status && !first_ok && !next_ok && !other && !wd_version)return -2;
+    if(no_more || statuses || unmounted || unmounted_detail || unmounted_info_detail ||
        first_ok!=(first?1u:0u) || next_ok!=(first?0u:1u))return diagnostic(t,"native_status",0);
     memset(item,0,sizeof(*item));int kind=0,size=0,stamp=0,header=0;
     char *save=NULL;
     for(char *line=strtok_r(body,"\n",&save);line;line=strtok_r(NULL,"\n",&save)) {
         line=trim(line);if(!*line)continue;
         if(strstr(line,expected)==line){if(header++)return diagnostic(t,"duplicate_header",0);continue;}
+        if(wd_version && !strncmp(line,"[MSL]",5u))continue; /* Fully validated above. */
         if(!strcmp(line,"FindFirst Retry."))continue; /* Already position/verb/count validated. */
         if(!item->name[0]) {
             if(!component(line))return diagnostic(t,"invalid_name",0);
@@ -393,7 +431,7 @@ static int inventory(struct transport *t,struct catalogue *out) {
             snprintf(directories[count++],sizeof(directories[0]),"ms:/DCIM/%.8s",item.name);
         }
     }
-    if(result<0)return result;
+    if(result<0){out->count=0;return result;}
     for(unsigned d=0;d<count;++d) {
         first=1;
         while((result=native_item(t,directories[d],first,&item))==1) {
@@ -401,13 +439,13 @@ static int inventory(struct transport *t,struct catalogue *out) {
             if(!item.directory && jpeg_name(item.name)) {
                 if(out->count==MAX_FILES)return diagnostic(t,"file_capacity",0);
                 struct entry *e=&out->items[out->count++];
-                /* ms:/DCIM/ plus eight validated DCF characters; JPEG is twelve. */
+                /* Directory is ms:/DCIM/ plus eight validated DCF characters. */
                 snprintf(e->path,sizeof(e->path),"%.17s/%.12s",directories[d],item.name);
                 strcpy(e->time,item.time);e->size=item.size;
                 for(unsigned i=0;i+1<out->count;++i)if(!strcmp(out->items[i].path,e->path))return diagnostic(t,"duplicate_path",0);
             }
         }
-        if(result<0)return -1;
+        if(result<0){out->count=0;return result;}
     }
     return 0;
 }
@@ -452,7 +490,7 @@ int main(int argc,char **argv) {
         if(stop){owner_stop=1;break;}
         int snapshot=inventory(&t,&current);
         if(snapshot==-2) {
-            /* A complete failed root FFirst explicitly reports unmounted media.
+            /* A complete native reply explicitly reports unmounted media.
              * Retry only a fresh enumeration at the existing bounded interval;
              * do not restart the monitor, reuse partial data or extend expiry. */
             if(!media_unavailable) {

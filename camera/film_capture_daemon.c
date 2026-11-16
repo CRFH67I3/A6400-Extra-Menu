@@ -214,7 +214,7 @@ static int live_settings(char *out,unsigned capacity) {
         return settings_unavailable("job_noncanonical",0,pid,status,done,began,out,used);
     out[used-1u]=0;return 0;
 }
-static int read_job_receipt(const struct queued *q,int *retained) {
+static int read_job_receipt(const struct queued *q,int *retained,int status) {
     int fd=open(FILM_CAPTURE_JOB_LOG,O_RDONLY|O_NOFOLLOW|O_NONBLOCK);if(fd<0)return -1;
     unsigned used=0;ssize_t n;
     while((n=read(fd,job_log+used,JOB_LOG_BYTES-used))>0) {
@@ -223,6 +223,20 @@ static int read_job_receipt(const struct queued *q,int *retained) {
     }
     close(fd);if(n<0)return -1;job_log[used]=0;
     *retained=strstr(job_log,"RAM_JOB_RETAINED ")!=NULL || strstr(job_log,"uncertain=1")!=NULL;
+    /* Preserve a bounded diagnostic before the next job reuses its log. Hex
+     * prevents child output from injecting records or terminal controls. */
+    unsigned first=used>512u?used-512u:0u;char tail[1025];
+    static const char hex[]="0123456789abcdef";
+    for(unsigned i=first;i<used;++i) {
+        unsigned char c=(unsigned char)job_log[i];
+        tail[(i-first)*2u]=hex[c>>4];tail[(i-first)*2u+1u]=hex[c&15u];
+    }
+    tail[(used-first)*2u]=0;
+    printf("FILM_CAPTURE_JOB_DIAG path=%s target=%s uptime_ms=%u exit=%d signal=%d retained=%d log_bytes=%u tail_hex=%s\n",
+           q->entry.path,q->target,(unsigned)now_ms(),
+           WIFEXITED(status)?WEXITSTATUS(status):-1,
+           WIFSIGNALED(status)?WTERMSIG(status):0,*retained,used,tail);
+    if(capture_log_bad())return -1;
     char source[40],prefix[160];if(source_path(&q->entry,source,sizeof(source)))return -1;
     snprintf(prefix,sizeof(prefix),"RAM_JOB_APPLIED source=%s target=%s ",source,q->target);
     unsigned reports=0;char *save=NULL;
@@ -278,7 +292,7 @@ static int run_job(struct queued *q,const char *settings) {
         pause_ms(10);
     }
     job_pid=0;
-    int retained=0,receipt=read_job_receipt(q,&retained);
+    int retained=0,receipt=read_job_receipt(q,&retained,status);
     if(!WIFEXITED(status) || WEXITSTATUS(status)==21 || retained ||
        !absent_file(FILM_CAPTURE_JOB_LOCK) || receipt<0)return 21;
     int rc=WEXITSTATUS(status);
@@ -289,8 +303,8 @@ static int run_job(struct queued *q,const char *settings) {
     phase="scanning";
     if(save_manifest() || unlink(FILM_CAPTURE_INFLIGHT))return 21;
     own_inflight=0;
-    printf("FILM_CAPTURE_JOB_DONE result=%d path=%s target=%s applied=%u failed=%u\n",
-           rc,q->entry.path,q->target,applied_jobs,failed_jobs);
+    printf("FILM_CAPTURE_JOB_DONE result=%d path=%s target=%s applied=%u failed=%u uptime_ms=%u\n",
+           rc,q->entry.path,q->target,applied_jobs,failed_jobs,(unsigned)now_ms());
     return 0;
 }
 static int update_queue(const struct catalogue *current) {
@@ -355,7 +369,7 @@ int main(int argc,char **argv) {
         baseline=inventory(&transport,&current);
         if(capture_log_bad()){result=21;retain_lock=1;reason="runtime_log";goto done;}
         if(baseline!=-2)break;
-        /* A complete root FFirst explicitly reported unmounted media. No
+        /* A complete native reply explicitly reported unmounted media. No
          * partial inventory is accepted as an empty baseline, and unknown
          * failures are never retried. Cold boot may precede SD readiness. */
         if((uint32_t)(now_ms()-baseline_started)>=FILM_CAPTURE_BASELINE_TIMEOUT_MS) {
@@ -427,7 +441,8 @@ int main(int argc,char **argv) {
             else {
                 snprintf(q->target,sizeof(q->target),"A:/A6400/TEST/F%07u.JPG",next_output);
                 next_output=(next_output+1u)%10000000u;
-                printf("FILM_CAPTURE_DISPATCH path=%s target=%s %s\n",q->entry.path,q->target,settings);
+                printf("FILM_CAPTURE_DISPATCH path=%s target=%s %s uptime_ms=%u\n",
+                       q->entry.path,q->target,settings,(unsigned)now_ms());
                 if(run_job(q,settings)) {
                     result=21;retain_lock=1;reason="job_uncertain";break;
                 }

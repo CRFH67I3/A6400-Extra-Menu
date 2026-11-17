@@ -193,7 +193,8 @@ def main():
             except Exception:
                 pass
 
-    senserShellCommand(driverName="libusb", complete=deploy)
+    driver_name = None if sys.platform == "win32" else "libusb"
+    senserShellCommand(driverName=driver_name, complete=deploy)
 
 
 if __name__ == "__main__":

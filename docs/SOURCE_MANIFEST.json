@@ -117,8 +117,8 @@
     },
     {
       "path": "camera/film_native_command.c",
-      "source_sha256": "fb23ca72eb1063212f615c3411572e830189db76e50080e08d983202b7bd8bc1",
-      "release_sha256": "fb23ca72eb1063212f615c3411572e830189db76e50080e08d983202b7bd8bc1",
+      "source_sha256": "e62f7d0d5c68f9633eed8c80f6043eee51e7f1fa780832ba25e4ae806d305c10",
+      "release_sha256": "e62f7d0d5c68f9633eed8c80f6043eee51e7f1fa780832ba25e4ae806d305c10",
       "release_adjustments": []
     },
     {
@@ -358,9 +358,11 @@
     },
     {
       "path": "test_film_native_command.py",
-      "source_sha256": "266f312388f144c67cd58d273bb45682fddc5b274ac0c5e59679e7d404eb37fb",
-      "release_sha256": "266f312388f144c67cd58d273bb45682fddc5b274ac0c5e59679e7d404eb37fb",
-      "release_adjustments": []
+      "source_sha256": "26f175d66e876064ecc427674e6a91da70aae2995e084fc14be106f2c3315e2e",
+      "release_sha256": "99f0b3dc08291142e7be48efce46ca1b69e6c22ea8799f263927c3b1a2e9f856",
+      "release_adjustments": [
+        "Replaced verbatim pre-execution Sony console tags in re-anchor regression fixtures with synthetic background diagnostic tags."
+      ]
     },
     {
       "path": "test_ui_trial_trace.py",

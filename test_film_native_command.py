@@ -79,6 +79,28 @@ for request in sys.stdin:
  if fault=='dies':sys.exit(0)
  if fault in ('overflow','pre_echo_then_fresh_overflow'):
   print('MON RING OVERFLOW\nMWF>',flush=True);continue
+ if fault=='overflow_between_echoes':
+  print('[IF_DB] NotLoad\n###OVERFLOW###\n'+command+'\r\nMWF>',flush=True);continue
+ if fault=='reanchor_mwf_pre_exec_error':
+  print('[SynthMgr] background async status line',flush=True)
+  print('[SynthCnt][0x1000][ERROR] AsyncBackgroundNotice : [00000001]',flush=True)
+  print('[SynthFsys][0x1000][ERROR] QueuedStatus : [00000002]',flush=True)
+  print('[MWF] background diagnostic before execution',flush=True)
+  sys.stdout.write(command+'\r\nMWF>');sys.stdout.flush();continue
+ if fault=='reanchor_absent':
+  print('[SynthFsys][0x1000][ERROR] QueuedStatus : [00000002]',flush=True)
+  sys.stdout.write(command+'\r\n[IFSYS]Can\'t open file '+command.split()[2]+'\r\nMWF>');sys.stdout.flush();continue
+ if fault=='reanchor_prefixed_chunked':
+  print('[SynthFsys][0x1000][ERROR] QueuedStatus : [00000002]',flush=True)
+  sys.stdout.write('MWF>'+command[:9]);sys.stdout.flush();time.sleep(.04)
+  sys.stdout.write(command[9:]+'\r\nMWF>');sys.stdout.flush();continue
+ if fault=='post_reanchor_error':
+  sys.stdout.write(command+'\r\nnative ERROR 0x123\r\nMWF>');sys.stdout.flush();continue
+ if fault=='reanchor_triple_echo_over_cap':
+  print('x'*30000,flush=True)
+  print(command,flush=True)
+  print('x'*34000,flush=True)
+  print(command+'\r\nMWF>',flush=True);continue
  if fault=='capacity':print('x'*33000,flush=True);continue
  if fault=='open_error':print("Can't open file "+command.split()[-1]+'\nMWF>',flush=True);continue
  if fault=='native_error':print('native ERROR 0x123\nMWF>',flush=True);continue
@@ -543,6 +565,34 @@ class FilmNativeCommandTests(unittest.TestCase):
             self.assertNotIn('NATIVE_ABSENT', r.stdout)
             self.assertNotIn('NATIVE_SENT', r.stdout)
             self.assertFalse((self.base / 'monitor.pid').exists())
+
+    def test_second_mwf_echo_reanchors_past_pre_exec_async_errors(self):
+        result = self.run_native('read', CAPTURE, fault='reanchor_mwf_pre_exec_error')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('NATIVE_RETURN operation=read reason=fresh_prompt response_bytes=4 uncertain=0',
+                      result.stdout)
+        result_abs = self.run_native('absent', TARGET, fault='reanchor_absent')
+        self.assertEqual(result_abs.returncode, 0, result_abs.stdout)
+        self.assertIn('NATIVE_ABSENT operation=absent reason=source_open_failed',
+                      result_abs.stdout)
+        result_chunk = self.run_native('read', CAPTURE, fault='reanchor_prefixed_chunked')
+        self.assertEqual(result_chunk.returncode, 0, result_chunk.stdout)
+        self.assertIn('NATIVE_RETURN operation=read reason=fresh_prompt response_bytes=4',
+                      result_chunk.stdout)
+
+    def test_post_reanchor_error_and_between_echo_overflow_still_fail_closed(self):
+        err = self.run_native('read', CAPTURE, fault='post_reanchor_error')
+        self.assertEqual(err.returncode, 1, err.stdout)
+        self.assertIn('reason=native_error', err.stdout)
+        self.assertIn('uncertain=0', err.stdout)
+        ov = self.run_native('read', CAPTURE, fault='overflow_between_echoes')
+        self.assertEqual(ov.returncode, 21, ov.stdout)
+        self.assertIn('reason=ring_overflow', ov.stdout)
+        self.assertIn('uncertain=1', ov.stdout)
+        triple = self.run_native('read', CAPTURE, fault='reanchor_triple_echo_over_cap')
+        self.assertEqual(triple.returncode, 21, triple.stdout)
+        self.assertIn('reason=response_capacity', triple.stdout)
+        self.assertIn('uncertain=1', triple.stdout)
 
 
 if __name__ == '__main__':

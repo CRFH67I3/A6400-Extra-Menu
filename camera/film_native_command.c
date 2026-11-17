@@ -204,10 +204,31 @@ static int report(int result,int uncertain,const char *reason,const char *operat
     }
     return result;
 }
+static int update_overflow(unsigned *match,unsigned char c) {
+    static const char token[]="OVERFLOW";
+    if(c==(unsigned char)token[*match])++*match;
+    else *match=c=='O'?1u:0u;
+    if(*match==sizeof(token)-1u){*match=0;return 1;}
+    return 0;
+}
+/* Real Sony mwf_monio writes our command once (`\n`) when queueing it and Sony's
+ * MWF task prints it again (`\r\n`) when starting execution; if the first echo
+ * arrived on chunk boundaries or matched before queued MWF async logs flushed,
+ * re-anchor once on the second exact echo before any closing prompt. */
+static int pending_prompt_echo(const char *buf,unsigned used,const char *command,int echoed) {
+    if(echoed!=1)return 0;
+    const char *mwf=strstr(buf,"MWF>");
+    if(!mwf || (mwf!=buf && mwf[-1]!='\n') || strchr(mwf,'\n'))return 0;
+    const char *tail=mwf+4;
+    while(tail<buf+used && (*tail==' '||*tail=='\t'))++tail;
+    size_t len=(size_t)((buf+used)-tail),cmd_len=strlen(command);
+    return len>0u && len<=cmd_len && !memcmp(tail,command,len);
+}
 static int exchange(struct transport *t,const char *command,const char *operation,int flushing,const char *absence_path,const char *read_source) {
     uint32_t start,now;unsigned used=0,received=0;size_t sent=0;
     char line[ECHO_LINE_BYTES];unsigned line_used=0,overflow_match=0;
-    int echoed=0,long_line=0;
+    unsigned resp_line_start=0,resp_overflow_match=0;
+    int echoed=0,long_line=0,resp_long_line=0,resp_overflowed=0;
     char request[512];int n=snprintf(request,sizeof(request),"%s\n",command);
     if(n<1 || (unsigned)n>=sizeof(request) || clock_ms(&start))
         return report(6,0,"before_send",operation,0);
@@ -235,12 +256,7 @@ static int exchange(struct transport *t,const char *command,const char *operatio
                      * into a failure of a command whose echo has not appeared. */
                     if(++pre_echo_received>HISTORY_BYTES-startup_received)
                         return report(21,1,"history_capacity",operation,used);
-                    static const char token[]="OVERFLOW";
-                    if(c==(unsigned char)token[overflow_match])++overflow_match;
-                    else overflow_match=c=='O'?1u:0u;
-                    if(overflow_match==sizeof(token)-1u) {
-                        ++pre_echo_overflows;overflow_match=0;
-                    }
+                    if(update_overflow(&overflow_match,c))++pre_echo_overflows;
                     if(c=='\r')continue;
                     if(c=='\n') {
                         if(!long_line && echo_line(line,line_used,command))echoed=1;
@@ -249,13 +265,37 @@ static int exchange(struct transport *t,const char *command,const char *operatio
                     else long_line=1;
                     continue;
                 }
+                if(update_overflow(&resp_overflow_match,c))resp_overflowed=1;
                 if(++received>RESPONSE_BYTES)
                     return report(21,1,"response_capacity",operation,used);
-                if(c!='\r')response[used++]=(char)c;
+                if(c=='\r')continue;
+                if(c=='\n') {
+                    if(echoed==1 && !resp_overflowed && !resp_long_line) {
+                        char saved=response[resp_line_start];
+                        response[resp_line_start]=0;
+                        int prior_prompt=strstr(response,"MWF>")!=NULL;
+                        response[resp_line_start]=saved;
+                        if(!prior_prompt &&
+                           echo_line(response+resp_line_start,used-resp_line_start,command)) {
+                            if(received>HISTORY_BYTES-startup_received-pre_echo_received)
+                                return report(21,1,"history_capacity",operation,used);
+                            pre_echo_received+=received;
+                            used=0;received=0;response[0]=0;
+                            resp_line_start=0;resp_long_line=0;echoed=2;
+                            continue;
+                        }
+                    }
+                    response[used++]=(char)c;
+                    resp_line_start=used;resp_long_line=0;
+                    continue;
+                }
+                if(used-resp_line_start>=ECHO_LINE_BYTES)resp_long_line=1;
+                response[used++]=(char)c;
             }
             response[used]=0;
-            if(strstr(response,"OVERFLOW"))return report(21,1,"ring_overflow",operation,used);
-            if(echoed && strstr(response,"MWF>")) {
+            if(resp_overflowed || strstr(response,"OVERFLOW"))
+                return report(21,1,"ring_overflow",operation,used);
+            if(echoed && !pending_prompt_echo(response,used,command,echoed) && strstr(response,"MWF>")) {
                 if(absence_path) {
                     if(!input_absent())return report(1,0,"input_not_absent",operation,used);
                     if(!absent_reply(absence_path,command))

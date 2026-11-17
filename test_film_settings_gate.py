@@ -33,8 +33,9 @@ class FilmSettingsGateTests(unittest.TestCase):
         job=Job(b'previous',b'3',b'1');settings=Settings(0,3,2,1)
         self.assertEqual(self.api(ctypes.byref(job),ctypes.byref(settings)),0)
         self.assertIsNone(job.preset);self.assertEqual(job.grain,b'')
-    def test_all_five_presets_and_effect_arguments_match_worker(self):
-        names=[b'portra_400',b'cinestill_800t',b'fuji_provia',b'kodak_gold',b'tri_x_400']
+    def test_all_ten_presets_and_effect_arguments_match_worker(self):
+        names=[b'portra_400',b'cinestill_800t',b'fuji_provia',b'kodak_gold',b'tri_x_400',
+               b'classic_chrome',b'agfa_ultra_100',b'polaroid_669',b'fuji_acros',b'polaroid_px680']
         for i,name in enumerate(names):
             for grain in range(4):
                 for halation in range(2):
@@ -43,7 +44,7 @@ class FilmSettingsGateTests(unittest.TestCase):
                     self.assertEqual((job.preset,job.grain,job.halation),
                                      (name,str(grain).encode(),str(halation).encode()))
     def test_invalid_choice_never_leaves_enabled_plan(self):
-        for settings in (Settings(2,0,0,0),Settings(1,5,0,0),Settings(1,0,4,0),Settings(1,0,0,2)):
+        for settings in (Settings(2,0,0,0),Settings(1,10,0,0),Settings(1,0,4,0),Settings(1,0,0,2)):
             job=Job(b'previous',b'3',b'1')
             self.assertEqual(self.api(ctypes.byref(job),ctypes.byref(settings)),-1)
             self.assertIsNone(job.preset)

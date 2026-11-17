@@ -37,19 +37,23 @@ unsigned film_native_view_step(struct film_native_view *v,unsigned now,
 }
 int film_native_view_row(const struct film_menu *m,unsigned row,char *out,unsigned capacity,
                          int *x,int *y,int *width,int *height) {
-    if(!m || row>=6 || !out || !capacity)return -1;
-    unsigned count=m->page==FILM_MENU_HOME?3:6;
+    if(!m || row>=7 || !out || !capacity)return -1;
+    unsigned count=m->page==FILM_MENU_HOME?3:7;
     if(row>=count){out[0]=0;return 0;}
     if(!x||!y||!width||!height)return -1;
     int n;
-    if(m->page==FILM_MENU_STOCKS) {
+    if(m->page==FILM_MENU_STOCKS || m->page==FILM_MENU_STOCKS_P2) {
         if(row<5) {
+            int stock=(m->page==FILM_MENU_STOCKS_P2?5:0)+(int)row;
             *x=76;*width=488;*y=98+(int)row*54;*height=46;
-            n=snprintf(out,capacity,"%s %s",(int)row==m->settings.stock?"*":" ",
-                       film_stock_display_name((int)row));
-        } else {
+            n=snprintf(out,capacity,"%s %s",stock==m->settings.stock?"*":" ",
+                       film_stock_display_name(stock));
+        } else if(row==5) {
             *x=404;*width=160;*y=386;*height=42;
             n=snprintf(out,capacity,"返回");
+        } else {
+            *x=76;*width=160;*y=386;*height=42;
+            n=snprintf(out,capacity,"%s",m->page==FILM_MENU_STOCKS?"下一頁 >":"< 上一頁");
         }
     } else if(row<2) {
         *x=76;*width=488;*y=row==0?106:198;*height=76;

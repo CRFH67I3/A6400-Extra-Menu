@@ -4,7 +4,7 @@
 /* Portable control/state only. The camera adapter must supply a verified native
  * display transaction and input handoff; this module never writes camera RAM. */
 struct film_settings { int enabled, stock, grain, halation; };
-enum film_menu_page { FILM_MENU_HOME, FILM_MENU_STOCKS };
+enum film_menu_page { FILM_MENU_HOME, FILM_MENU_STOCKS, FILM_MENU_STOCKS_P2 };
 enum film_menu_change {
     FILM_MENU_REDRAW = 1, FILM_MENU_OPENED = 2, FILM_MENU_CLOSED = 4,
     FILM_MENU_SETTINGS_CHANGED = 8

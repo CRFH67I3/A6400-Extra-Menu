@@ -228,7 +228,9 @@ static int live_settings(char *out,unsigned capacity) {
        at<0 || (unsigned)at+1u!=used || out[at]!='\n' || grain>3u || halation>1u)
         return settings_unavailable("job_format",0,pid,status,done,began,out,used);
     if(strcmp(preset,"portra_400") && strcmp(preset,"cinestill_800t") && strcmp(preset,"fuji_provia") &&
-       strcmp(preset,"kodak_gold") && strcmp(preset,"tri_x_400"))
+       strcmp(preset,"kodak_gold") && strcmp(preset,"tri_x_400") && strcmp(preset,"classic_chrome") &&
+       strcmp(preset,"agfa_ultra_100") && strcmp(preset,"polaroid_669") && strcmp(preset,"fuji_acros") &&
+       strcmp(preset,"polaroid_px680"))
         return settings_unavailable("job_preset",0,pid,status,done,began,out,used);
     char canonical[128];
     snprintf(canonical,sizeof(canonical),"FILM_JOB preset=%s grain=%u halation=%u\n",preset,grain,halation);

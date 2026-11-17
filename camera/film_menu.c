@@ -1,25 +1,28 @@
 #include "film_menu.h"
 
-static const char *const stock_keys[5] = {
-    "PORTRA_400", "CINESTILL_800T", "FUJI_PROVIA", "KODAK_GOLD", "TRI_X_400"
+static const char *const stock_keys[10] = {
+    "PORTRA_400", "CINESTILL_800T", "FUJI_PROVIA", "KODAK_GOLD", "TRI_X_400",
+    "CLASSIC_CHROME", "AGFA_ULTRA_100", "POLAROID_669", "FUJI_ACROS", "POLAROID_PX680"
 };
-static const char *const stock_workers[5] = {
-    "portra_400", "cinestill_800t", "fuji_provia", "kodak_gold", "tri_x_400"
+static const char *const stock_workers[10] = {
+    "portra_400", "cinestill_800t", "fuji_provia", "kodak_gold", "tri_x_400",
+    "classic_chrome", "agfa_ultra_100", "polaroid_669", "fuji_acros", "polaroid_px680"
 };
-static const char *const stock_labels[5] = {
-    "Portra 400", "CineStill 800T", "Fuji Provia", "Kodak Gold", "Tri-X 400"
+static const char *const stock_labels[10] = {
+    "Portra 400", "CineStill 800T", "Fuji Provia", "Kodak Gold", "Tri-X 400",
+    "Classic Chrome", "Agfa Ultra 100", "Polaroid 669", "Fuji Acros", "Polaroid PX680+"
 };
 static const char *const grain_keys[4] = {"OFF", "LOW", "MEDIUM", "HIGH"};
 
 static int valid(const struct film_settings *s) {
-    return s && s->enabled >= 0 && s->enabled <= 1 && s->stock >= 0 && s->stock < 5 &&
+    return s && s->enabled >= 0 && s->enabled <= 1 && s->stock >= 0 && s->stock < 10 &&
            s->grain >= 0 && s->grain < 4 && s->halation >= 0 && s->halation <= 1;
 }
 const char *film_stock_worker_name(int stock) {
-    return stock >= 0 && stock < 5 ? stock_workers[stock] : (const char *)0;
+    return stock >= 0 && stock < 10 ? stock_workers[stock] : (const char *)0;
 }
 const char *film_stock_display_name(int stock) {
-    return stock >= 0 && stock < 5 ? stock_labels[stock] : (const char *)0;
+    return stock >= 0 && stock < 10 ? stock_labels[stock] : (const char *)0;
 }
 void film_menu_init(struct film_menu *m, const struct film_settings *settings) {
     *m = (struct film_menu){0};
@@ -81,11 +84,14 @@ int film_menu_hit(int page, int x, int y) {
     if (x >= 76 && x < 564 && y >= 98 && y < 98 + 5 * 54) {
         return (y - 98) % 54 < 46 ? (y - 98) / 54 : -1;
     }
-    if (x >= 404 && x < 564 && y >= 386 && y < 428) return 5;
+    if (y >= 386 && y < 428) {
+        if (x >= 404 && x < 564) return 5;
+        if (x >= 76 && x < 236) return 6;
+    }
     return -1;
 }
 int film_menu_set_stock(struct film_menu *m, int stock) {
-    if (stock < 0 || stock >= 5) return -1;
+    if (stock < 0 || stock >= 10) return -1;
     if (m->settings.stock == stock) return 0;
     m->settings.stock = stock;
     return FILM_MENU_SETTINGS_CHANGED;
@@ -96,10 +102,16 @@ static unsigned activate(struct film_menu *m, int row) {
         if (row == 0) {
             m->settings.enabled ^= 1;
             change |= FILM_MENU_SETTINGS_CHANGED;
-        } else if (row == 1) m->page = FILM_MENU_STOCKS;
-        else if (row == 2) return film_menu_close(m);
-    } else {
-        if (row < 5) change |= (unsigned)film_menu_set_stock(m, row);
+        } else if (row == 1) {
+            m->page = m->settings.stock >= 5 ? FILM_MENU_STOCKS_P2 : FILM_MENU_STOCKS;
+        } else if (row == 2) return film_menu_close(m);
+    } else if (row == 5) {
+        m->page = FILM_MENU_HOME;
+    } else if (row == 6) {
+        m->page = m->page == FILM_MENU_STOCKS ? FILM_MENU_STOCKS_P2 : FILM_MENU_STOCKS;
+    } else if (row >= 0 && row < 5) {
+        int stock = (m->page == FILM_MENU_STOCKS_P2 ? 5 : 0) + row;
+        change |= (unsigned)film_menu_set_stock(m, stock);
         m->page = FILM_MENU_HOME;
     }
     return change;
@@ -156,7 +168,7 @@ int film_settings_parse(struct film_settings *result, const char *text, unsigned
         if (equal(text + first, split - first, "ENABLED")) {
             bit = 1; s.enabled = equal(value, n, "0") ? 0 : equal(value, n, "1") ? 1 : -1;
         } else if (equal(text + first, split - first, "STOCK")) {
-            bit = 2; s.stock = choice(value, n, stock_keys, 5);
+            bit = 2; s.stock = choice(value, n, stock_keys, 10);
         } else if (equal(text + first, split - first, "GRAIN")) {
             bit = 4; s.grain = choice(value, n, grain_keys, 4);
         } else if (equal(text + first, split - first, "HALATION")) {

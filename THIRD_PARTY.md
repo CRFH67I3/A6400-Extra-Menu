@@ -20,23 +20,12 @@
 
 MIT 完整原文與版權聲明保存在 [licenses/ivica00-MIT.txt](licenses/ivica00-MIT.txt)。原本依 MIT 取得的部分仍可按 MIT 使用，包括商用；本專案的非商業條款不會抹除這些既有權利。
 
-## 3. DevCrashDay/a6400：未附授權，不隨本倉庫散布
+## 3. Public Domain JPEG 編解碼與膠片演算法參考
 
-來源：https://github.com/DevCrashDay/a6400
-
-研究過的濾鏡分支 commit：`de73e850044da4e5872be1ee93e4dc71684f2851`。
-2026 年 11 月 15 日核對：GitHub 倉庫授權欄位為空，授權 API 未提供 LICENSE，上述 commit 的檔案樹也未見 LICENSE／COPYING／NOTICE。
-
-以下內容因此沒有收入公開版：
-
-- 上游 `ritual_daemon.c` 或其濾鏡函式。
-- 研究版本中的 `author_film.c`、`author_curves.h` 及衍生曲線資料。
-- 連入這些實作的 worker 二進位檔、參考函式與驗證圖片。
-- 上游開機 hook、原廠函式庫及套裝執行檔。
-
-這是再散布許可尚未取得的處理方式，不代表上游程式不能被閱讀。不要把 GitHub 上可看到的原始碼視為已獲准重新授權。日後若取得明確許可，應先記錄許可範圍，再加入相應檔案與授權聲明。
-
-選單保留 Portra 400、CineStill 800T、Fuji Provia、Kodak Gold、Tri-X 400 作為介面識別字；名稱不是濾鏡演算法的再散布許可。
+- **`vendor/picojpeg.c` / `vendor/picojpeg.h`**：Public Domain（Rich Geldreich）。
+- **`vendor/jpge.cpp` / `vendor/jpge.h`**：Public Domain 或 Apache 2.0（Richard Geldreich / Alex Evans）。
+- **10 款膠片濾鏡 worker（`camera/Makefile.film`、`camera/author_film.*`、`camera/author_curves.h`、`camera/author_fast_jpeg.h`、`camera/film_jpeg.cpp`）**：本專案重寫之 ARM 定點 `3×3` 色彩矩陣＋17 點 3D LUT／曲線＋粒子／暈影 JPEG 濾鏡處理器，靈感來自 **[DevCrashDay/a6400](https://github.com/DevCrashDay/a6400)** 平台與 **G'MIC** / **[YahiaAngelo/Film-Luts](https://github.com/YahiaAngelo/Film-Luts)** 膠片色彩曲線參考，現依本倉庫授權一併公開。
+- **Sony 原廠與其他研究機密**：Sony 韌體映像、`.so`／`.elf`、原廠 monitor、libc 副本、私人照片與音檔仍**不隨本倉庫散布**。
 
 ## 4. Sony 元件及私人研究資料：不隨本倉庫散布
 

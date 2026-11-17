@@ -124,7 +124,7 @@ volatile unsigned a6400_ui_stop_requested_v1;
 
 /* Decorative theme panels kept outside `ui` so the 1120-byte snapshot ABI stays exact. */
 static struct {
-    void *card_border, *card_panel, *header_accent, *header_divider;
+    void *card_border, *card_panel, *header_accent, *header_divider, *page_btn;
     void *row_accents[6];
 } ui_theme;
 
@@ -220,10 +220,11 @@ static void draw(void *unused,const struct film_menu *menu) {
         if(used<=0){ui.texts[row+1][0]=0;w=h=0;}
         record("ROW_PANEL_GEOMETRY",row,used);
         place(ui.panels[row],0,x,y,w,h);
-        int is_dismiss=(menu->page==FILM_MENU_HOME && row==2) ||
-                       (menu->page==FILM_MENU_STOCKS && row==5);
+        int stocks_page=(menu->page==FILM_MENU_STOCKS || menu->page==FILM_MENU_STOCKS_P2);
+        int stock_idx=(menu->page==FILM_MENU_STOCKS_P2?5:0)+(int)row;
+        int is_dismiss=(menu->page==FILM_MENU_HOME && row==2) || (stocks_page && row==5);
         int is_active=(menu->page==FILM_MENU_HOME && row==0 && menu->settings.enabled) ||
-                      (menu->page==FILM_MENU_STOCKS && (int)row==menu->settings.stock);
+                      (stocks_page && row<5 && stock_idx==menu->settings.stock);
         const unsigned char *panel_color=row_plain;
         if(menu->selected==(int)row)panel_color=is_dismiss?pill_pressed:row_pressed;
         else if(is_dismiss)panel_color=pill_plain;
@@ -245,6 +246,17 @@ static void draw(void *unused,const struct film_menu *menu) {
         ui.set_text(ui.labels[row+1],ui.texts[row+1]);
         record("ROW_TEXT_AFTER",row,0);
     }
+    int px=0,py=0,pw=0,ph=0;
+    if(film_native_view_row(menu,6,ui.texts[7],sizeof(ui.texts[0]),&px,&py,&pw,&ph)>0) {
+        place(ui_theme.page_btn,0,px,py,pw,ph);
+        ui.set_color(ui_theme.page_btn,menu->selected==6?pill_pressed:pill_plain);
+        place(ui.labels[7],1,px+16,py+6,pw>32?pw-32:0,ph>12?ph-12:0);
+    } else {
+        place(ui_theme.page_btn,0,0,0,0,0);
+        snprintf(ui.texts[7],sizeof(ui.texts[0]),"%s","MENU + 放大鏡");
+        place(ui.labels[7],1,76,394,312,28);
+    }
+    ui.set_text(ui.labels[7],ui.texts[7]);
     record("FILM_DRAW",menu->page,menu->selected);
 }
 static void settings(void *unused,const struct film_settings *s) {
@@ -473,6 +485,8 @@ int a6400_ui_attach_v1(void *system,unsigned tid) {
         ui_theme.row_accents[i]=make(0);
         if(!ui.panels[i] || !ui_theme.row_accents[i])return -5;
     }
+    ui_theme.page_btn=make(0);
+    if(!ui_theme.page_btn)return -5;
     for(unsigned i=0;i<8;i++){ui.labels[i]=make(1);if(!ui.labels[i])return -5;}
     strcpy(ui.texts[0],"A6400 V3 CLite  |  關閉");
 #ifdef A6400_UI_SETTINGS_DIAGNOSTIC

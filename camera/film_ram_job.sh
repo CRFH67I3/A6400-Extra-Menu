@@ -308,7 +308,7 @@ read_settings() {
     setting_grain=${3#grain=}
     setting_halation=${4#halation=}
     test "$SETTING_LINE" = "FILM_JOB preset=$setting_preset grain=$setting_grain halation=$setting_halation" || return 11
-    case "$setting_preset" in portra_400|cinestill_800t|fuji_provia|kodak_gold|tri_x_400) ;; *) return 11;; esac
+    case "$setting_preset" in portra_400|cinestill_800t|fuji_provia|kodak_gold|tri_x_400|classic_chrome|agfa_ultra_100|polaroid_669|fuji_acros|polaroid_px680) ;; *) return 11;; esac
     case "$setting_grain:$setting_halation" in [0-3]:[01]) ;; *) return 11;; esac
     return 0
 }

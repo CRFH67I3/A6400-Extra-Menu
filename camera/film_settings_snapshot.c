@@ -23,7 +23,7 @@ int film_settings_snapshot_get(struct film_settings *out,const void *first,
         if(word(first,fixed[i])!=word(second,fixed[i]))return 2;
     if(word(second,0x68)!=0x956f0 || word(second,0xc0)!=380 ||
        word(second,0x18c)!=1)return -1;
-    static const unsigned maximum[4]={1,4,3,1};
+    static const unsigned maximum[4]={1,9,3,1};
     for(unsigned i=0;i<4;i++)if(word(second,i*4)>maximum[i])return -1;
     if(word(second,0x190)!=1 || !word(second,0xc4) ||
 #if !FILM_SETTINGS_PERSISTENT

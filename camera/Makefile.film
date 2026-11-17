@@ -1,0 +1,47 @@
+ifeq ($(HOST),1)
+CC := cc
+CXX := c++
+BUILD := film-build-host
+TARGET := host/film_jpeg
+COMMON := -O2 -DA6400_FILM_HOST -Wall -Wextra -Werror
+LINK :=
+RUNTIME :=
+else
+CC := arm-linux-gnueabihf-gcc
+CXX := arm-linux-gnueabihf-g++
+BUILD := film-build-arm
+TARGET := film_jpeg.elf
+COMMON := -Os -mcpu=cortex-a5 -mfpu=vfpv3-d16 -mfloat-abi=hard -ffreestanding -fno-builtin -fno-stack-protector -ffunction-sections -fdata-sections -fno-pie -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -Wall -Wextra -Werror
+LINK := -nostdlib -static -no-pie -Wl,--gc-sections -Wl,-s -Wl,-e,_start
+RUNTIME := $(BUILD)/rt.o
+endif
+ifeq ($(JOB),1)
+COMMON += -DA6400_FILM_JOB
+ifeq ($(HOST),1)
+BUILD := film-build-job-host
+TARGET := host/film_job
+else
+BUILD := film-build-job
+TARGET := film_job.elf
+RUNTIME := $(BUILD)/rt.o
+endif
+endif
+CFLAGS := $(COMMON) -std=c11
+CXXFLAGS := $(COMMON) -std=c++11 -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+OBJECTS := $(BUILD)/film_jpeg.o $(BUILD)/author_film.o $(BUILD)/picojpeg.o $(BUILD)/jpge.o $(RUNTIME)
+.PHONY: all
+all: $(TARGET)
+$(TARGET): $(OBJECTS)
+	$(CXX) $(LINK) $^ $(if $(RUNTIME),-lgcc,) -o $@
+$(BUILD):
+	mkdir -p $@
+$(BUILD)/film_jpeg.o: film_jpeg.cpp author_film.h author_fast_jpeg.h film_paths.h rt.h host/film_rt.h jpeg_frame.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+$(BUILD)/author_film.o: author_film.c author_film.h author_curves.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+$(BUILD)/picojpeg.o: ../vendor/picojpeg.c ../vendor/picojpeg.h | $(BUILD)
+	$(CC) $(CFLAGS) -Wno-unused-parameter -Wno-unused-function -Wno-unused-variable -Wno-unused-but-set-variable -c $< -o $@
+$(BUILD)/jpge.o: ../vendor/jpge.cpp ../vendor/jpge.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+$(BUILD)/rt.o: rt.c rt.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@

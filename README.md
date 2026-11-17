@@ -23,8 +23,9 @@
 
 ## 這個版本包含甚麼？
 
-- **A6400 V3 CLite 自製選單**：採用半透明深色浮動卡片、頂部 Sony Alpha 橘條與繁體中文介面，含觸控命中判斷、無限重複召喚與右下角獨立 `關閉`／`返回` 按鈕。
-- **LUT 與膠片設定保留**：支援 `LUT 濾鏡: 開啟／關閉`、5 款 `膠片風格` 選擇（`Portra 400`、`CineStill 800T`、`Fuji Provia`、`Kodak Gold`、`Tri-X 400`）與暖琥珀／橘金狀態高亮；關閉選單不影響已開啟的 LUT。
+- **A6400 V3 CLite 雙頁自製選單**：採用半透明深色浮動卡片、頂部 Sony Alpha 橘條與繁體中文介面，含觸控命中判斷、無限重複召喚與右下角獨立 `關閉`／`返回` 按鈕，並支援雙頁切換（`下一頁 >` / `< 上一頁`）。
+- **10 款開源膠片 LUT 濾鏡引擎**：隨本倉庫完整開源 `camera/Makefile.film`、`author_film.c`、`author_curves.h`、`author_fast_jpeg.h`、`film_jpeg.cpp` 與 Public Domain 的 `picojpeg`/`jpge`，支援 `Portra 400`、`CineStill 800T`、`Fuji Provia`、`Kodak Gold`、`Tri-X 400`、`Classic Chrome`、`Agfa Ultra 100`、`Polaroid 669`、`Fuji Acros`、`Polaroid PX680+`（含暖琥珀／橘金狀態高亮；關閉選單不影響已開啟的 LUT）。
+- **AI 一鍵編譯與 PMCA 部署工具**：提供 [`tools/build_v3_clite.sh`](tools/build_v3_clite.sh) 與 [`tools/pmca_deploy_v3_clite.py`](tools/pmca_deploy_v3_clite.py)，配合 [部署與操作規範](docs/部署與操作規範.md) 讓任何 AI 皆可一鍵編譯、雜湊驗證、自動備份並部署到目標 A6400。
 - **設定讀取與套件安全檢查**：包含 1120-byte snapshot ABI 驗證、背景派工條件、只讀設定 CLI，以及套件建置期對 `a6400-film-ram-job.sh` 內部雜湊的強制一致性防呆。
 - **照片掃描與原生檔案協調**：支援僅掃描最新 DCF 目錄、`mmc0` 中斷觸發（排除 `emmc0`）、動態解析 SD 卡 `B:`／`A:` 磁碟代號，以及寫回、強制 `flush` 與讀回解碼驗證。
 - **原生 UI 接駁與建置工具**：研究用載入保護（含瞬時執行緒變動重試）、`--gc-sections` 體積精簡建置與套件組裝腳本。

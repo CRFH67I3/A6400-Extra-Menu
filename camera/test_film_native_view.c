@@ -5,19 +5,20 @@
 
 static unsigned now, drawings, visibility_calls, persistence;
 static int visible;
-static char labels[6][80];
+static char labels[7][80];
 static struct film_settings saved;
 static void show(void *p, int active) {
     (void)p; visible=active; ++visibility_calls;
 }
 static void draw(void *p,const struct film_menu *m) {
     (void)p; ++drawings;
-    for(unsigned i=0;i<6;i++) {
+    for(unsigned i=0;i<7;i++) {
         char text[80];int x,y,w,h;
         int used=film_native_view_row(m,i,text,sizeof(text),&x,&y,&w,&h);
         assert(used>=0);
         if(used)assert((x==76 && w==488 && y>=98 && y+h<=380) ||
-                       (x==404 && w==160 && y==386 && h==42));
+                       (x==404 && w==160 && y==386 && h==42) ||
+                       (x==76 && w==160 && y==386 && h==42));
         strcpy(labels[i],used?text:"");
     }
 }
@@ -58,13 +59,18 @@ int main(void) {
     assert(!strcmp(labels[0],"* Portra 400"));
     tap(&v,120,220);assert(v.menu.page==FILM_MENU_HOME && v.menu.settings.stock==2);
     assert(persistence==2 && saved.stock==2);
+    tap(&v,80,220);assert(v.menu.page==FILM_MENU_STOCKS);
+    tap(&v,120,405);assert(v.menu.page==FILM_MENU_STOCKS_P2);
+    assert(!strcmp(labels[0],"  Classic Chrome"));
+    tap(&v,120,115);assert(v.menu.page==FILM_MENU_HOME && v.menu.settings.stock==5);
+    assert(persistence==3 && saved.stock==5);
     tick(&v,0,0,1,6,0,0);assert(!visible && !v.menu.visible);
-    chord(&v);assert(visible && v.menu.settings.enabled && v.menu.settings.stock==2);
+    chord(&v);assert(visible && v.menu.settings.enabled && v.menu.settings.stock==5);
     tap(&v,480,405);assert(!visible && !v.menu.visible);
     chord(&v);assert(visible);
     tick(&v,0,0,0,5,80,140); /* Incomplete gesture followed by invalid input. */
-    tick(&v,0,0,0,0,80,140);assert(!visible && persistence==2);
-    film_native_view_hide(&v);assert(!visible && persistence==2);
-    assert(film_native_view_row(&v.menu,6,labels[0],80,0,0,0,0)==-1);
+    tick(&v,0,0,0,0,80,140);assert(!visible && persistence==3);
+    film_native_view_hide(&v);assert(!visible && persistence==3);
+    assert(film_native_view_row(&v.menu,7,labels[0],80,0,0,0,0)==-1);
     puts("NATIVE_FILM_VIEW_OK");
 }

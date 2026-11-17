@@ -14,10 +14,12 @@ static void chord(struct film_menu *m) {
     for (int i = 0; i < 7; ++i) sample(m, 1, 1, 0);
 }
 static unsigned tap(struct film_menu *m, int row) {
-    int is_dismiss = (m->page == FILM_MENU_HOME && row == 2) ||
-                     (m->page == FILM_MENU_STOCKS && row == 5);
+    int stocks_page = m->page == FILM_MENU_STOCKS || m->page == FILM_MENU_STOCKS_P2;
+    int is_dismiss = (m->page == FILM_MENU_HOME && row == 2) || (stocks_page && row == 5);
+    int is_pager = stocks_page && row == 6;
     int x = is_dismiss ? 480 : 120;
-    int y = is_dismiss ? 405 : (m->page == FILM_MENU_HOME ? (row == 0 ? 140 : 230) : 98 + row * 54 + 20);
+    int y = (is_dismiss || is_pager) ? 405 :
+            (m->page == FILM_MENU_HOME ? (row == 0 ? 140 : 230) : 98 + row * 54 + 20);
     film_menu_touch(m, now += 20, 0, 32767, 32767);
     film_menu_touch(m, now += 20, 1, x, y);
     return film_menu_touch(m, now += 20, 0, 32767, 32767);
@@ -78,16 +80,25 @@ int main(void) {
     film_menu_touch(&m, now += 20, 1, 100, 300);
     film_menu_touch(&m, now += 20, 0, 32767, 32767);
     assert(m.settings.enabled);
-    for (int stock = 0; stock < 5; ++stock) {
-        tap(&m, 1); assert(m.page == FILM_MENU_STOCKS);
-        tap(&m, stock); assert(m.settings.stock == stock);
+    for (int stock = 0; stock < 10; ++stock) {
+        tap(&m, 1);
+        if (stock < 5) {
+            if (m.page == FILM_MENU_STOCKS_P2) tap(&m, 6);
+            assert(m.page == FILM_MENU_STOCKS);
+            tap(&m, stock);
+        } else {
+            if (m.page == FILM_MENU_STOCKS) tap(&m, 6);
+            assert(m.page == FILM_MENU_STOCKS_P2);
+            tap(&m, stock - 5);
+        }
+        assert(m.settings.stock == stock && m.page == FILM_MENU_HOME);
     }
-    assert(strcmp(film_stock_worker_name(m.settings.stock), "tri_x_400") == 0);
-    assert(film_stock_worker_name(-1) == NULL && film_stock_worker_name(5) == NULL);
+    assert(strcmp(film_stock_worker_name(m.settings.stock), "polaroid_px680") == 0);
+    assert(film_stock_worker_name(-1) == NULL && film_stock_worker_name(10) == NULL);
     chord(&m); assert(!m.visible); chord(&m); assert(m.visible);
     /* All real persisted choices round-trip, independent of menu visibility. */
     for (int enabled = 0; enabled < 2; ++enabled)
-        for (int stock = 0; stock < 5; ++stock)
+        for (int stock = 0; stock < 10; ++stock)
             for (int grain = 0; grain < 4; ++grain)
                 for (int halo = 0; halo < 2; ++halo) {
                     struct film_settings a = {enabled, stock, grain, halo}, b = {0};
@@ -109,7 +120,7 @@ int main(void) {
         assert(memcmp(&a, &before, sizeof a) == 0);
     }
     before = m.settings;
-    assert(film_menu_set_stock(&m, 5) < 0);
+    assert(film_menu_set_stock(&m, 10) < 0);
     assert(memcmp(&m.settings, &before, sizeof before) == 0);
     puts("FILM_MENU_TESTS_OK persistence=80 presets=5 chord=repeatable hidden_input=untouched");
     return 0;

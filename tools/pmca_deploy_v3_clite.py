@@ -194,7 +194,21 @@ def main():
                 pass
 
     driver_name = None if sys.platform == "win32" else "libusb"
-    senserShellCommand(driverName=driver_name, complete=deploy)
+    try:
+        senserShellCommand(driverName=driver_name, complete=deploy)
+    except Exception as exc:
+        if sys.platform == "win32" and ("GenericUsbException" in type(exc).__name__ or "libusb" in repr(exc).lower() or "usb" in repr(exc).lower()):
+            print(
+                "\n[!] Windows USB 驅動被原廠 wpdmtp/MTP 獨佔，無法直接開啟 PMCA Service Shell。\n"
+                "請依以下 3 步使用 Zadig (https://zadig.akeo.ie/) 替換驅動後重跑：\n"
+                "  1. 相機保持開機並切為 Mass Storage（大容量儲存）模式接上電腦\n"
+                "  2. 以系統管理員執行 Zadig -> Options -> List All Devices -> 選取 ILCE-6400 (或 Sony DSC)\n"
+                "  3. 將右側驅動改選為 libusb-win32（若失敗改 WinUSB）-> 點擊 Replace Driver，完成後重跑本腳本！\n"
+                f"原始錯誤：{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        raise
 
 
 if __name__ == "__main__":

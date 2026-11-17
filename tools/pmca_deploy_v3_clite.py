@@ -54,6 +54,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("package_dir", help="Path to local-boot-package directory")
     parser.add_argument("--pmca-dir", default="", help="Path to Sony-PMCA-RE checkout")
+    parser.add_argument(
+        "--install-hook",
+        default="",
+        help="Optional path to a6400-autoexec.so for fresh cameras without /etc/ld.so.preload",
+    )
     args = parser.parse_args()
 
     pkg = Path(args.package_dir).resolve()
@@ -62,6 +67,8 @@ def main():
     boot_tar = pkg / "persistent/a6400-film-boot-v15.tar"
     boot_sh_sha = hashlib.sha256(boot_sh.read_bytes()).hexdigest()
     boot_tar_sha = hashlib.sha256(boot_tar.read_bytes()).hexdigest()
+    hook_path = Path(args.install_hook).resolve() if args.install_hook else None
+    hook_sha = hashlib.sha256(hook_path.read_bytes()).hexdigest() if hook_path else ""
 
     entry_shas = []
     with tarfile.open(boot_tar, "r") as tf:
@@ -74,6 +81,8 @@ def main():
     with tarfile.open(fileobj=buf, mode="w:gz") as tgz:
         tgz.add(boot_sh, arcname="new-autoexec.sh")
         tgz.add(boot_tar, arcname="new-boot.tar")
+        if hook_path:
+            tgz.add(hook_path, arcname="new-autoexec.so")
     tgz_bytes = buf.getvalue()
     tgz_sha = hashlib.sha256(tgz_bytes).hexdigest()
 
@@ -89,16 +98,18 @@ def main():
         except Exception:
             pass
         try:
-            pre = must_cmd(
-                cam,
-                "/bin/busybox cat /etc/ld.so.preload && /bin/busybox ls -la /tmp/a6400-autoexec.so",
-                "CHECK_PRELOAD",
-            )
-            if "/tmp/a6400-autoexec.so" not in pre:
-                raise RuntimeError("Existing /etc/ld.so.preload + /tmp/a6400-autoexec.so hook required")
+            if not hook_path:
+                pre = must_cmd(
+                    cam,
+                    "/bin/busybox cat /etc/ld.so.preload && /bin/busybox ls -la /tmp/a6400-autoexec.so",
+                    "CHECK_PRELOAD",
+                )
+                if "/tmp/a6400-autoexec.so" not in pre:
+                    raise RuntimeError("Existing /etc/ld.so.preload + /tmp/a6400-autoexec.so hook required (or pass --install-hook)")
 
             must_cmd(
                 cam,
+                "test ! -f /etc/ld.so.preload || test -f /tmp/ld.so.preload.pre-v3c-backup || /bin/busybox cp -p /etc/ld.so.preload /tmp/ld.so.preload.pre-v3c-backup; "
                 "test ! -f /tmp/autoexec.sh || test -f /tmp/autoexec.sh.pre-v3c-backup || /bin/busybox cp -p /tmp/autoexec.sh /tmp/autoexec.sh.pre-v3c-backup; "
                 "test ! -f /tmp/a6400-film-boot-v15.tar || test -f /tmp/a6400-film-boot-v15.tar.pre-v3c-backup || /bin/busybox cp -p /tmp/a6400-film-boot-v15.tar /tmp/a6400-film-boot-v15.tar.pre-v3c-backup; "
                 "/bin/busybox sync",
@@ -120,12 +131,14 @@ def main():
                 'D=/tmp_bt/v3c_up; /bin/busybox base64 -d "$D/up.b64" > "$D/up.tgz" && '
                 '/bin/busybox sha256sum "$D/up.tgz" && /bin/busybox tar -xzf "$D/up.tgz" -C "$D" && '
                 'rm -f "$D/up.b64" "$D/up.tgz" && /bin/sh -n "$D/new-autoexec.sh" && '
-                '/bin/busybox sha256sum "$D/new-autoexec.sh" "$D/new-boot.tar"',
+                '/bin/busybox sha256sum "$D/new-autoexec.sh" "$D/new-boot.tar"' + (' "$D/new-autoexec.so"' if hook_path else ''),
                 "VERIFY_UPLOAD",
                 timeout=20.0,
             )
             if tgz_sha not in unpack or boot_sh_sha not in unpack or boot_tar_sha not in unpack:
                 raise RuntimeError("uploaded SHA mismatch")
+            if hook_path and hook_sha not in unpack:
+                raise RuntimeError("uploaded hook SHA mismatch")
 
             for name, exp_sha in entry_shas:
                 r = must_cmd(
@@ -136,9 +149,18 @@ def main():
                 if exp_sha not in r:
                     raise RuntimeError(f"entry {name} SHA mismatch")
 
+            install_hook_cmd = ""
+            if hook_path:
+                install_hook_cmd = (
+                    '"$BB" cp "$D/new-autoexec.so" /tmp/a6400-autoexec.so.new && '
+                    '"$BB" chmod 755 /tmp/a6400-autoexec.so.new && "$BB" sync && '
+                    '"$BB" mv /tmp/a6400-autoexec.so.new /tmp/a6400-autoexec.so && '
+                )
+
             must_cmd(
                 cam,
                 'BB=/bin/busybox; D=/tmp_bt/v3c_up; '
+                + install_hook_cmd +
                 '"$BB" cp "$D/new-boot.tar" /tmp/a6400-film-boot-v15.tar.new && '
                 '"$BB" chmod 644 /tmp/a6400-film-boot-v15.tar.new && "$BB" sync && '
                 '"$BB" mv /tmp/a6400-film-boot-v15.tar.new /tmp/a6400-film-boot-v15.tar && '
@@ -149,12 +171,20 @@ def main():
                 "ATOMIC_INSTALL",
                 timeout=20.0,
             )
+            if hook_path:
+                must_cmd(
+                    cam,
+                    'printf "/tmp/a6400-autoexec.so\\n" > /etc/ld.so.preload.new && '
+                    '/bin/busybox chmod 644 /etc/ld.so.preload.new && /bin/busybox sync && '
+                    '/bin/busybox mv /etc/ld.so.preload.new /etc/ld.so.preload && /bin/busybox sync',
+                    "INSTALL_PRELOAD",
+                )
             final = must_cmd(
                 cam,
-                "/bin/busybox sha256sum /tmp/autoexec.sh /tmp/a6400-film-boot-v15.tar",
+                "/bin/busybox sha256sum /tmp/autoexec.sh /tmp/a6400-film-boot-v15.tar" + (" /tmp/a6400-autoexec.so" if hook_path else ""),
                 "FINAL_SHA",
             )
-            if boot_sh_sha not in final or boot_tar_sha not in final:
+            if boot_sh_sha not in final or boot_tar_sha not in final or (hook_path and hook_sha not in final):
                 raise RuntimeError("final SHA mismatch")
             print(f"V3_CLITE_DEPLOY_OK package={manifest['package_id']}", flush=True)
         finally:

@@ -16,6 +16,8 @@ APPROVED_IMAGES = {
         'd275d4e16da33c06a73d9a488f0e4a7125397287f95d577254370da594606116',
     'docs/images/a6400-extra-menu-v0-early.jpg':
         '5eb2ea263806f734d6778e649011617d8f75368303911441b360bc5d92aca1ee',
+    'docs/images/community-a7r4a-film-menu.jpg':
+        'cd2925fcb4e14945df6ae9b0b6e97c13c6ff7df218fb3016ad74a8f4415c0e3d',
 }
 FORBIDDEN_SUFFIXES = {
     '.elf', '.so', '.dylib', '.o', '.a', '.bin', '.dump', '.req',

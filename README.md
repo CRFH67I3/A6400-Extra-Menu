@@ -1,14 +1,21 @@
 # A6400 Extra-Menu
 
-![A6400 機身顯示自製觸控選單，包含 LUT 開關、Film 選擇與 Close](docs/images/a6400-extra-menu-camera.jpg)
+![A6400 V3 CLite 機身實拍：半透明深色浮動卡片、頂部 Sony Alpha 橘條與繁體中文介面](docs/images/a6400-extra-menu-v3-clite.jpg)
 
-*開發中的 A6400 自製觸控選單實機展示。*
+*最新版 **V3 CLite** 實機選單展示（半透明深色浮動卡片、Sony Alpha 橘金狀態高亮與繁體中文介面）。*
 
 以 **MENU＋放大鏡** 召喚自製觸控選單，在相機上管理 LUT 開關和 Film 選項的研究專案。
 
 **本專案仍在持續開發與更新，目前處於實驗階段。** 選單操作、LUT 管理與拍攝後處理會隨實機驗證逐步完善；已驗證的功能、已知限制及待完成項目會同步更新在下方的「實際進度」與 [功能狀態](docs/功能狀態.md) 中。
 
 主要文件使用繁體中文。本專案採 **PolyForm Noncommercial 1.0.0**：允許在授權範圍內免費研究、使用、修改與分享，商業用途須另取得相關權利人的授權。這是**非商業用途的公開原始碼專案（source-available）**，不是 OSI 定義的開源軟件。正式條款見 [LICENSE](LICENSE)，中文重點見 [授權說明](docs/授權說明.md)。
+
+## 外觀版本對照
+
+| 版本 | 說明與實機畫面 |
+| --- | --- |
+| **V3 CLite（最新版）** | 半透明深色浮動卡片（可隱約保留背後取景畫面）、頂部 Sony Alpha 橘條、`LUT 濾鏡` 開啟與目前選中 `膠片風格` 橘金側條高亮、右下角獨立 `關閉`／`返回` 按鈕，並以繁體中文顯示。<br><img src="docs/images/a6400-extra-menu-v3-clite.jpg" alt="A6400 V3 CLite 最新版繁體中文半透明浮動卡片選單" width="460"> |
+| **V1 Beta（早期初版）** | 早期實機驗證版本，採全屏深色不透明背景、等寬純英文條狀按鈕（`LUT: ON/OFF`、`Film`、`Close`）。<br><img src="docs/images/a6400-extra-menu-camera.jpg" alt="A6400 V1 Beta 早期實機觸控選單" width="460"> |
 
 ## 這個版本包含甚麼？
 

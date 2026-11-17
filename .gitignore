@@ -32,8 +32,9 @@ local-inputs/
 *.wma
 *.cube
 
-# 使用者指定公開的首頁實機展示照（僅此檔案）
+# 使用者指定公開的實機展示照（僅此二檔案）
 !docs/images/a6400-extra-menu-camera.jpg
+!docs/images/a6400-extra-menu-v3-clite.jpg
 
 # 本地編譯與 Python 暫存
 build/

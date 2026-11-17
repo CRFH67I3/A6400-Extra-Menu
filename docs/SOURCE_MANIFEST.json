@@ -393,8 +393,14 @@
     {
       "path": "docs/images/a6400-extra-menu-camera.jpg",
       "release_sha256": "d689dc9801bdefaf1c4711665278e28baba223e9b700a2e6e04dbcf94c91b04d",
-      "approval": "Explicit user request on 2026-11-15 for the GitHub README showcase",
+      "approval": "Explicit user request on 2026-11-15 for the GitHub README showcase (labeled V1 Beta on 2026-11-17)",
       "processing": "Resized to 1600x1200; EXIF, GPS and other image metadata removed; original private photo not published"
+    },
+    {
+      "path": "docs/images/a6400-extra-menu-v3-clite.jpg",
+      "release_sha256": "d275d4e16da33c06a73d9a488f0e4a7125397287f95d577254370da594606116",
+      "approval": "Explicit user request on 2026-11-17 for the GitHub README V3 CLite showcase",
+      "processing": "Kept at 1024x768; EXIF/APP1 and other image metadata removed; original private photo not published"
     }
   ]
 }

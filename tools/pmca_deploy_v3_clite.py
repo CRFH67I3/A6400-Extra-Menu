@@ -90,7 +90,10 @@ def main():
         sys.path.insert(0, str(Path(args.pmca_dir).resolve()))
     from pmca.commands.usb import senserShellCommand
 
+    deploy_ok = False
+
     def deploy(cam):
+        nonlocal deploy_ok
         cam.setTerminalEnable(True)
         time.sleep(0.6)
         try:
@@ -187,28 +190,40 @@ def main():
             if boot_sh_sha not in final or boot_tar_sha not in final or (hook_path and hook_sha not in final):
                 raise RuntimeError("final SHA mismatch")
             print(f"V3_CLITE_DEPLOY_OK package={manifest['package_id']}", flush=True)
+            deploy_ok = True
         finally:
             try:
                 cam.setTerminalEnable(False)
             except Exception:
                 pass
 
-    driver_name = None if sys.platform == "win32" else "libusb"
-    try:
-        senserShellCommand(driverName=driver_name, complete=deploy)
-    except Exception as exc:
-        if sys.platform == "win32" and ("GenericUsbException" in type(exc).__name__ or "libusb" in repr(exc).lower() or "usb" in repr(exc).lower()):
+    def print_usb_help(exc=None):
+        if sys.platform == "win32":
             print(
-                "\n[!] Windows USB 驅動被原廠 wpdmtp/MTP 獨佔，無法直接開啟 PMCA Service Shell。\n"
-                "請依以下 3 步使用 Zadig (https://zadig.akeo.ie/) 替換驅動後重跑：\n"
+                "\n[!] 尚未完成部署：相機未切為 Mass Storage 模式，或 Windows USB 驅動尚未改為 libusb。\n"
+                "請依以下 3 步確認後重跑：\n"
                 "  1. 相機保持開機並切為 Mass Storage（大容量儲存）模式接上電腦\n"
-                "  2. 以系統管理員執行 Zadig -> Options -> List All Devices -> 選取 ILCE-6400 (或 Sony DSC)\n"
-                "  3. 將右側驅動改選為 libusb-win32（若失敗改 WinUSB）-> 點擊 Replace Driver，完成後重跑本腳本！\n"
-                f"原始錯誤：{type(exc).__name__}: {exc}",
+                "  2. 以系統管理員執行 Zadig (https://zadig.akeo.ie/) -> Options -> List All Devices -> 選取 ILCE-6400 (或 Sony DSC)\n"
+                "  3. 將右側驅動改選為 libusb-win32（若失敗改 WinUSB）-> 點擊 Replace Driver，完成後重跑本腳本！",
                 file=sys.stderr,
             )
-            sys.exit(1)
-        raise
+        else:
+            print(
+                "\n[!] 尚未完成部署：請確認相機已切為 Mass Storage（大容量儲存）模式並接上 USB（Linux 若無權限請加 sudo）。",
+                file=sys.stderr,
+            )
+        if exc is not None:
+            print(f"原始錯誤：{type(exc).__name__}: {exc}", file=sys.stderr)
+
+    try:
+        senserShellCommand(driverName="libusb", complete=deploy)
+    except Exception as exc:
+        print_usb_help(exc)
+        sys.exit(1)
+
+    if not deploy_ok:
+        print_usb_help()
+        sys.exit(1)
 
 
 if __name__ == "__main__":

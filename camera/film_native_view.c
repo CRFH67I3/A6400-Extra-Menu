@@ -41,14 +41,23 @@ int film_native_view_row(const struct film_menu *m,unsigned row,char *out,unsign
     unsigned count=m->page==FILM_MENU_HOME?3:6;
     if(row>=count){out[0]=0;return 0;}
     if(!x||!y||!width||!height)return -1;
-    *x=28;*width=584;
-    *y=(m->page==FILM_MENU_HOME?116:88)+(int)row*(m->page==FILM_MENU_HOME?80:56);
-    *height=m->page==FILM_MENU_HOME?60:48;
     int n;
-    if(m->page==FILM_MENU_STOCKS)
-        n=snprintf(out,capacity,"%s",row<5?film_stock_display_name((int)row):"Back");
-    else if(row==0)n=snprintf(out,capacity,"LUT: %s",m->settings.enabled?"ON":"OFF");
-    else if(row==1)n=snprintf(out,capacity,"Film: %s",film_stock_display_name(m->settings.stock));
-    else n=snprintf(out,capacity,"Close");
+    if(m->page==FILM_MENU_STOCKS) {
+        if(row<5) {
+            *x=76;*width=488;*y=98+(int)row*54;*height=46;
+            n=snprintf(out,capacity,"%s %s",(int)row==m->settings.stock?"*":" ",
+                       film_stock_display_name((int)row));
+        } else {
+            *x=404;*width=160;*y=386;*height=42;
+            n=snprintf(out,capacity,"返回");
+        }
+    } else if(row<2) {
+        *x=76;*width=488;*y=row==0?106:198;*height=76;
+        if(row==0)n=snprintf(out,capacity,"LUT 濾鏡: %s",m->settings.enabled?"開啟":"關閉");
+        else n=snprintf(out,capacity,"膠片風格: %s",film_stock_display_name(m->settings.stock));
+    } else {
+        *x=404;*width=160;*y=386;*height=42;
+        n=snprintf(out,capacity,"關閉");
+    }
     return n>=0 && (unsigned)n<capacity?1:-1;
 }

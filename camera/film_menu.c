@@ -70,13 +70,19 @@ unsigned film_menu_input(struct film_menu *m, unsigned now, int menu, int zoom, 
     return FILM_MENU_OPENED | FILM_MENU_REDRAW;
 }
 int film_menu_hit(int page, int x, int y) {
-    if (x < 28 || x >= 612) return -1;
-    int first = page == FILM_MENU_HOME ? 116 : 88;
-    int step = page == FILM_MENU_HOME ? 80 : 56;
-    int height = page == FILM_MENU_HOME ? 60 : 48;
-    int count = page == FILM_MENU_HOME ? 3 : 6;
-    if (y < first || y >= first + count * step) return -1;
-    return (y - first) % step < height ? (y - first) / step : -1;
+    if (page == FILM_MENU_HOME) {
+        if (x >= 76 && x < 564) {
+            if (y >= 106 && y < 182) return 0;
+            if (y >= 198 && y < 274) return 1;
+        }
+        if (x >= 404 && x < 564 && y >= 386 && y < 428) return 2;
+        return -1;
+    }
+    if (x >= 76 && x < 564 && y >= 98 && y < 98 + 5 * 54) {
+        return (y - 98) % 54 < 46 ? (y - 98) / 54 : -1;
+    }
+    if (x >= 404 && x < 564 && y >= 386 && y < 428) return 5;
+    return -1;
 }
 int film_menu_set_stock(struct film_menu *m, int stock) {
     if (stock < 0 || stock >= 5) return -1;

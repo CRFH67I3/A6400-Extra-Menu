@@ -122,6 +122,12 @@ _Static_assert(offsetof(struct a6400_ui_state,running)==0x190,"ui.running ABI mi
  * stops owned layers and publishes 2. Retained widgets keep this SO loaded. */
 volatile unsigned a6400_ui_stop_requested_v1;
 
+/* Decorative theme panels kept outside `ui` so the 1120-byte snapshot ABI stays exact. */
+static struct {
+    void *card_border, *card_panel, *header_accent, *header_divider;
+    void *row_accents[6];
+} ui_theme;
+
 static uint32_t now_ms(void) {
     struct timespec t;
     if(syscall(SYS_clock_gettime,CLOCK_MONOTONIC,&t))return 0;
@@ -197,17 +203,44 @@ static void visibility(void *unused,int active) {
 static void draw(void *unused,const struct film_menu *menu) {
     (void)unused;
     record("DRAW_BEGIN",menu->page,menu->selected);
-    const unsigned char plain[4]={30,35,43,255},selected[4]={48,111,181,255};
+    const unsigned char row_plain[4]={30,36,46,226};
+    const unsigned char row_active[4]={58,44,24,236};
+    const unsigned char row_pressed[4]={234,114,36,245};
+    const unsigned char pill_plain[4]={42,49,62,232};
+    const unsigned char pill_pressed[4]={92,104,122,248};
+    const unsigned char accent_orange[4]={234,140,42,255};
+    const unsigned char accent_gold[4]={212,162,58,220};
+    const unsigned char accent_muted[4]={68,76,90,200};
+    snprintf(ui.texts[0],sizeof(ui.texts[0]),"A6400 V3 CLite  |  %s",
+             menu->settings.enabled?"開啟":"關閉");
+    ui.set_text(ui.labels[0],ui.texts[0]);
     for(unsigned row=0;row<6;row++) {
         int x=0,y=0,w=0,h=0;
         int used=film_native_view_row(menu,row,ui.texts[row+1],sizeof(ui.texts[0]),&x,&y,&w,&h);
         if(used<=0){ui.texts[row+1][0]=0;w=h=0;}
         record("ROW_PANEL_GEOMETRY",row,used);
         place(ui.panels[row],0,x,y,w,h);
+        int is_dismiss=(menu->page==FILM_MENU_HOME && row==2) ||
+                       (menu->page==FILM_MENU_STOCKS && row==5);
+        int is_active=(menu->page==FILM_MENU_HOME && row==0 && menu->settings.enabled) ||
+                      (menu->page==FILM_MENU_STOCKS && (int)row==menu->settings.stock);
+        const unsigned char *panel_color=row_plain;
+        if(menu->selected==(int)row)panel_color=is_dismiss?pill_pressed:row_pressed;
+        else if(is_dismiss)panel_color=pill_plain;
+        else if(is_active)panel_color=row_active;
         record("ROW_PANEL_COLOR",row,0);
-        ui.set_color(ui.panels[row],menu->selected==(int)row?selected:plain);
+        ui.set_color(ui.panels[row],panel_color);
+        if(used>0 && !is_dismiss) {
+            place(ui_theme.row_accents[row],0,x,y,5,h);
+            const unsigned char *stripe=is_active?accent_orange:
+                (menu->page==FILM_MENU_HOME && row==1?accent_gold:accent_muted);
+            ui.set_color(ui_theme.row_accents[row],stripe);
+        } else {
+            place(ui_theme.row_accents[row],0,0,0,0,0);
+        }
         record("ROW_LABEL_GEOMETRY",row,0);
-        place(ui.labels[row+1],1,x+16,y+4,w>32?w-32:0,h>8?h-8:0);
+        if(is_dismiss)place(ui.labels[row+1],1,x+20,y+6,w>40?w-40:0,h>12?h-12:0);
+        else place(ui.labels[row+1],1,x+22,y+4,w>38?w-38:0,h>8?h-8:0);
         record("ROW_TEXT_BEFORE",row,0);
         ui.set_text(ui.labels[row+1],ui.texts[row+1]);
         record("ROW_TEXT_AFTER",row,0);
@@ -415,27 +448,49 @@ int a6400_ui_attach_v1(void *system,unsigned tid) {
     ui.background=make(0);
     if(!ui.background)return -5;
     place(ui.background,0,0,0,640,480);
-    const unsigned char background[4]={10,14,20,255};
+    const unsigned char background[4]={8,10,14,148};
     ui.set_color(ui.background,background);
-    for(unsigned i=0;i<6;i++){ui.panels[i]=make(0);if(!ui.panels[i])return -5;}
+    ui_theme.card_border=make(0);
+    ui_theme.card_panel=make(0);
+    ui_theme.header_accent=make(0);
+    ui_theme.header_divider=make(0);
+    if(!ui_theme.card_border || !ui_theme.card_panel ||
+       !ui_theme.header_accent || !ui_theme.header_divider)return -5;
+    place(ui_theme.card_border,0,54,34,532,412);
+    const unsigned char card_border[4]={84,92,106,224};
+    ui.set_color(ui_theme.card_border,card_border);
+    place(ui_theme.card_panel,0,56,36,528,408);
+    const unsigned char card_panel[4]={18,22,29,230};
+    ui.set_color(ui_theme.card_panel,card_panel);
+    place(ui_theme.header_accent,0,56,36,528,4);
+    const unsigned char header_accent[4]={234,106,28,255};
+    ui.set_color(ui_theme.header_accent,header_accent);
+    place(ui_theme.header_divider,0,76,86,488,1);
+    const unsigned char header_divider[4]={58,66,78,200};
+    ui.set_color(ui_theme.header_divider,header_divider);
+    for(unsigned i=0;i<6;i++){
+        ui.panels[i]=make(0);
+        ui_theme.row_accents[i]=make(0);
+        if(!ui.panels[i] || !ui_theme.row_accents[i])return -5;
+    }
     for(unsigned i=0;i<8;i++){ui.labels[i]=make(1);if(!ui.labels[i])return -5;}
-    strcpy(ui.texts[0],"A6400 FILM MENU V2 LITE");
+    strcpy(ui.texts[0],"A6400 V3 CLite  |  關閉");
 #ifdef A6400_UI_SETTINGS_DIAGNOSTIC
-    strcpy(ui.texts[7],"Tap LUT / Film / Close | RAM test");
+    strcpy(ui.texts[7],"MENU + 放大鏡 | RAM");
 #elif defined(A6400_UI_COMBO_DIAGNOSTIC)
-    strcpy(ui.texts[7],"MENU + Magnifier | Tap Close");
+    strcpy(ui.texts[7],"MENU + 放大鏡");
 #elif defined(A6400_UI_TOUCH_CLOSE_DIAGNOSTIC)
-    strcpy(ui.texts[7],"Tap Close; 20 second auto-hide");
+    strcpy(ui.texts[7],"20秒自動隱藏");
 #elif defined(A6400_UI_RENDER_DIAGNOSTIC) && A6400_UI_DISPLAY_MS % 1000 == 0
     snprintf(ui.texts[7],sizeof(ui.texts[7]),"%u second display test",A6400_UI_DISPLAY_MS/1000u);
 #elif defined(A6400_UI_RENDER_DIAGNOSTIC)
     snprintf(ui.texts[7],sizeof(ui.texts[7]),"%u ms display test",(unsigned)A6400_UI_DISPLAY_MS);
 #else
-    strcpy(ui.texts[7],"Touch LUT / Film / Close");
+    strcpy(ui.texts[7],"MENU + 放大鏡");
 #endif
     record("TITLE_TEXT_BEFORE",0,0);
-    place(ui.labels[0],1,28,24,584,48);ui.set_text(ui.labels[0],ui.texts[0]);
-    place(ui.labels[7],1,28,440,584,32);ui.set_text(ui.labels[7],ui.texts[7]);
+    place(ui.labels[0],1,76,48,488,34);ui.set_text(ui.labels[0],ui.texts[0]);
+    place(ui.labels[7],1,76,394,312,28);ui.set_text(ui.labels[7],ui.texts[7]);
     record("FILM_WIDGETS_CREATED",7,8);
     input_snapshot(1);
     ui.ticker=calloc(1,0x200u);

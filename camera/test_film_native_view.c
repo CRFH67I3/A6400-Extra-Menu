@@ -16,7 +16,8 @@ static void draw(void *p,const struct film_menu *m) {
         char text[80];int x,y,w,h;
         int used=film_native_view_row(m,i,text,sizeof(text),&x,&y,&w,&h);
         assert(used>=0);
-        if(used)assert(x==28 && w==584 && y>=88 && y+h<=480);
+        if(used)assert((x==76 && w==488 && y>=98 && y+h<=380) ||
+                       (x==404 && w==160 && y==386 && h==42));
         strcpy(labels[i],used?text:"");
     }
 }
@@ -41,7 +42,7 @@ int main(void) {
     film_native_view_init(&v,&ops,0,0);
     assert(!v.menu.visible && !drawings && !persistence);
     chord(&v);assert(visible && v.menu.visible && visibility_calls==1);
-    assert(!strcmp(labels[0],"LUT: OFF"));assert(!strcmp(labels[1],"Film: Portra 400"));
+    assert(!strcmp(labels[0],"LUT 濾鏡: 關閉"));assert(!strcmp(labels[1],"膠片風格: Portra 400"));
     unsigned previous=drawings;
     for(int i=0;i<20;i++)tick(&v,0,0,0,6,32767,32767);
     assert(drawings==previous); /* Release enum 6 is not truthy/down. */
@@ -50,15 +51,16 @@ int main(void) {
     for(int i=0;i<10;i++)tick(&v,0,0,0,5,80,140);
     assert(drawings==previous); /* No repeated rendering for a held touch. */
     tick(&v,0,0,0,6,32767,32767);
-    assert(persistence==1 && saved.enabled==1 && !strcmp(labels[0],"LUT: ON"));
+    assert(persistence==1 && saved.enabled==1 && !strcmp(labels[0],"LUT 濾鏡: 開啟"));
     tick(&v,0,0,0,6,32767,32767);assert(persistence==1);
     tap(&v,80,220);assert(v.menu.page==FILM_MENU_STOCKS);
-    assert(!strcmp(labels[2],"Fuji Provia"));
-    tap(&v,80,210);assert(v.menu.page==FILM_MENU_HOME && v.menu.settings.stock==2);
+    assert(!strcmp(labels[2],"  Fuji Provia"));
+    assert(!strcmp(labels[0],"* Portra 400"));
+    tap(&v,120,220);assert(v.menu.page==FILM_MENU_HOME && v.menu.settings.stock==2);
     assert(persistence==2 && saved.stock==2);
     tick(&v,0,0,1,6,0,0);assert(!visible && !v.menu.visible);
     chord(&v);assert(visible && v.menu.settings.enabled && v.menu.settings.stock==2);
-    tap(&v,80,300);assert(!visible && !v.menu.visible);
+    tap(&v,480,405);assert(!visible && !v.menu.visible);
     chord(&v);assert(visible);
     tick(&v,0,0,0,5,80,140); /* Incomplete gesture followed by invalid input. */
     tick(&v,0,0,0,0,80,140);assert(!visible && persistence==2);

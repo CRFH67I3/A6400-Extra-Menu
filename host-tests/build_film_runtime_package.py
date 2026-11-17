@@ -62,6 +62,10 @@ def load_artifacts(spec,base):
  require(capture_pins.get('daemon_sha256')==artifacts['capture_daemon']['sha256'] and
          capture_pins.get('daemon_bytes')==len(artifacts['capture_daemon']['data']),
          'capture build receipt ELF missing or mismatched')
+ ram_text=artifacts['ram_job']['data'].decode('utf-8')
+ for var,role in [('NATIVE_SHA','native'),('WORKER_SHA','worker'),('SETTINGS_SHA','menu_job')]:
+  found=re.findall(rf'^{var}=([0-9a-f]{{64}})$',ram_text,re.M)
+  if found:require(found==[artifacts[role]['sha256']],'RAM job '+var+' mismatch')
  return artifacts,pins,capture_pins
 
 def render(name,replacements):

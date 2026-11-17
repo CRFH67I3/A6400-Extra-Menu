@@ -42,7 +42,7 @@ for b in data:h=((h^b)*16777619)&0xffffffff
 },indent=2)+'\n')
 PY
 CC=arm-linux-gnueabihf-gcc
-COMMON="-march=armv7-a+fp -mfpu=vfpv3-d16 -mfloat-abi=hard -marm -Os -Wall -Wextra -Werror -fno-stack-protector -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
+COMMON="-march=armv7-a+fp -mfpu=vfpv3-d16 -mfloat-abi=hard -marm -Os -ffunction-sections -fdata-sections -Wall -Wextra -Werror -fno-stack-protector -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
 OBJECTS=
 for source in film_menu_job_cli film_settings_source film_settings_snapshot film_settings_maps film_settings_gate film_menu; do
  SNAPSHOT_FLAGS=
@@ -54,7 +54,7 @@ for source in film_menu_job_cli film_settings_source film_settings_snapshot film
 done
 $CC $COMMON -c "$ROOT/camera/film_settings_start.S" -o "$OUT/start.o"
 $CC -mfloat-abi=hard -nostdlib -pie \
- -Wl,-e,_start,-z,now,--dynamic-linker=/lib/ld-linux.so.3 \
+ -Wl,-e,_start,-z,now,--gc-sections,--dynamic-linker=/lib/ld-linux.so.3 \
  "$OUT/start.o" $OBJECTS -Wl,--no-as-needed "$LIBS/libc-2.11.2.so" -lgcc \
  -o "$OUT/a6400-film-menu-job.elf"
 arm-linux-gnueabihf-readelf -lWdVs "$OUT/a6400-film-menu-job.elf" > "$OUT/elf-compatibility.txt"

@@ -14,9 +14,12 @@ static void chord(struct film_menu *m) {
     for (int i = 0; i < 7; ++i) sample(m, 1, 1, 0);
 }
 static unsigned tap(struct film_menu *m, int row) {
-    int y = m->page == FILM_MENU_HOME ? 116 + row * 80 + 20 : 88 + row * 56 + 15;
+    int is_dismiss = (m->page == FILM_MENU_HOME && row == 2) ||
+                     (m->page == FILM_MENU_STOCKS && row == 5);
+    int x = is_dismiss ? 480 : 120;
+    int y = is_dismiss ? 405 : (m->page == FILM_MENU_HOME ? (row == 0 ? 140 : 230) : 98 + row * 54 + 20);
     film_menu_touch(m, now += 20, 0, 32767, 32767);
-    film_menu_touch(m, now += 20, 1, 100, y);
+    film_menu_touch(m, now += 20, 1, x, y);
     return film_menu_touch(m, now += 20, 0, 32767, 32767);
 }
 int main(void) {

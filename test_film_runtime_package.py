@@ -363,4 +363,18 @@ class FilmRuntimePackageTests(unittest.TestCase):
   r=self.run_script(self.bootstrap);self.assertEqual(r.returncode,0,r.stdout+r.stderr)
   self.assertFalse((self.base/'events').exists())
 
+ def test_stale_ram_job_settings_sha_is_rejected(self):
+  ram=self.src/DESTS['ram_job']
+  ram.write_text('#!/bin/sh\nNATIVE_SHA='+sha(self.src/DESTS['native'])+'\nWORKER_SHA='+sha(self.src/DESTS['worker'])+'\nSETTINGS_SHA='+'0'*64+'\n')
+  for row in self.config['artifacts']:
+   if row['role']=='ram_job':row['sha256']=sha(ram)
+  cp=json.loads(self.capture_pins.read_text())
+  data=ram.read_bytes();h=2166136261
+  for n in data:h=((h^n)*16777619)&0xffffffff
+  cp['script']={'runtime':'/tmp_bt/'+DESTS['ram_job'],'bytes':len(data),'fnv':f'{h:08x}','sha256':sha(ram)}
+  self.capture_pins.write_text(json.dumps(cp))
+  r=self.build()
+  self.assertNotEqual(r.returncode,0)
+  self.assertIn('RAM job SETTINGS_SHA mismatch',r.stderr+r.stdout)
+
 if __name__=='__main__':unittest.main(verbosity=2)

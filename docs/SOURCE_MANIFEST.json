@@ -9,8 +9,8 @@
   "files": [
     {
       "path": "camera/film_menu.c",
-      "source_sha256": "2b8cdd97ee380eb9fc11088a87d18476d7a73e11ef348e0ae59aae865aa7b3c1",
-      "release_sha256": "2b8cdd97ee380eb9fc11088a87d18476d7a73e11ef348e0ae59aae865aa7b3c1",
+      "source_sha256": "ebdf5851217526f654499fafb06994ac9c530f348c4b07715d0effe9a3401c52",
+      "release_sha256": "ebdf5851217526f654499fafb06994ac9c530f348c4b07715d0effe9a3401c52",
       "release_adjustments": []
     },
     {
@@ -21,8 +21,8 @@
     },
     {
       "path": "camera/film_native_view.c",
-      "source_sha256": "c9d71df8fc15147ac853d65daf5793713d743c2fdce9730374b2d7b4bb56f532",
-      "release_sha256": "c9d71df8fc15147ac853d65daf5793713d743c2fdce9730374b2d7b4bb56f532",
+      "source_sha256": "36b2c67913c30a82fe9806c349c487c959c0db3c5625ffc640cac91f7d17972b",
+      "release_sha256": "36b2c67913c30a82fe9806c349c487c959c0db3c5625ffc640cac91f7d17972b",
       "release_adjustments": []
     },
     {
@@ -159,8 +159,8 @@
     },
     {
       "path": "camera/native_film_ui_trial3.c",
-      "source_sha256": "0987f8e330fc28d2fbe368b0ad3ccb09076139f7d890f518ed89d01fd2101c60",
-      "release_sha256": "0987f8e330fc28d2fbe368b0ad3ccb09076139f7d890f518ed89d01fd2101c60",
+      "source_sha256": "299f9cc2e2f7f2510a3c8f6766698b4b62e50523f7d4e8f0ad4d1176923ef7c1",
+      "release_sha256": "299f9cc2e2f7f2510a3c8f6766698b4b62e50523f7d4e8f0ad4d1176923ef7c1",
       "release_adjustments": []
     },
     {
@@ -225,14 +225,14 @@
     },
     {
       "path": "camera/test_film_menu.c",
-      "source_sha256": "e0e65a9fecf70e94010164780a2faf409eaef18059f97998fb4adfa1dd2c6bd3",
-      "release_sha256": "e0e65a9fecf70e94010164780a2faf409eaef18059f97998fb4adfa1dd2c6bd3",
+      "source_sha256": "adcfa4dbc969c49d8d71a1b2a6e0e55bf5493c551762abe5d4b0a723589af0c6",
+      "release_sha256": "adcfa4dbc969c49d8d71a1b2a6e0e55bf5493c551762abe5d4b0a723589af0c6",
       "release_adjustments": []
     },
     {
       "path": "camera/test_film_native_view.c",
-      "source_sha256": "38cd769cc010cd382410753930ffb89d6c1907b828197cfc1c33c45f5e6666ef",
-      "release_sha256": "38cd769cc010cd382410753930ffb89d6c1907b828197cfc1c33c45f5e6666ef",
+      "source_sha256": "ee2f676639831c3fa967775e5c67f7f4ba6829deae6f4d089094c2a705e6eafa",
+      "release_sha256": "ee2f676639831c3fa967775e5c67f7f4ba6829deae6f4d089094c2a705e6eafa",
       "release_adjustments": []
     },
     {
@@ -249,8 +249,8 @@
     },
     {
       "path": "host-tests/build_film_menu_job_cli.sh",
-      "source_sha256": "824e5cf608052bf9d9fc19239564ce84eaef745c4f847a1a42b9adac7c7cbc66",
-      "release_sha256": "824e5cf608052bf9d9fc19239564ce84eaef745c4f847a1a42b9adac7c7cbc66",
+      "source_sha256": "b63662f8e548a2b49e1f4834f0d635668e94096d299e67573cff50f204dc6352",
+      "release_sha256": "b63662f8e548a2b49e1f4834f0d635668e94096d299e67573cff50f204dc6352",
       "release_adjustments": []
     },
     {
@@ -279,8 +279,8 @@
     },
     {
       "path": "host-tests/build_film_runtime_package.py",
-      "source_sha256": "464b07d58814b868ca3b50ed11ef5c754a4169713a84b09bb5a3e24a57d7971d",
-      "release_sha256": "464b07d58814b868ca3b50ed11ef5c754a4169713a84b09bb5a3e24a57d7971d",
+      "source_sha256": "6ea17680d1d4217f20d093f1131bce441fb3929b3599d4c160a696500e69d36d",
+      "release_sha256": "6ea17680d1d4217f20d093f1131bce441fb3929b3599d4c160a696500e69d36d",
       "release_adjustments": []
     },
     {
@@ -376,8 +376,8 @@
     },
     {
       "path": "test_film_runtime_package.py",
-      "source_sha256": "097b28fb8b10b6cf1175a8d4e0178244ef5e1e8e0f4fe510dff3a7bab6f61584",
-      "release_sha256": "097b28fb8b10b6cf1175a8d4e0178244ef5e1e8e0f4fe510dff3a7bab6f61584",
+      "source_sha256": "217574e9438c5350d0273f177c6c41714e9929818b1cbfc6b7605025055d6594",
+      "release_sha256": "217574e9438c5350d0273f177c6c41714e9929818b1cbfc6b7605025055d6594",
       "release_adjustments": []
     },
     {

@@ -94,6 +94,15 @@ for path in "$RAM/a6400-capture-v1.lock" "$RAM/a6400-film-capture.inflight" "$RA
 done
 # The daemon owns O_EXCL creation; preserve prior evidence before loading the UI.
 test ! -e "$RUNTIME_LOG" && test ! -L "$RUNTIME_LOG" || fail existing_runtime_log
+threads_of() {
+    test -r /proc/149/status || { echo fixture; return 0; }
+    while IFS= read -r line; do
+        case "$line" in
+            Threads:*) set -- $line; echo "${2:-0}"; return 0;;
+        esac
+    done < /proc/149/status
+    echo 0
+}
 wait_count=0
 while ! ready; do
     gate || fail waiting_gate
@@ -101,6 +110,25 @@ while ! ready; do
     "$BB" sleep 1
     wait_count=$((wait_count+1))
 done
+prev_threads=$(threads_of)
+if test "$prev_threads" != fixture; then
+    settle_count=0
+    stable_hits=0
+    while test "$settle_count" -lt 20; do
+        gate && ready || fail settle_gate
+        "$BB" sleep 1
+        curr_threads=$(threads_of)
+        case "$curr_threads" in ''|*[!0-9]*) curr_threads=0;; esac
+        if test "$curr_threads" -ge 174 && test "$curr_threads" = "$prev_threads"; then
+            stable_hits=$((stable_hits+1))
+            test "$stable_hits" -ge 2 && break
+        else
+            stable_hits=0
+        fi
+        prev_threads=$curr_threads
+        settle_count=$((settle_count+1))
+    done
+fi
 gate || fail pre_install_gate
 "$BB" mkdir "$LOCK" || fail existing_runtime
 printf 'phase=guard_check\npid=%s\npackage=@@PACKAGE_ID@@\n' "$$" > "$LOCK/manifest" || fail manifest

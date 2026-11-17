@@ -15,6 +15,7 @@ MEMINFO=/proc/meminfo
 MOUNTS=/proc/mounts
 BOOTFILE=/proc/sys/kernel/random/boot_id
 CAPTURE_STOP=/tmp_bt/a6400-film-capture.stop
+CLOCKFILE=/proc/uptime
 MEDIA_WAIT_POLLS=60
 NATIVE_SHA=__NATIVE_SHA__
 WORKER_SHA=__WORKER_SHA__
@@ -49,6 +50,26 @@ worker_inflight=0
 native_pid=0
 worker_pid=0
 media_wait_polls=0
+JOB_STARTED=-1
+CLOCK_MS=-1
+
+# Built-in reads avoid spawning date/awk for every measurement. A missing
+# clock only disables telemetry; it must not change native I/O semantics.
+clock_ms() {
+    CLOCK_MS=-1
+    IFS=' ' read -r clock_value clock_rest < "$CLOCKFILE" || return 1
+    clock_seconds=${clock_value%%.*}
+    clock_fraction=${clock_value#*.}000
+    clock_fraction=${clock_fraction%"${clock_fraction#???}"}
+    case "$clock_seconds:$clock_fraction" in *[!0-9:]*|:*) return 1;; esac
+    test "${#clock_seconds}" -le 8 && test "${#clock_fraction}" = 3 || return 1
+    CLOCK_MS=$((clock_seconds*1000+1$clock_fraction-1000))
+}
+stage_done() {
+    clock_ms || return 0
+    test "$2" -ge 0 && test "$CLOCK_MS" -ge "$2" || return 0
+    echo "RAM_JOB_STAGE stage=$1 start_ms=$2 end_ms=$CLOCK_MS elapsed_ms=$((CLOCK_MS-$2)) completed=1"
+}
 
 fail() { echo "RAM_JOB_FAIL stage=$1"; exit "${2:-1}"; }
 hash_file() {
@@ -140,8 +161,12 @@ finish() {
     if test "$retain" = 1; then
         manifest || echo 'RAM_JOB_MANIFEST_WRITE_FAILED'
         echo "RAM_JOB_RETAINED phase=$PHASE ram=$RAM lock=$LOCK result=$job_rc"
-    elif test "$job_rc" = 0 && test "$applied" = 1; then
-        echo "RAM_JOB_APPLIED source=$SOURCE target=$TARGET preset=$PRESET grain=$GRAIN halation=$HALATION source_bytes=$EXPECTED_BYTES source_sha256=$INPUT_SHA output_bytes=$OUTPUT_BYTES output_sha256=$OUTPUT_SHA original_verified=$ORIGINAL_VERIFIED"
+    fi
+    if clock_ms && test "$JOB_STARTED" -ge 0 && test "$CLOCK_MS" -ge "$JOB_STARTED"; then
+        echo "RAM_JOB_TIMING total_ms=$((CLOCK_MS-JOB_STARTED)) result=$job_rc"
+    fi
+    if test "$job_rc" = 0 && test "$applied" = 1 && test "$retain" = 0; then
+        echo "RAM_JOB_APPLIED source=$SOURCE target=$TARGET preset=$PRESET grain=$GRAIN halation=$HALATION source_bytes=$EXPECTED_BYTES source_sha256=$INPUT_SHA output_bytes=$OUTPUT_BYTES output_sha256=$OUTPUT_SHA source_access=read_only target_verified=$TARGET_VERIFIED original_verified=$ORIGINAL_VERIFIED"
     fi
     exit "$job_rc"
 }
@@ -219,6 +244,8 @@ native_run() {
     if test "$native_op" = absent; then report_kind=NATIVE_ABSENT;report_reason=source_open_failed; fi
     PHASE=native_$native_op
     guard && hash_is "$NATIVE" "$NATIVE_SHA" || fail pre_native_guard
+    clock_ms || :
+    native_started=$CLOCK_MS
     native_inflight=1
     "$NATIVE" "$native_op" "$native_path" > "$LOCK/native.current.log" 2>&1 &
     native_pid=$!
@@ -245,11 +272,14 @@ native_run() {
     fi
     if ! native_report_ok; then NATIVE_UNCERTAIN=1;retain=1;fail native_return_unconfirmed 21; fi
     guard || fail post_native_guard
+    stage_done "$native_op" "$native_started"
 }
 decode_input() {
     PHASE=$1
     decode_failure=$2
     guard && hash_is "$WORKER" "$WORKER_SHA" || fail verify_worker_pin
+    clock_ms || :
+    decode_started=$CLOCK_MS
     worker_inflight=1
     "$WORKER" --verify "$INPUT" > "$LOCK/verify.log" 2>&1 &
     worker_pid=$!
@@ -259,6 +289,7 @@ decode_input() {
     worker_inflight=0
     "$BB" cat "$LOCK/verify.log"
     test "$worker_rc" = 0 && "$BB" grep -q '^FILM_DECODED ' "$LOCK/verify.log" || fail "$decode_failure"
+    stage_done "$PHASE" "$decode_started"
 }
 release_input() {
     guard && test -f "$INPUT" && test ! -L "$INPUT" || fail release_input_guard
@@ -290,8 +321,9 @@ confirm_settings() {
 # The camera UDC's configured state can remain stale after physical unplug.
 # Probe actual native media access instead. Only a pinned exact source-open
 # failure (no input created, fresh completion, target not attempted) may wait.
-# Re-read and hash the source after rendering, before fresh target absence.
-# This is not an atomic reservation against later media/USB transitions.
+# Used only for the initial source read. The separate target's fresh absence,
+# write, flush and small readback confirm its completion without reopening the
+# full original twice. No operation here reserves against a media transition.
 read_source_ready() {
     media_stage=$1
     media_waited_here=0
@@ -345,6 +377,8 @@ memory_budget() {
     test "$mem_available" -ge "$mem_required"
 }
 
+clock_ms || :
+JOB_STARTED=$CLOCK_MS
 case "$MODE:$#" in
     render:6) PRESET=$4;GRAIN=$5;HALATION=$6;;
     apply:4) TARGET=$4;;
@@ -405,7 +439,9 @@ file_bytes "$INPUT" && test "$FILE_BYTES" = "$EXPECTED_BYTES" || fail source_siz
 hash_file "$INPUT" || fail source_hash
 INPUT_SHA=$HASH
 
-decode_input verify_input input_decode
+# The renderer validates JPEG framing and fully decodes its selected image.
+# Keep the full-primary preflight in diagnostic render mode only.
+if test "$MODE" = render; then decode_input verify_input input_decode; fi
 if test "$MODE" = apply; then confirm_settings settings_before_processing; fi
 
 PHASE=render
@@ -413,6 +449,8 @@ guard && hash_is "$WORKER" "$WORKER_SHA" || fail pre_render_guard
 manifest || fail manifest_render
 echo "RAM_JOB_RENDER_START preset=$PRESET grain=$GRAIN halation=$HALATION"
 worker_inflight=1
+clock_ms || :
+render_started=$CLOCK_MS
 "$WORKER" "$PRESET" "$INPUT" "$OUTPUT" "$GRAIN" "$HALATION" > "$LOCK/render.log" 2>&1 &
 worker_pid=$!
 manifest || fail manifest_worker
@@ -421,6 +459,7 @@ worker_rc=$?
 worker_inflight=0
 "$BB" cat "$LOCK/render.log"
 test "$worker_rc" = 0 && "$BB" grep -q '^FILM_DONE ' "$LOCK/render.log" || fail render
+stage_done render "$render_started"
 hash_is "$INPUT" "$INPUT_SHA" || fail input_changed
 file_bytes "$OUTPUT" && test "$FILE_BYTES" -gt 0 && test "$FILE_BYTES" -le 16777216 || fail output_size
 OUTPUT_BYTES=$FILE_BYTES
@@ -431,19 +470,15 @@ if test "$MODE" = apply; then
     confirm_settings settings_after_render
     PHASE=release_original_scratch
     manifest || fail manifest_rendered
-    # Keep the original hash/size in the manifest, then free only our own input.
-    hash_is "$INPUT" "$INPUT_SHA" || fail input_changed
-    release_input
-    memory_budget "$(((OUTPUT_BYTES+1023)/1024))" || fail source_readiness_memory
-    read_source_ready before_target
-    file_bytes "$INPUT" && test "$FILE_BYTES" = "$EXPECTED_BYTES" &&
-        hash_is "$INPUT" "$INPUT_SHA" || fail source_changed_before_write
+    # The pinned worker has only read the source scratch. It was hash-checked
+    # above; release it now and never reopen the original on the normal path.
     release_input
     # Waiting never reuses a stale absence result. No read, wait or other media
     # operation intervenes between this new absence and the SD write.
     native_run absent "$TARGET"
     test ! -e "$INPUT" && test ! -L "$INPUT" || { retain=1;fail absence_scratch_unconfirmed 21; }
     confirm_settings settings_before_write
+    test ! -e "$CAPTURE_STOP" || fail stopped_before_write 20
     guard && file_bytes "$OUTPUT" && test "$FILE_BYTES" = "$OUTPUT_BYTES" &&
         hash_is "$OUTPUT" "$OUTPUT_SHA" || fail pre_write_output
     TARGET_ATTEMPTED=1
@@ -468,11 +503,8 @@ if test "$MODE" = apply; then
     PHASE=verified_target
     manifest || fail manifest_verified_target
     release_input
-    memory_budget 0 || fail original_readback_memory
-    native_run read "$SOURCE"
-    file_bytes "$INPUT" && test "$FILE_BYTES" = "$EXPECTED_BYTES" &&
-        hash_is "$INPUT" "$INPUT_SHA" || fail original_readback
-    ORIGINAL_VERIFIED=1
+    # Source preservation is enforced by read-only paths, not a third full
+    # copy/hash. Do not claim an independent post-job original verification.
     PHASE=applied
     manifest || fail manifest_applied
     guard || fail final_guard

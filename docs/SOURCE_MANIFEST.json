@@ -117,20 +117,20 @@
     },
     {
       "path": "camera/film_native_command.c",
-      "source_sha256": "644faa2bb1c27afdd2e473ff8b2a4a418c7381694feed99d509e36dfae558464",
-      "release_sha256": "644faa2bb1c27afdd2e473ff8b2a4a418c7381694feed99d509e36dfae558464",
+      "source_sha256": "fb23ca72eb1063212f615c3411572e830189db76e50080e08d983202b7bd8bc1",
+      "release_sha256": "fb23ca72eb1063212f615c3411572e830189db76e50080e08d983202b7bd8bc1",
       "release_adjustments": []
     },
     {
       "path": "camera/film_capture_daemon.c",
-      "source_sha256": "32a79a428c1200f6320db8a233d0409667c5f5ef91dc2af8f318c6cfa885c441",
-      "release_sha256": "32a79a428c1200f6320db8a233d0409667c5f5ef91dc2af8f318c6cfa885c441",
+      "source_sha256": "52a160022ac4fdf5779fbf411073b4a1c41d7c8fe601c8561b663bc182a2ab60",
+      "release_sha256": "52a160022ac4fdf5779fbf411073b4a1c41d7c8fe601c8561b663bc182a2ab60",
       "release_adjustments": []
     },
     {
       "path": "camera/native_capture_probe.c",
-      "source_sha256": "5fc2a2d07898d0de8428c73ac3581257310dcbad1126139dd42745b1b8676cc7",
-      "release_sha256": "5fc2a2d07898d0de8428c73ac3581257310dcbad1126139dd42745b1b8676cc7",
+      "source_sha256": "7c4a777778751d92a77ae8c3ad009eab43a2350146eccc0016892cc6797b17d6",
+      "release_sha256": "7c4a777778751d92a77ae8c3ad009eab43a2350146eccc0016892cc6797b17d6",
       "release_adjustments": []
     },
     {
@@ -147,8 +147,8 @@
     },
     {
       "path": "camera/film_ram_job.sh",
-      "source_sha256": "f5cf67cfd69051ed9e7071643017b553e1c53d3b28c0c55443bfbfe7e9b76739",
-      "release_sha256": "f5cf67cfd69051ed9e7071643017b553e1c53d3b28c0c55443bfbfe7e9b76739",
+      "source_sha256": "1889213ac890943e1d5a821a4ed2c0e6a6271618fb01b3b3a88f34e78f1f2213",
+      "release_sha256": "1889213ac890943e1d5a821a4ed2c0e6a6271618fb01b3b3a88f34e78f1f2213",
       "release_adjustments": []
     },
     {
@@ -159,20 +159,20 @@
     },
     {
       "path": "camera/native_film_ui_trial3.c",
-      "source_sha256": "c71fda1f237d7898f43e65002bcfe6287689996e8029d9e107297b84de8460fc",
-      "release_sha256": "c71fda1f237d7898f43e65002bcfe6287689996e8029d9e107297b84de8460fc",
+      "source_sha256": "0987f8e330fc28d2fbe368b0ad3ccb09076139f7d890f518ed89d01fd2101c60",
+      "release_sha256": "0987f8e330fc28d2fbe368b0ad3ccb09076139f7d890f518ed89d01fd2101c60",
       "release_adjustments": []
     },
     {
       "path": "camera/native_freeze.h",
-      "source_sha256": "8e76b571259fb97548f07f1867574685f7d5158c2c497c70194108b1ad86a432",
-      "release_sha256": "8e76b571259fb97548f07f1867574685f7d5158c2c497c70194108b1ad86a432",
+      "source_sha256": "1d4f5e8ec0c898cd56d3236703eaaa717a72ffd3d0126078bb910ae9b8caa41d",
+      "release_sha256": "1d4f5e8ec0c898cd56d3236703eaaa717a72ffd3d0126078bb910ae9b8caa41d",
       "release_adjustments": []
     },
     {
       "path": "camera/native_ui_load_guard.c",
-      "source_sha256": "dc934648a571f91dc24e062d9ea8231260f60b75d58df4dec1e41994d95d60c2",
-      "release_sha256": "dc934648a571f91dc24e062d9ea8231260f60b75d58df4dec1e41994d95d60c2",
+      "source_sha256": "d78fa5ab34f3009619da21d02a8329db175ecdfe00267668cb5274d5151c10d2",
+      "release_sha256": "d78fa5ab34f3009619da21d02a8329db175ecdfe00267668cb5274d5151c10d2",
       "release_adjustments": []
     },
     {
@@ -261,14 +261,14 @@
     },
     {
       "path": "host-tests/build_film_capture_daemon.sh",
-      "source_sha256": "2cde8937edc062bfa4ef3eebbf16a5fc43a7f3732609a4405422c583ea5dd731",
-      "release_sha256": "2cde8937edc062bfa4ef3eebbf16a5fc43a7f3732609a4405422c583ea5dd731",
+      "source_sha256": "db49d59f52f97586393931e5bdc9fa37d52adfac81ffaf602bb202e28e40edc1",
+      "release_sha256": "db49d59f52f97586393931e5bdc9fa37d52adfac81ffaf602bb202e28e40edc1",
       "release_adjustments": []
     },
     {
       "path": "host-tests/build_film_native_command.sh",
-      "source_sha256": "41747e260266d03ee8f025ae5173949aa0e40876a07ea18ee26d044f721eee9b",
-      "release_sha256": "41747e260266d03ee8f025ae5173949aa0e40876a07ea18ee26d044f721eee9b",
+      "source_sha256": "c02deaacf45091e60f16e52f1a3dc351e3c4b356d7160c45c2bf0df1979fb2bb",
+      "release_sha256": "c02deaacf45091e60f16e52f1a3dc351e3c4b356d7160c45c2bf0df1979fb2bb",
       "release_adjustments": []
     },
     {
@@ -297,8 +297,8 @@
     },
     {
       "path": "host-tests/film-runtime-v2-templates/runtime-start.sh",
-      "source_sha256": "d412b3f47fa0c8b26244fcad1f2f1c6202f8c21d7cb4a065cc99857ee1db8f8a",
-      "release_sha256": "d412b3f47fa0c8b26244fcad1f2f1c6202f8c21d7cb4a065cc99857ee1db8f8a",
+      "source_sha256": "a392e1a2a2b5f3e9e2bdb1726ece23b89da6b74bb4815ed9498f599dc8815b0c",
+      "release_sha256": "a392e1a2a2b5f3e9e2bdb1726ece23b89da6b74bb4815ed9498f599dc8815b0c",
       "release_adjustments": []
     },
     {
@@ -341,8 +341,8 @@
     },
     {
       "path": "test_native_capture_probe.py",
-      "source_sha256": "a05becf21c48bfa95194866075ed60a5b5adb470b704cbe2500dc052c59f1515",
-      "release_sha256": "244103e87b3a28652e5185fa80179f618ef374f5a4d08051109db40732fdc18d",
+      "source_sha256": "cc27cd7105cf24c76bacdaac45f61d3be0c2370cd0345545cc80610b649f2710",
+      "release_sha256": "5c41af7416fc8ebc75fae8197098dac2e382cc6ff23c470c5c91608bd93e32ea",
       "release_adjustments": [
         "Kept five private-recording-only tests excluded.",
         "Replaced new version/unmounted recordings with explicitly hand-authored synthetic protocol frames."
@@ -350,16 +350,16 @@
     },
     {
       "path": "test_film_capture_daemon.py",
-      "source_sha256": "0d7991e3030c11eaf08b9152859f0dbc93756880d09250e08b05696d5649db83",
-      "release_sha256": "deca81a4b060e9ca068a7bc48ffb64f93791b99ab75ef25cda287aaec1a480bc",
+      "source_sha256": "9ad2b26a3d04d6f9d20d8f2bd9e53180bbd6c83785405461bf0e755f05f00c3f",
+      "release_sha256": "64e35e4d668df0522c18d5c95204e93bc83bab231534c64afec29421a7eabf5c",
       "release_adjustments": [
-        "Replaced private version/unmounted recordings with hand-authored synthetic protocol frames."
+        "Replaced private version/unmounted recordings with hand-authored synthetic protocol frames; synced latest-dir and proc mmc0 trigger tests."
       ]
     },
     {
       "path": "test_film_native_command.py",
-      "source_sha256": "82109c748e7b3537678875a98ad396914ed12c9718cdba91a388bb6179df5473",
-      "release_sha256": "82109c748e7b3537678875a98ad396914ed12c9718cdba91a388bb6179df5473",
+      "source_sha256": "266f312388f144c67cd58d273bb45682fddc5b274ac0c5e59679e7d404eb37fb",
+      "release_sha256": "266f312388f144c67cd58d273bb45682fddc5b274ac0c5e59679e7d404eb37fb",
       "release_adjustments": []
     },
     {
@@ -382,8 +382,8 @@
     },
     {
       "path": "synthetic_native_frames.py",
-      "source_sha256": "d8763a64c6cc2dc0608df70d4199ba6c6cfa1f93b10f1d587f32f916c2376fee",
-      "release_sha256": "d8763a64c6cc2dc0608df70d4199ba6c6cfa1f93b10f1d587f32f916c2376fee",
+      "source_sha256": "1f40b3b3cd4661ab0e2eb13a0f6e5745a93cf5fe8e06953d068da5768dc94e89",
+      "release_sha256": "1f40b3b3cd4661ab0e2eb13a0f6e5745a93cf5fe8e06953d068da5768dc94e89",
       "release_adjustments": [
         "Public-only, hand-authored protocol fixtures; no private recorded data."
       ]

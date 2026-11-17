@@ -8,10 +8,14 @@ import tempfile
 import threading
 import time
 import unittest
-from synthetic_native_frames import SYNTHETIC_ROOT_VERSION, SYNTHETIC_FNEXT_UNMOUNTED
 
 ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT/'camera/native_capture_probe.c'
+from synthetic_native_frames import (
+    SYNTHETIC_FNEXT_UNMOUNTED,
+    SYNTHETIC_INTERLEAVED_FNEXT_METADATA,
+    SYNTHETIC_ROOT_VERSION,
+)
 MONITOR = r'''#!/usr/bin/env python3
 import fnmatch,os,sys,time
 from pathlib import Path
@@ -41,6 +45,27 @@ for command in sys.stdin:
  args=command.strip().split();verb=args[2]
  header='MprFileIf : '+('FFirst [pathname]' if verb=='FFirst' else "FNext ['c' to cancel]")
  if verb=='FFirst':directory=args[3]
+ metadata_count=root/'metadata-fault-count'
+ count=int(metadata_count.read_text()) if metadata_count.exists() else 0
+ if count and (root/'metadata-next-fault').exists():
+  next_fault=(root/'metadata-next-fault').read_text()
+  print(header)
+  if next_fault=='native_error':print('ec = 0x00001005\nMON>',flush=True)
+  elif next_fault=='overflow':print('OVERFLOW',flush=True)
+  elif next_fault=='unknown_callback':print('[MprIf] Callback Unknown\nFindFirst OK.\nMON>',flush=True)
+  elif next_fault=='no_prompt':print('10061115\nkind : DIR\nfile length = 0\nmodification time = 1 : 2 : 3\nFindFirst OK.',flush=True)
+  continue
+ mode=root/'metadata-fault-mode'
+ if mode.exists() and (not count or mode.read_text()=='always') and verb=='FNext' and directory!='ms:/DCIM/*' and index+1<len(items):
+  target=root/'metadata-fault-target'
+  if not target.exists() or items[index+1][0]==target.read_text():
+   index+=1
+   time.sleep(float((root/'metadata-fault-delay').read_text()) if (root/'metadata-fault-delay').exists() else 0)
+   metadata_count.write_text(str(count+1))
+   commands=root/'scan-commands'
+   if commands.exists():
+    with commands.open('a') as log:log.write('METADATA_FAULT\n')
+   sys.stdout.buffer.write((root/'metadata-reply').read_bytes());sys.stdout.buffer.flush();continue
  if (root/'recorded-unmounted').exists():
   with (root/'unmount-commands').open('a') as log:log.write(command)
   flag=root/'midscan-unmounted'
@@ -54,6 +79,11 @@ for command in sys.stdin:
     data=data.replace(b"FNext ['c' to cancel]",b'FFirst [pathname]').replace(b'(696) FindNext()',b'(588) FindFirst()')
    sys.stdout.buffer.write(data);sys.stdout.buffer.flush();continue
  if fault=='restart_partial_overflow' and stream_number==2:print('FLOW')
+ recorded_used=root/'recorded-getstill-used'
+ if fault=='getstill_recorded' and verb=='FNext' and directory!='ms:/DCIM/*' and index<len(items) and not recorded_used.exists():
+  index+=1
+  recorded_used.write_text('1')
+  sys.stdout.buffer.write((root/'recorded-getstill').read_bytes());sys.stdout.buffer.flush();continue
  if fault=='retry_recorded' and verb=='FFirst' and args[3]=='ms:/DCIM/*':
   items=[('10061115',True,0)];index=0
   sys.stdout.buffer.write((root/'recorded-retry').read_bytes());sys.stdout.buffer.flush();continue
@@ -82,6 +112,20 @@ for command in sys.stdin:
   print(header[11:])
  else:
   print(header)
+ if fault=='getstill_live' and verb=='FNext' and directory!='ms:/DCIM/*' and index+1<len(items) and not (root/'getstill-live-used').exists():
+  (root/'getstill-live-used').write_text('1')
+  print('[MprIf] Callback GetStillAttrInfo')
+ if fault=='cache_playback_live' and verb=='FNext' and directory!='ms:/DCIM/*' and index+1<len(items) and not (root/'cache-playback-live-used').exists():
+  (root/'cache-playback-live-used').write_text('1')
+  print('[CACHE]BUFFER SIZE TOO SMALL : 00000000\n[CACHE]ERROR(C1000002h)\n[MprIf] Callback EnterStillPb')
+ if fault=='nul_metadata' and verb=='FFirst' and args[3]=='ms:/DCIM/*' and (not (root/'nul-metadata-used').exists() or (root/'nul-metadata-always').exists()):
+  if not (root/'nul-metadata-always').exists():(root/'nul-metadata-used').write_text('1')
+  corrupted=('10061115\nkind           : FILE\n'
+             'hidden  CACHE]ERROR(C1000010h)\n').encode()+b'\0          : false \n'
+  corrupted+=(b'file length = 21\nmodification time = 15 : 36 : 16\n'
+              b'FindFirst OK.\n\nMON>')
+  sys.stdout.flush()
+  sys.stdout.buffer.write(corrupted);sys.stdout.buffer.flush();continue
  if fault=='body_noise_lost_tail':print('[native] unexpected\x1b[31m line before filename')
  if fault=='body_noise_large':print('unexpected native diagnostic '+('x'*2500))
  version='[MSL][0x1A2BDCD0]: MSLF_WD_Version = 0104'
@@ -233,6 +277,8 @@ class CaptureProbeTests(unittest.TestCase):
                         str(SOURCE),'-o',str(self.binary)],check=True,capture_output=True)
 
     def run_probe(self,mode='scan',fault='',events=()):
+        for marker in ('recorded-getstill-used','getstill-live-used','cache-playback-live-used'):
+            (self.base/marker).unlink(missing_ok=True)
         env=dict(os.environ,CAPTURE_FIXTURE=str(self.base),CAPTURE_FAULT=fault)
         p=subprocess.Popen([str(self.binary),mode],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env,text=True)
         lines=[];baseline=threading.Event();cancel=threading.Event()
@@ -262,14 +308,33 @@ class CaptureProbeTests(unittest.TestCase):
         self.assertIn('ms:/DCIM/10061115/A6400001.JPG',out)
         self.assertNotIn('CAPTURE_CANDIDATE',out)
 
+    def test_byte_interleaved_metadata_is_never_accepted_as_entry(self):
+        data=SYNTHETIC_INTERLEAVED_FNEXT_METADATA
+        (self.base/'metadata-reply').write_bytes(data)
+        (self.base/'metadata-fault-mode').write_text('once')
+        (self.dcim/'A6400002.JPG').write_bytes(b'another old photo')
+        rc,out=self.run_probe()
+        self.assertNotEqual(rc,0,out)
+        self.assertEqual(self.diagnostic(out,'MPR FileIf FNext','4')['reason'],
+                         'incomplete_metadata',out)
+        self.assertNotIn('CAPTURE_BASELINE ',out)
+
     def test_matching_ffirst_retry_before_entry_keeps_complete_metadata(self):
         rc,out=self.run_probe(fault='retry_success')
         self.assertEqual(rc,0,out)
         self.assertIn('ms:/DCIM/10061115/A6400001.JPG',out)
         self.assertNotIn('CAPTURE_DIAG ',out)
 
+    def test_real_ffirst_retry_frame_preserves_native_metadata(self):
+        path=ROOT/'host-tests/native-fullsize-job-v1/capture-startup-v5/retry/ffirst-retry-actual.txt'
+        if not path.is_file():self.skipTest('optional real-camera retry archive is unavailable')
+        (self.base/'recorded-retry').write_bytes(path.read_bytes())
+        rc,out=self.run_probe(fault='retry_recorded')
+        self.assertEqual(rc,0,out)
+        self.assertIn('ms:/DCIM/10061115/A6400001.JPG',out)
+        self.assertNotIn('CAPTURE_DIAG ',out)
 
-    def test_synthetic_cold_root_version_line_keeps_complete_photo_inventory(self):
+    def test_recorded_cold_root_version_line_keeps_complete_photo_inventory(self):
         (self.base/'recorded-version').write_bytes(SYNTHETIC_ROOT_VERSION)
         rc,out=self.run_probe(fault='wd_version_recorded')
         self.assertEqual(rc,0,out)
@@ -496,8 +561,51 @@ class CaptureProbeTests(unittest.TestCase):
                 self.assertIn('reason=ring_overflow ',out)
                 self.assertNotIn('CAPTURE_BASELINE ',out)
 
+    def test_clipped_real_async_tail_with_restored_header_keeps_complete_frame(self):
+        path=ROOT/'host-tests/native-fullsize-job-v1/v6-first-shot/async-prompt-tail.bin'
+        if not path.is_file():self.skipTest('optional real-camera async tail archive is unavailable')
+        fragment,separator,rest=path.read_bytes().partition(b'\r\n')
+        header=b'MprFileIf : FFirst [pathname]'
+        self.assertTrue(separator and header.endswith(fragment),'archive must begin with the known clipped header')
+        (self.base/'recorded-async').write_bytes(header+separator+rest)
+        rc,out=self.run_probe(fault='prompt_recorded_async')
+        self.assertEqual(rc,0,out)
+        self.assertIn('path=ms:/DCIM/10061115/A6409683.JPG size=10092544',out)
+        self.assertNotIn('CAPTURE_DIAG ',out)
 
+    def test_real_joined_async_tail_with_restored_strict_end_keeps_inventory(self):
+        path=ROOT/'host-tests/native-fullsize-job-v1/v7-auto-return/async-joined-prompt-tail.bin'
+        if not path.is_file():self.skipTest('optional real-camera joined async archive is unavailable')
+        tail=path.read_bytes()
+        self.assertTrue(tail.startswith(b'\nec = 0x00001008\r\n\r\nMON>MprIf::MakeWriteStillImage() \r\n'))
+        # The diagnostic retains only the final 384 raw bytes. Restore the
+        # independently known FNext header and No more Files line, not an
+        # invented complete raw capture; the joined prompt/tail stays exact.
+        prefix=b"MprFileIf : FNext ['c' to cancel]\r\nNo more Files."
+        (self.base/'recorded-joined-async').write_bytes(prefix+tail)
+        rc,out=self.run_probe(fault='prompt_recorded_joined_async')
+        self.assertEqual(rc,0,out)
+        self.assertIn('path=ms:/DCIM/10061115/A6400001.JPG',out)
+        self.assertNotIn('CAPTURE_DIAG ',out)
 
+    def test_real_space_joined_prompt_suffix_keeps_complete_root_inventory(self):
+        # Removing recognition of the firmware's standalone four-byte prompt
+        # must make this fail, regardless of which background diagnostic follows.
+        path=ROOT/'host-tests/native-fullsize-job-v1/v8-switch-return/async-space-joined-prompt-tail.bin'
+        if not path.is_file():self.skipTest('optional real-camera prompt archive is unavailable')
+        tail=path.read_bytes()
+        before,separator,after=tail.partition(b'\r\nMON>')
+        self.assertTrue(separator and before.endswith(b'FindFirst OK.\r\n\r\n'))
+        self.assertTrue(after.startswith(b' CS_FlashAcsr SKIP MARK_DCF_CONTENT_REGISTER_START'))
+        # Only the suffix beginning at MON> is raw recorded data. The clipped
+        # metadata is replaced with a hand-authored complete valid root entry.
+        body=(b'MprFileIf : FFirst [pathname]\r\n10061115\r\nkind : DIR\r\n'
+              b'file length = 0\r\nmodification time = 10 : 15 : 56\r\nFindFirst OK.\r\n\r\n')
+        (self.base/'recorded-space-async').write_bytes(body+b'MON>'+after)
+        rc,out=self.run_probe(fault='prompt_recorded_space_async')
+        self.assertEqual(rc,0,out)
+        self.assertIn('path=ms:/DCIM/10061115/A6400001.JPG',out)
+        self.assertNotIn('CAPTURE_DIAG ',out)
 
     def test_prompt_token_survives_bytewise_reads_and_later_background_text(self):
         for fault in ('prompt_joined','prompt_joined_bytewise','prompt_joined_delayed_partial'):
@@ -618,6 +726,90 @@ done:
                 self.assertNotIn('baseline_media_unavailable',out)
                 self.assertNotIn('CAPTURE_BASELINE ',out)
 
+    def getstill_reply(self):
+        data=(b"MprFileIf : FNext ['c' to cancel]\r\n"
+              b"[MprIf] Callback GetStillAttrInfo\r\n"
+              b"A6409684.JPG\r\nkind           : FILE \r\n"
+              b"file length = 14\r\nmodification time = 10 : 15 : 56\r\n"
+              b"FindNext OK.\r\n\r\nMON>")
+        (self.dcim/'A6409684.JPG').write_bytes(b'second baseline')
+        return data
+
+    def test_recorded_getstill_callback_keeps_complete_fnext_entry(self):
+        (self.base/'recorded-getstill').write_bytes(self.getstill_reply())
+        rc,out=self.run_probe(fault='getstill_recorded')
+        self.assertEqual(rc,0,out)
+        self.assertIn('CAPTURE_BASELINE count=2',out)
+        self.assertNotIn('CAPTURE_DIAG ',out)
+
+    def test_getstill_callback_does_not_hide_unknown_mixed_or_incomplete_reply(self):
+        data=self.getstill_reply()
+        callback=b'[MprIf] Callback GetStillAttrInfo\r\n'
+        variants={
+            'unknown':data.replace(callback,b'[MprIf] Callback Unknown\n'),
+            'suffix':data.replace(callback,callback.rstrip()+b' extra\n'),
+            'duplicate':data.replace(callback,callback+callback),
+            'after_name':data.replace(callback,b'').replace(b'A6409684.JPG\r\n',b'A6409684.JPG\r\n'+callback),
+            'mixed_error':data.replace(b'FindNext OK.',b'FindNext OK.\nec = 0x00001005'),
+            'missing_success':data.replace(b'FindNext OK.',b''),
+            'missing_kind':data.replace(b'kind           : FILE \r\n',b''),
+            'extra_unknown':data.replace(callback,callback+b'unrecognized native line\n'),
+            'end_instead_of_entry':data.split(callback)[0]+callback+b'No more Files.\r\nec = 0x00001008\r\nMON>',
+        }
+        for kind,reply in variants.items():
+            with self.subTest(kind=kind):
+                (self.base/'recorded-getstill').write_bytes(reply)
+                rc,out=self.run_probe(fault='getstill_recorded')
+                self.assertNotEqual(rc,0,out)
+                self.assertNotIn('CAPTURE_BASELINE ',out)
+
+    def cache_playback_reply(self):
+        data=(b"MprFileIf : FNext ['c' to cancel]\r\n"
+              b"[CACHE]BUFFER SIZE TOO SMALL : 00000000\r\n"
+              b"[CACHE]ERROR(C1000002h)\r\n"
+              b"[MprIf] Callback EnterStillPb\r\n"
+              b"A6409682.JPG\r\nkind           : FILE \r\n"
+              b"file length = 14\r\nmodification time = 10 : 15 : 56\r\n"
+              b"FindNext OK.\r\n\r\nMON>")
+        (self.dcim/'A6409682.JPG').write_bytes(b'second baseline')
+        return data
+
+    def test_recorded_cache_playback_notice_keeps_complete_fnext_entry(self):
+        (self.base/'recorded-getstill').write_bytes(self.cache_playback_reply())
+        rc,out=self.run_probe(fault='getstill_recorded')
+        self.assertEqual(rc,0,out)
+        self.assertIn('CAPTURE_BASELINE count=2',out)
+        self.assertNotIn('CAPTURE_DIAG ',out)
+
+    def test_cache_playback_notice_requires_exact_complete_ordered_group_and_success(self):
+        data=self.cache_playback_reply()
+        buffer=b'[CACHE]BUFFER SIZE TOO SMALL : 00000000\r\n'
+        error=b'[CACHE]ERROR(C1000002h)\r\n'
+        callback=b'[MprIf] Callback EnterStillPb\r\n'
+        group=buffer+error+callback
+        variants={
+            'error_alone':data.replace(buffer,b'').replace(callback,b''),
+            'missing_callback':data.replace(callback,b''),
+            'missing_error':data.replace(error,b''),
+            'wrong_error':data.replace(b'C1000002h',b'C1000003h'),
+            'duplicate_group':data.replace(group,group+group),
+            'wrong_order':data.replace(group,error+buffer+callback),
+            'after_name':data.replace(group,b'').replace(b'A6409682.JPG\r\n',b'A6409682.JPG\r\n'+group),
+            'mixed_native_error':data.replace(b'FindNext OK.',b'FindNext OK.\nec = 0x00001005'),
+            'missing_metadata':data.replace(b'kind           : FILE \r\n',b''),
+            'missing_success':data.replace(b'FindNext OK.',b''),
+            'unknown_suffix':data.replace(callback,callback.rstrip()+b' unknown\n'),
+            'interrupted_group':data.replace(error,b'unknown notice\n'+error),
+            'mixed_getstill':data.replace(group,b'[MprIf] Callback GetStillAttrInfo\n'+group),
+            'end_instead_of_entry':data.split(group)[0]+group+b'No more Files.\r\nec = 0x00001008\r\nMON>',
+        }
+        for kind,reply in variants.items():
+            with self.subTest(kind=kind):
+                (self.base/'recorded-getstill').write_bytes(reply)
+                rc,out=self.run_probe(fault='getstill_recorded')
+                self.assertNotEqual(rc,0,out)
+                self.assertNotIn('CAPTURE_BASELINE ',out)
+
     def unmounted_inventory_harness(self):
         harness=self.base/'inventory.c'
         harness.write_text('#define main scanner_main\n#include "'+str(SOURCE)+'"\n#undef main\n'+r'''
@@ -634,7 +826,7 @@ int main(void) {
                         str(harness),'-o',str(binary)],check=True,capture_output=True)
         return binary
 
-    def test_synthetic_fnext_unmounted_discards_partial_inventory(self):
+    def test_recorded_fnext_unmounted_discards_partial_inventory(self):
         # Failing to propagate a confirmed loss of media must fail this test;
         # retaining the first JPEG from an aborted catalogue must also fail it.
         (self.base/'recorded-unmounted').write_bytes(SYNTHETIC_FNEXT_UNMOUNTED)
@@ -711,6 +903,17 @@ int main(void) {
         self.assertEqual(fields['command_seq'],'1',out)
         self.assertNotIn('CAPTURE_BASELINE ',out)
 
+    def test_recorded_history_overflow_and_old_ffirst_are_drained_before_send(self):
+        path=ROOT/'host-tests/native-fullsize-job-v1/capture-startup-v5/tmp_bt/a6400-mpr-history-v5.log'
+        if not path.is_file():self.skipTest('optional real-camera history archive is unavailable')
+        (self.base/'recorded-history').write_bytes(path.read_bytes())
+        rc,out=self.run_probe(fault='startup_recorded_history')
+        self.assertNotEqual(rc,0,out)
+        fields=self.diagnostic(out)
+        self.assertEqual(fields['reason'],'native_status',out)
+        self.assertEqual(fields['command_seq'],'1',out)
+        self.assertIn('startup_overflows=1',out)
+        self.assertNotIn('CAPTURE_BASELINE ',out)
 
     def test_continuously_busy_startup_refuses_before_any_command(self):
         rc,out=self.run_probe(fault='startup_never_quiet')

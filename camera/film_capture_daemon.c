@@ -29,7 +29,29 @@ static struct film_log capture_log;
 #ifndef FILM_CAPTURE_BASELINE_TIMEOUT_MS
 #define FILM_CAPTURE_BASELINE_TIMEOUT_MS 60000u
 #endif
+#ifndef FILM_CAPTURE_LATEST_DIR_ONLY
+#define FILM_CAPTURE_LATEST_DIR_ONLY 0
+#endif
+#ifndef FILM_CAPTURE_PROC_TRIGGER
+#define FILM_CAPTURE_PROC_TRIGGER 0
+#endif
+#ifndef FILM_CAPTURE_IDLE_HEARTBEAT_MS
+#define FILM_CAPTURE_IDLE_HEARTBEAT_MS 8000u
+#endif
+#ifndef FILM_CAPTURE_PROC_TICK_MS
+#define FILM_CAPTURE_PROC_TICK_MS 200u
+#endif
+#ifndef FILM_CAPTURE_PROC_QUIET_TICKS
+#define FILM_CAPTURE_PROC_QUIET_TICKS 4u
+#endif
+#ifndef FILM_CAPTURE_PROC_DELTA_MIN
+#define FILM_CAPTURE_PROC_DELTA_MIN 2u
+#endif
+#ifndef FILM_CAPTURE_PROC_INTERRUPTS
+#define FILM_CAPTURE_PROC_INTERRUPTS "/proc/interrupts"
+#endif
 #define JOB_LOG_BYTES 65536u
+#define METADATA_FAILURE_LIMIT 3u
 
 enum state { OLD, WAITING, PENDING, APPLIED, OFF, FAILED, INFLIGHT };
 struct queued {
@@ -242,7 +264,8 @@ static int read_job_receipt(const struct queued *q,int *retained,int status) {
     unsigned reports=0;char *save=NULL;
     for(char *line=strtok_r(job_log,"\n",&save);line;line=strtok_r(NULL,"\n",&save)) {
         if(strstr(line,"RAM_JOB_APPLIED ")==line) {
-            size_t size=strlen(line);static const char suffix[]=" original_verified=1";
+            size_t size=strlen(line);
+            static const char suffix[]=" source_access=read_only target_verified=1 original_verified=0";
             if(strstr(line,prefix)!=line || size<sizeof(suffix)-1u ||
                strcmp(line+size-(sizeof(suffix)-1u),suffix))return -1;
             ++reports;
@@ -307,8 +330,20 @@ static int run_job(struct queued *q,const char *settings) {
            rc,q->entry.path,q->target,applied_jobs,failed_jobs,(unsigned)now_ms());
     return 0;
 }
+static void compact_superseded_baseline(const struct catalogue *current) {
+    if(!FILM_CAPTURE_LATEST_DIR_ONLY || !current->count)return;
+    unsigned keep=0;
+    for(unsigned i=0;i<queue_count;++i) {
+        if(queue[i].state==OLD && strncmp(queue[i].entry.path,current->items[0].path,18u)<0)
+            continue;
+        if(keep!=i)queue[keep]=queue[i];
+        ++keep;
+    }
+    queue_count=keep;
+}
 static int update_queue(const struct catalogue *current) {
     uint32_t now=now_ms();
+    compact_superseded_baseline(current);
     for(unsigned i=0;i<queue_count;++i)queue[i].present=0;
     for(unsigned i=0;i<current->count;++i) {
         const struct entry *e=&current->items[i];char source[40];
@@ -334,6 +369,124 @@ static int update_queue(const struct catalogue *current) {
     }
     return 0;
 }
+static void reset_candidate_stability(void) {
+    for(unsigned i=0;i<queue_count;++i)if(queue[i].state==WAITING || queue[i].state==PENDING) {
+        queue[i].stable=0;queue[i].state=WAITING;
+    }
+}
+static int any_waiting_candidate(void) {
+    for(unsigned i=0;i<queue_count;++i)if(queue[i].state==WAITING)return 1;
+    return 0;
+}
+static int should_break_wait(uint32_t active_start,int check_expiry) {
+    if(daemon_signal || stop_requested()!=0)return 1;
+    if(check_expiry && !FILM_CAPTURE_PERSISTENT &&
+       (uint32_t)(now_ms()-active_start)>=FILM_CAPTURE_ACTIVE_MS)return 1;
+    return 0;
+}
+static void pause_interruptible(uint32_t ms,uint32_t active_start,int check_expiry) {
+    uint32_t began=now_ms();
+    for(;;) {
+        uint32_t elapsed=(uint32_t)(now_ms()-began);
+        if(elapsed>=ms || should_break_wait(active_start,check_expiry))return;
+        uint32_t rem=ms-elapsed;
+        pause_ms(rem>200u?200u:rem);
+    }
+}
+#if FILM_CAPTURE_PROC_TRIGGER
+static int is_mmc_irq_line(const char *line) {
+    for(const char *p=line;(p=strstr(p,"mmc0"))!=NULL;p+=4) {
+        char prev=p==line?' ':p[-1],next=p[4];
+        if((prev==' '||prev=='\t') && (!next||next==' '||next=='\t'||next=='\r'||next=='\n'||next==','))
+            return 1;
+    }
+    while(*line==' '||*line=='\t')++line;
+    return !strncmp(line,"218:",4u);
+}
+static void parse_mmc_irq_line(const char *line,uint64_t *total,unsigned *sources) {
+    if(!is_mmc_irq_line(line))return;
+    const char *p=strchr(line,':');
+    if(!p)return;
+    ++p;++*sources;
+    for(unsigned cpu=0;cpu<8u;++cpu) {
+        while(*p==' '||*p=='\t')++p;
+        if(*p<'0'||*p>'9')break;
+        uint64_t v=0;
+        while(*p>='0'&&*p<='9')v=v*10u+(uint64_t)(*p++-'0');
+        *total+=v;
+    }
+}
+static int sd_io_sample(uint64_t *out) {
+    int fd=open(FILM_CAPTURE_PROC_INTERRUPTS,O_RDONLY|O_NONBLOCK);
+    if(fd<0)return 0;
+    char buf[512],line[256];
+    unsigned pos=0,sources=0;
+    int skip_eol=0;
+    uint64_t total=0;
+    ssize_t n;
+    while((n=read(fd,buf,sizeof(buf)))>0) {
+        for(ssize_t i=0;i<n;++i) {
+            char c=buf[i];
+            if(c=='\n') {
+                if(!skip_eol){line[pos]=0;parse_mmc_irq_line(line,&total,&sources);}
+                pos=0;skip_eol=0;
+            } else if(!skip_eol) {
+                if(pos+1u<sizeof(line))line[pos++]=c;
+                else skip_eol=1;
+            }
+        }
+    }
+    if(pos && !skip_eol){line[pos]=0;parse_mmc_irq_line(line,&total,&sources);}
+    close(fd);
+    *out=total;
+    return sources>0u;
+}
+#endif
+static void wait_before_scan(uint32_t active_start,int *post_trigger_follow) {
+    int urgent=any_waiting_candidate() || *post_trigger_follow;
+    *post_trigger_follow=0;
+    if(urgent) {
+        pause_interruptible(CAPTURE_INTERVAL_MS,active_start,1);
+        return;
+    }
+#if FILM_CAPTURE_PROC_TRIGGER
+    uint64_t last=0;
+    if(sd_io_sample(&last)) {
+        uint32_t began=now_ms();
+        int sd_active=0;unsigned quiet=0;
+        while((uint32_t)(now_ms()-began)<FILM_CAPTURE_IDLE_HEARTBEAT_MS) {
+            if(should_break_wait(active_start,1))return;
+            uint32_t rem=FILM_CAPTURE_IDLE_HEARTBEAT_MS-(uint32_t)(now_ms()-began);
+            pause_ms(rem>FILM_CAPTURE_PROC_TICK_MS?FILM_CAPTURE_PROC_TICK_MS:rem);
+            if(should_break_wait(active_start,1))return;
+            uint64_t cur=0;
+            if(!sd_io_sample(&cur))break;
+            uint64_t delta=cur>=last?(cur-last):0;
+            last=cur;
+            if(delta>FILM_CAPTURE_PROC_DELTA_MIN){sd_active=1;quiet=0;}
+            else if(sd_active && ++quiet>=FILM_CAPTURE_PROC_QUIET_TICKS) {
+                *post_trigger_follow=1;
+                return;
+            }
+        }
+        return;
+    }
+#endif
+    pause_interruptible(CAPTURE_INTERVAL_MS,active_start,1);
+}
+static int metadata_retry(unsigned *failures,const char *stage) {
+    ++*failures;
+    printf("FILM_CAPTURE_SCAN_%s stage=%s failures=%u limit=%u next=%s uptime_ms=%u\n",
+           *failures<METADATA_FAILURE_LIMIT?"RETRY":"EXHAUSTED",stage,
+           *failures,METADATA_FAILURE_LIMIT,
+           *failures<METADATA_FAILURE_LIMIT?"root_ffirst":"stop",(unsigned)now_ms());
+    return *failures<METADATA_FAILURE_LIMIT;
+}
+static void metadata_resumed(unsigned *failures,const char *stage) {
+    if(*failures)printf("FILM_CAPTURE_SCAN_RESUMED stage=%s failures=%u uptime_ms=%u\n",
+                        stage,*failures,(unsigned)now_ms());
+    *failures=0;
+}
 
 int main(int argc,char **argv) {
     if(argc!=2 || strcmp(argv[1],"watch"))return 2;
@@ -357,17 +510,27 @@ int main(int argc,char **argv) {
     if(save_manifest()){reason="manifest";goto done;}
     printf("FILM_CAPTURE_READY active_ms=%u persistent=%d queue_capacity=%u\n",
            FILM_CAPTURE_ACTIVE_MS,FILM_CAPTURE_PERSISTENT,MAX_FILES);
+    printf("FILM_CAPTURE_FAST latest=%d proc=%d wait=%u int=%u stb=%u hb=%u\n",
+           FILM_CAPTURE_LATEST_DIR_ONLY,FILM_CAPTURE_PROC_TRIGGER,CAPTURE_WAIT_MS,
+           CAPTURE_INTERVAL_MS,CAPTURE_STABLE_MS,FILM_CAPTURE_IDLE_HEARTBEAT_MS);
     if(capture_log_bad()){result=21;retain_lock=1;reason="runtime_log";goto done;}
     if(transport_start(&transport)){result=5;reason="monitor_start";goto done;}
-    uint32_t baseline_started=now_ms();int baseline;
+    uint32_t baseline_started=now_ms();int baseline;unsigned metadata_failures=0;
     for(;;) {
         if(capture_log_bad()){result=21;retain_lock=1;reason="runtime_log";goto done;}
         int stop=stop_requested();
         if(stop<0){reason="stop_marker";goto done;}
         if(daemon_signal){result=20;reason="signal";goto done;}
         if(stop){result=0;reason="stop_file";goto done;}
-        baseline=inventory(&transport,&current);
+        baseline=inventory_dirs(&transport,&current,FILM_CAPTURE_LATEST_DIR_ONLY);
         if(capture_log_bad()){result=21;retain_lock=1;reason="runtime_log";goto done;}
+        if(baseline==-1 && transport.metadata_retryable) {
+            if(!metadata_retry(&metadata_failures,"baseline") ||
+               (uint32_t)(now_ms()-baseline_started)>=FILM_CAPTURE_BASELINE_TIMEOUT_MS)break;
+            phase="baseline_metadata_wait";
+            if(save_manifest()){reason="manifest";goto done;}
+            pause_interruptible(CAPTURE_INTERVAL_MS,start,0);continue;
+        }
         if(baseline!=-2)break;
         /* A complete native reply explicitly reported unmounted media. No
          * partial inventory is accepted as an empty baseline, and unknown
@@ -379,11 +542,12 @@ int main(int argc,char **argv) {
         if(save_manifest()){reason="manifest";goto done;}
         printf("FILM_CAPTURE_BASELINE_MEDIA_WAIT elapsed_ms=%u limit_ms=%u\n",
                (unsigned)(now_ms()-baseline_started),FILM_CAPTURE_BASELINE_TIMEOUT_MS);
-        pause_ms(CAPTURE_INTERVAL_MS);
+        pause_interruptible(CAPTURE_INTERVAL_MS,start,0);
     }
     if(baseline) {
         result=21;retain_lock=1;reason="baseline_unconfirmed";goto done;
     }
+    metadata_resumed(&metadata_failures,"baseline");
     if(current.count>=MAX_FILES){reason="baseline_capacity";goto done;}
     for(unsigned i=0;i<current.count;++i) {
         char source[40];if(source_path(&current.items[i],source,sizeof(source))){reason="baseline_path";goto done;}
@@ -392,10 +556,13 @@ int main(int argc,char **argv) {
     queue_count=current.count;phase="waiting";
     if(save_manifest()){reason="manifest";goto done;}
     printf("FILM_CAPTURE_BASELINE count=%u\n",queue_count);
+#if CAPTURE_WAIT_MS > 0u
     uint32_t waiting=now_ms();
     while(!daemon_signal && !stop_requested() &&
           (uint32_t)(now_ms()-waiting)<CAPTURE_WAIT_MS)pause_ms(10);
+#endif
     start=now_ms();
+    int post_trigger_follow=0;
     while(1) {
         if(capture_log_bad()){result=21;retain_lock=1;reason="runtime_log";goto done;}
         int stop=stop_requested();
@@ -406,17 +573,25 @@ int main(int argc,char **argv) {
             result=0;reason="expired";break;
         }
         if(transport.pid<0 && transport_start(&transport)){reason="monitor_restart";break;}
-        phase="scanning";int scan=inventory(&transport,&current);
+        phase="scanning";int scan=inventory_dirs(&transport,&current,FILM_CAPTURE_LATEST_DIR_ONLY);
         if(capture_log_bad()){result=21;retain_lock=1;reason="runtime_log";goto done;}
         if(scan==-2) {
-            for(unsigned i=0;i<queue_count;++i)if(queue[i].state==WAITING || queue[i].state==PENDING) {
-                queue[i].stable=0;queue[i].state=WAITING;
-            }
+            reset_candidate_stability();post_trigger_follow=0;
             phase="media_unavailable";
             if(save_manifest()){reason="manifest";break;}
-            pause_ms(CAPTURE_INTERVAL_MS);continue;
+            pause_interruptible(CAPTURE_INTERVAL_MS,start,1);continue;
+        }
+        if(scan==-1 && transport.metadata_retryable) {
+            reset_candidate_stability();post_trigger_follow=0;
+            if(!metadata_retry(&metadata_failures,"watch")) {
+                result=21;retain_lock=1;reason="scan_unconfirmed";break;
+            }
+            phase="metadata_wait";
+            if(save_manifest()){reason="manifest";break;}
+            pause_interruptible(CAPTURE_INTERVAL_MS,start,1);continue;
         }
         if(scan){result=21;retain_lock=1;reason="scan_unconfirmed";break;}
+        metadata_resumed(&metadata_failures,"watch");
         if(update_queue(&current)){reason="queue_capacity_or_path";break;}
         if(save_manifest()){reason="manifest";break;}
         unsigned pending=0;
@@ -424,7 +599,7 @@ int main(int argc,char **argv) {
         if(pending<queue_count) {
             /* inventory returned a fresh completed native prompt. Reap MPR
              * before the settings CLI or any IFSYS read/write can begin. */
-            transport_stop(&transport);
+            transport_stop(&transport);post_trigger_follow=0;
             if(daemon_signal || stop_requested()!=0)continue;
             struct queued *q=&queue[pending];char settings[128];
             int gate=live_settings(settings,sizeof(settings));
@@ -446,10 +621,12 @@ int main(int argc,char **argv) {
                 if(run_job(q,settings)) {
                     result=21;retain_lock=1;reason="job_uncertain";break;
                 }
+                /* Recheck promptly in case another shutter press arrived during render. */
+                post_trigger_follow=1;
             }
             if(save_manifest()){reason="manifest";break;}
         }
-        pause_ms(CAPTURE_INTERVAL_MS);
+        wait_before_scan(start,&post_trigger_follow);
     }
 done:
     transport_stop(&transport);

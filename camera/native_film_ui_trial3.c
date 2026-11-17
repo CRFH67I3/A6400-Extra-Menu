@@ -5,6 +5,7 @@
 #define _GNU_SOURCE
 #include "film_native_view.h"
 #include <dlfcn.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,7 +73,7 @@ typedef int (*mouse_state_fn)(const void *,unsigned char,unsigned char);
 typedef int (*key_fn)(void *,int,void *);
 typedef void (*font_fn)(void *,uint32_t);
 
-static struct {
+static struct a6400_ui_state {
     struct film_native_view view;
     void *system,*layer,*ticker,*background,*panels[6],*labels[8],*keys;
     void *ticker_layer;
@@ -85,6 +86,10 @@ static struct {
 #endif
 #ifdef A6400_UI_COMBO_DIAGNOSTIC
     int last_menu,last_zoom,last_other;
+#elif defined(A6400_UI_TOUCH_CLOSE_DIAGNOSTIC)
+    uint32_t snapshot_abi_padding[2];
+#else
+    uint32_t snapshot_abi_padding[3];
 #endif
     uintptr_t vtable[42];
     int attached,running;
@@ -104,6 +109,13 @@ static struct {
     font_fn set_font;
     char texts[8][80];
 } ui;
+_Static_assert(sizeof(ui)==1120,"UI snapshot ABI must remain 1120 bytes");
+_Static_assert(offsetof(struct a6400_ui_state,system)==0x68,"ui.system ABI mismatch");
+_Static_assert(offsetof(struct a6400_ui_state,tid)==0xc0,"ui.tid ABI mismatch");
+_Static_assert(offsetof(struct a6400_ui_state,started)==0xc4,"ui.started ABI mismatch");
+_Static_assert(offsetof(struct a6400_ui_state,last_tick)==0xc8,"ui.last_tick ABI mismatch");
+_Static_assert(offsetof(struct a6400_ui_state,attached)==0x18c,"ui.attached ABI mismatch");
+_Static_assert(offsetof(struct a6400_ui_state,running)==0x190,"ui.running ABI mismatch");
 
 /* Owned control word, separate from the pinned 1120-byte UI snapshot ABI.
  * A matching external manager may write 1; only the natural UI callback
@@ -177,7 +189,7 @@ static void visibility(void *unused,int active) {
     ui.layer_active(ui.layer,active);
     input_snapshot(active?4:6);
     if(active){ui.opened_ms=now_ms();ui.ever_opened=1;}
-#ifdef A6400_UI_COMBO_DIAGNOSTIC
+#if defined(A6400_UI_COMBO_DIAGNOSTIC) || (TRIAL_MS == 0 && !defined(A6400_UI_RENDER_DIAGNOSTIC))
     else ui.opened_ms=0;
 #endif
     record(active?"FILM_OPEN":"FILM_CLOSE",ui.view.menu.settings.enabled,ui.view.menu.settings.stock);
@@ -204,8 +216,9 @@ static void draw(void *unused,const struct film_menu *menu) {
 }
 static void settings(void *unused,const struct film_settings *s) {
     (void)unused;
-    /* This short trial never persists settings or enables the photo worker. */
-    record("TRIAL_SETTINGS_ONLY",s->enabled,s->stock);
+    /* The persistent reader samples ui.view.menu.settings directly. Keep the
+     * callback native and allocation-free; photo work stays in the daemon. */
+    record("FILM_SETTINGS_SNAPSHOT",s->enabled,s->stock);
 }
 static void stop_trial(const char *why) {
     record("STOP_BEGIN",0,0);
@@ -267,7 +280,7 @@ static void animate(void *self) {
     }
 #endif
     if(ui.opened_ms && now-ui.opened_ms>=A6400_UI_DISPLAY_MS) {
-#ifdef A6400_UI_COMBO_DIAGNOSTIC
+#if defined(A6400_UI_COMBO_DIAGNOSTIC) || (TRIAL_MS == 0 && !defined(A6400_UI_RENDER_DIAGNOSTIC))
         /* Hide only: the separate active ticker still watches the chord. */
         film_native_view_hide(&ui.view);
         record("COMBO_AUTO_HIDE",0,0);return;
@@ -275,7 +288,7 @@ static void animate(void *self) {
         stop_trial("TRIAL_AUTO_HIDE");return;
 #endif
     }
-#ifndef A6400_UI_COMBO_DIAGNOSTIC
+#if !defined(A6400_UI_COMBO_DIAGNOSTIC) && !(TRIAL_MS == 0 && !defined(A6400_UI_RENDER_DIAGNOSTIC))
     if(ui.ever_opened && !ui.view.menu.visible) {
         stop_trial("TRIAL_CLOSE_DONE");return;
     }
@@ -406,17 +419,19 @@ int a6400_ui_attach_v1(void *system,unsigned tid) {
     ui.set_color(ui.background,background);
     for(unsigned i=0;i<6;i++){ui.panels[i]=make(0);if(!ui.panels[i])return -5;}
     for(unsigned i=0;i<8;i++){ui.labels[i]=make(1);if(!ui.labels[i])return -5;}
-    strcpy(ui.texts[0],"A6400 FILM MENU TEST");
+    strcpy(ui.texts[0],"A6400 FILM MENU V2 LITE");
 #ifdef A6400_UI_SETTINGS_DIAGNOSTIC
     strcpy(ui.texts[7],"Tap LUT / Film / Close | RAM test");
 #elif defined(A6400_UI_COMBO_DIAGNOSTIC)
     strcpy(ui.texts[7],"MENU + Magnifier | Tap Close");
 #elif defined(A6400_UI_TOUCH_CLOSE_DIAGNOSTIC)
     strcpy(ui.texts[7],"Tap Close; 20 second auto-hide");
-#elif A6400_UI_DISPLAY_MS % 1000 == 0
+#elif defined(A6400_UI_RENDER_DIAGNOSTIC) && A6400_UI_DISPLAY_MS % 1000 == 0
     snprintf(ui.texts[7],sizeof(ui.texts[7]),"%u second display test",A6400_UI_DISPLAY_MS/1000u);
-#else
+#elif defined(A6400_UI_RENDER_DIAGNOSTIC)
     snprintf(ui.texts[7],sizeof(ui.texts[7]),"%u ms display test",(unsigned)A6400_UI_DISPLAY_MS);
+#else
+    strcpy(ui.texts[7],"Touch LUT / Film / Close");
 #endif
     record("TITLE_TEXT_BEFORE",0,0);
     place(ui.labels[0],1,28,24,584,48);ui.set_text(ui.labels[0],ui.texts[0]);

@@ -6,6 +6,7 @@ verify copied bytes and JPEG integrity before dispatch or accepting an SD write.
 import os
 from pathlib import Path
 import signal
+import struct
 import subprocess
 import tempfile
 import time
@@ -425,6 +426,123 @@ class FilmNativeCommandTests(unittest.TestCase):
             if process.poll() is None:
                 process.kill()
                 process.communicate()
+
+    def test_cold_boot_mmca_on_drive_b_rewrites_read_absent_write_flush_readback(self):
+        comm = self.base / 'comm'
+        maps = self.base / 'maps'
+        mem = self.base / 'mem'
+        comm.write_text('im.elf\n')
+        maps.write_text('00010000-00080000 r-xp 00000000 b3:01 123 /usr/lib/libInfraFsys.so\n')
+        buf = bytearray(0x80000)
+        base = 0x10000
+        open_prefix = bytes([
+            0x2d, 0xe9, 0xf0, 0x4f, 0x89, 0x46, 0xdf, 0xf8,
+            0x20, 0x18, 0xa9, 0xb0, 0x04, 0x46, 0x01, 0x20,
+        ])
+        buf[base + 0x1bf84:base + 0x1bf94] = open_prefix
+        table_ptr = 0x7c000
+        status_ptr = 0x7c200
+        drv_a = 0x7d000
+        drv_b = 0x7e000
+        struct.pack_into('<I', buf, base + 0x6bff0, table_ptr)
+        struct.pack_into('<I', buf, base + 0x6c034, status_ptr)
+        struct.pack_into('<H', buf, status_ptr, 1)
+        struct.pack_into('<I', buf, table_ptr + 0 * 4, drv_a)
+        struct.pack_into('<I', buf, table_ptr + 1 * 4, drv_b)
+        struct.pack_into('<I', buf, table_ptr + (26 + 16) * 4, drv_a)
+        struct.pack_into('<I', buf, table_ptr + (26 + 19) * 4, drv_b)
+        buf[drv_a + 0xb] = ord('A')
+        buf[drv_a + 0x954:drv_a + 0x954 + 15] = b'/dev/nflasha23\0'
+        buf[drv_b + 0xb] = ord('B')
+        buf[drv_b + 0x954:drv_b + 0x954 + 10] = b'/dev/mmca\0'
+        mem.write_bytes(buf)
+        self.header.write_text(
+            self.header.read_text()
+            + f'#define FILM_NATIVE_PROC_COMM "{comm}"\n'
+            + f'#define FILM_NATIVE_PROC_MAPS "{maps}"\n'
+            + f'#define FILM_NATIVE_PROC_MEM "{mem}"\n'
+        )
+        subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
+                        '-I', str(self.base), str(SOURCE), '-o', str(self.binary)],
+                       check=True, capture_output=True)
+        b_capture = 'B' + CAPTURE[1:]
+        b_target = 'B' + TARGET[1:]
+        r = self.run_native('read', CAPTURE)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual((self.base / 'command').read_text(),
+                         f'IFSYS cp {b_capture} {self.base}/input.jpg')
+        r = self.run_native('read', CAPTURE, fault='read_unavailable')
+        self.assertEqual(r.returncode, 14, r.stdout)
+        self.assertIn('reason=source_unavailable', r.stdout)
+        r = self.run_native('absent', TARGET, fault='absent_ok')
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn('NATIVE_ABSENT', r.stdout)
+        self.assertEqual((self.base / 'command').read_text(),
+                         f'IFSYS cp {b_target} {self.base}/input.jpg')
+        r = self.run_native('write', TARGET)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual((self.base / 'command').read_text(),
+                         f'IFSYS cp {self.base}/output.jpg {b_target}')
+        r = self.run_native('flush', TARGET)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual((self.base / 'command').read_text(), f'IFSYS flush {b_target}')
+        r = self.run_native('readback', TARGET)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual((self.base / 'command').read_text(),
+                         f'IFSYS cp {b_target} {self.base}/input.jpg')
+        comm.write_text('other\n')
+        r = self.run_native('read', CAPTURE)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual((self.base / 'command').read_text(),
+                         f'IFSYS cp {CAPTURE} {self.base}/input.jpg')
+
+    def test_unmounted_mmca_in_im_never_falls_back_to_drive_a_or_runs_monitor(self):
+        comm = self.base / 'comm'
+        maps = self.base / 'maps'
+        mem = self.base / 'mem'
+        comm.write_text('im.elf\n')
+        maps.write_text('00010000-00080000 r-xp 00000000 b3:01 123 /usr/lib/libInfraFsys.so\n')
+        buf = bytearray(0x80000)
+        base = 0x10000
+        open_prefix = bytes([
+            0x2d, 0xe9, 0xf0, 0x4f, 0x89, 0x46, 0xdf, 0xf8,
+            0x20, 0x18, 0xa9, 0xb0, 0x04, 0x46, 0x01, 0x20,
+        ])
+        buf[base + 0x1bf84:base + 0x1bf94] = open_prefix
+        table_ptr = 0x7c000
+        status_ptr = 0x7c200
+        drv_a = 0x7d000
+        struct.pack_into('<I', buf, base + 0x6bff0, table_ptr)
+        struct.pack_into('<I', buf, base + 0x6c034, status_ptr)
+        struct.pack_into('<H', buf, status_ptr, 1)
+        struct.pack_into('<I', buf, table_ptr + 0 * 4, drv_a)
+        struct.pack_into('<I', buf, table_ptr + (26 + 16) * 4, drv_a)
+        buf[drv_a + 0xb] = ord('A')
+        buf[drv_a + 0x954:drv_a + 0x954 + 15] = b'/dev/nflasha23\0'
+        mem.write_bytes(buf)
+        self.header.write_text(
+            self.header.read_text()
+            + f'#define FILM_NATIVE_PROC_COMM "{comm}"\n'
+            + f'#define FILM_NATIVE_PROC_MAPS "{maps}"\n'
+            + f'#define FILM_NATIVE_PROC_MEM "{mem}"\n'
+        )
+        subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
+                        '-I', str(self.base), str(SOURCE), '-o', str(self.binary)],
+                       check=True, capture_output=True)
+        r = self.run_native('read', CAPTURE)
+        self.assertEqual(r.returncode, 14, r.stdout)
+        self.assertIn('reason=source_unavailable', r.stdout)
+        self.assertIn('uncertain=0', r.stdout)
+        self.assertNotIn('NATIVE_SENT', r.stdout)
+        self.assertFalse((self.base / 'monitor.pid').exists())
+        for op in ('absent', 'write', 'flush', 'readback'):
+            r = self.run_native(op, TARGET)
+            self.assertEqual(r.returncode, 6, r.stdout)
+            self.assertIn('reason=before_send', r.stdout)
+            self.assertIn('uncertain=0', r.stdout)
+            self.assertNotIn('NATIVE_ABSENT', r.stdout)
+            self.assertNotIn('NATIVE_SENT', r.stdout)
+            self.assertFalse((self.base / 'monitor.pid').exists())
 
 
 if __name__ == '__main__':

@@ -39,8 +39,15 @@ int main(void){
     char comm[32]={0};f=fopen("/proc/149/comm","r");if(!f)return 5;
     int identity=fgets(comm,sizeof(comm),f) && !strcmp(comm,"im.elf\n");fclose(f);if(!identity)return 5;
     unsigned char branch[12]={0xdf,0xf8,0,0xf0,0,0,0,0,0,0xbf,0,0xbf};memcpy(branch+4,&h[4],4);
-    unsigned long long t0=freeze_ms(),t1=0,t2=0,t3=0,t4=0;
-    int result=freeze_process(),fd=-1,changed=0;t1=freeze_ms();if(result)goto end;
+    unsigned long long t0=0,t1=0,t2=0,t3=0,t4=0;
+    int result=-1,fd=-1,changed=0;
+    for(unsigned attempt=0;attempt<6;attempt++){
+        errno=0;t0=freeze_ms();result=freeze_process();t1=freeze_ms();
+        if(!result){errno=0;break;}
+        if(result!=-95 && result!=-97 && result!=-98)break;
+        usleep(500000);
+    }
+    if(result)goto end;
     fd=open("/proc/149/mem",h[2]?O_RDWR:O_RDONLY);if(fd<0){result=-10;goto done;}
     if(!maps_ok()){result=-11;goto done;}
     if(readmem(fd,HOOK,buffer,12) || memcmp(buffer,h[2]==2?branch:original,12)){result=-12;goto done;}

@@ -19,16 +19,25 @@
 #include <unistd.h>
 
 #ifndef FILM_NATIVE_STARTUP_MS
-#define FILM_NATIVE_STARTUP_MS 1000u
+#define FILM_NATIVE_STARTUP_MS 350u
 #endif
 #ifndef FILM_NATIVE_COMMAND_MS
 #define FILM_NATIVE_COMMAND_MS 60000u
 #endif
 #ifndef FILM_NATIVE_QUIET_MS
-#define FILM_NATIVE_QUIET_MS 200u
+#define FILM_NATIVE_QUIET_MS 100u
 #endif
 #ifndef FILM_NATIVE_STARTUP_MAX_MS
 #define FILM_NATIVE_STARTUP_MAX_MS 3000u
+#endif
+#ifndef FILM_NATIVE_PROC_COMM
+#define FILM_NATIVE_PROC_COMM "/proc/149/comm"
+#endif
+#ifndef FILM_NATIVE_PROC_MAPS
+#define FILM_NATIVE_PROC_MAPS "/proc/149/maps"
+#endif
+#ifndef FILM_NATIVE_PROC_MEM
+#define FILM_NATIVE_PROC_MEM "/proc/149/mem"
 #endif
 #define RESPONSE_BYTES 32768u
 #define HISTORY_BYTES 131072u
@@ -271,6 +280,69 @@ static int exchange(struct transport *t,const char *command,const char *operatio
     }
 }
 
+static int read_mem32(int fd,uint32_t addr,void *buf,size_t len) {
+    return addr>=0x10000u && addr<=0x7fffffffu-len &&
+        lseek(fd,(off_t)addr,SEEK_SET)==(off_t)addr &&
+        read(fd,buf,len)==(ssize_t)len?0:-1;
+}
+static char mmca_drive_letter(void) {
+    static const unsigned char open_prefix[16]={
+        0x2d,0xe9,0xf0,0x4f,0x89,0x46,0xdf,0xf8,
+        0x20,0x18,0xa9,0xb0,0x04,0x46,0x01,0x20
+    };
+    char line[256];
+    int fd=open(FILM_NATIVE_PROC_COMM,O_RDONLY);
+    if(fd<0)return 'A';
+    ssize_t n=read(fd,line,16);
+    close(fd);
+    if(n!=7 || memcmp(line,"im.elf\n",7))return 'A';
+    fd=open(FILM_NATIVE_PROC_MAPS,O_RDONLY);
+    if(fd<0)return 0;
+    uint32_t base=0;unsigned pos=0;
+    while(!base && (n=read(fd,response,RESPONSE_BYTES))>0) {
+        for(ssize_t i=0;i<n;++i) {
+            char c=response[i];
+            if(c=='\n') {
+                line[pos]=0;
+                if(pos>=56u && line[8]=='-' && !memcmp(line+18,"r-xp 00000000",13) &&
+                   strstr(line,"/usr/lib/libInfraFsys.so")) {
+                    uint32_t v=0;unsigned k;
+                    for(k=0;k<8u;++k) {
+                        char h=line[k];
+                        unsigned d=h>='0'&&h<='9'?(unsigned)(h-'0'):
+                                   h>='a'&&h<='f'?(unsigned)(h-'a'+10):16u;
+                        if(d>=16u)break;
+                        v=(v<<4)|d;
+                    }
+                    if(k==8u){base=v;break;}
+                }
+                pos=0;
+            } else if(pos+1u<sizeof(line))line[pos++]=c;
+        }
+    }
+    close(fd);
+    if(!base)return 0;
+    fd=open(FILM_NATIVE_PROC_MEM,O_RDONLY);
+    if(fd<0)return 0;
+    uint32_t tp=0,sp=0,drives[52];uint16_t st=0;char letter=0;
+    if(!read_mem32(fd,base+0x1bf84u,line,16) && !memcmp(line,open_prefix,16) &&
+       !read_mem32(fd,base+0x6bff0u,&tp,4) && !read_mem32(fd,base+0x6c034u,&sp,4) &&
+       !read_mem32(fd,sp,&st,2) && (st&1u) && !read_mem32(fd,tp,drives,sizeof(drives))) {
+        uint32_t drv=drives[45];unsigned char dl=0;
+        if(drv && !read_mem32(fd,drv+0xbu,&dl,1) && dl>='A' && dl<='Z' &&
+           drives[dl-'A']==drv && !read_mem32(fd,drv+0x954u,line,10) &&
+           !memcmp(line,"/dev/mmca",10))letter=(char)dl;
+        else {
+            for(unsigned i=0;i<26u;++i) {
+                if(drives[i] && !read_mem32(fd,drives[i]+0x954u,line,10) &&
+                   !memcmp(line,"/dev/mmca",10)){letter=(char)('A'+i);break;}
+            }
+        }
+    }
+    close(fd);
+    return letter;
+}
+
 int main(int argc,char **argv) {
     setvbuf(stdout,NULL,_IONBF,0);
 #ifdef FILM_NATIVE_BOOT_STAGE_PATH
@@ -279,31 +351,43 @@ int main(int argc,char **argv) {
      * Photo-runtime builds do not expose this operation. */
     (void)argv;
     if(argc!=1)return report(2,0,"arguments","none",0);
-    const char *operation="stage",*path=FILM_NATIVE_BOOT_STAGE_PATH;
+    const char *operation="stage",*raw_path=FILM_NATIVE_BOOT_STAGE_PATH;
 #else
     if(argc!=3)return report(2,0,"arguments","none",0);
-    const char *operation=argv[1],*path=argv[2];
+    const char *operation=argv[1],*raw_path=argv[2];
 #endif
-    char command[512];int flushing=0,n=-1;
+    int is_stage=0,is_read=0,is_write=0,is_flush=0,is_absent=0,is_readback=0;
 #ifdef FILM_NATIVE_BOOT_STAGE_PATH
-    if(!input_absent())return report(1,0,"input_not_absent",operation,0);
-    if(!strcmp(operation,"stage"))
-        n=snprintf(command,sizeof(command),"IFSYS cp %s %s",path,FILM_NATIVE_INPUT);
-    else
+    is_stage=!strcmp(operation,"stage");
 #endif
-    if(!strcmp(operation,"read") && capture_path(path))
-        n=snprintf(command,sizeof(command),"IFSYS cp %s %s",path,FILM_NATIVE_INPUT);
-    else if((!strcmp(operation,"readback") || !strcmp(operation,"absent")) && output_path(path))
-        n=snprintf(command,sizeof(command),"IFSYS cp %s %s",path,FILM_NATIVE_INPUT);
-    else if(!strcmp(operation,"write") && output_path(path))
-        n=snprintf(command,sizeof(command),"IFSYS cp %s %s",FILM_NATIVE_OUTPUT,path);
-    else if(!strcmp(operation,"flush") && output_path(path)) {
-        n=snprintf(command,sizeof(command),"IFSYS flush %s",path);flushing=1;
-    }
-    if(n<1 || (unsigned)n>=sizeof(command))return report(2,0,"operation_or_path","none",0);
-    const char *absence_path=!strcmp(operation,"absent")?path:NULL;
-    if(absence_path && !input_absent())return report(1,0,"input_not_absent",operation,0);
+    is_read=!strcmp(operation,"read") && capture_path(raw_path);
+    is_readback=!strcmp(operation,"readback") && output_path(raw_path);
+    is_absent=!strcmp(operation,"absent") && output_path(raw_path);
+    is_write=!strcmp(operation,"write") && output_path(raw_path);
+    is_flush=!strcmp(operation,"flush") && output_path(raw_path);
+    if(!(is_stage || is_read || is_readback || is_absent || is_write || is_flush))
+        return report(2,0,"operation_or_path","none",0);
+    if((is_stage || is_absent) && !input_absent())
+        return report(1,0,"input_not_absent",operation,0);
     if(!monitor_matches())return report(3,0,"monitor_pin",operation,0);
+    char drv=mmca_drive_letter();
+    if(!drv) {
+        if(is_stage || (is_read && input_absent()))
+            return report(14,0,"source_unavailable",operation,0);
+        return report(6,0,"before_send",operation,0);
+    }
+    char path_buf[64],command[512];
+    if(snprintf(path_buf,sizeof(path_buf),"%s",raw_path)<2 ||
+       strlen(raw_path)>=sizeof(path_buf))
+        return report(2,0,"operation_or_path","none",0);
+    path_buf[0]=drv;
+    const char *path=path_buf;
+    int flushing=is_flush,n=-1;
+    if(is_write)n=snprintf(command,sizeof(command),"IFSYS cp %s %s",FILM_NATIVE_OUTPUT,path);
+    else if(is_flush)n=snprintf(command,sizeof(command),"IFSYS flush %s",path);
+    else n=snprintf(command,sizeof(command),"IFSYS cp %s %s",path,FILM_NATIVE_INPUT);
+    if(n<1 || (unsigned)n>=sizeof(command))return report(2,0,"operation_or_path","none",0);
+    const char *absence_path=is_absent?path:NULL;
     signal(SIGHUP,SIG_IGN);signal(SIGPIPE,SIG_IGN);
     signal(SIGTERM,stop_signal);signal(SIGINT,stop_signal);
     struct transport t={-1,-1,-1};

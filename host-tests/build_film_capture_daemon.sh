@@ -56,6 +56,14 @@ text += [f'#define FILM_CAPTURE_ACTIVE_MS {active}u\n',
          f'#define FILM_CAPTURE_PERSISTENT {persistent}\n',
          f'#define FILM_CAPTURE_JOB_TIMEOUT_MS {job_timeout}u\n',
          f'#define FILM_CAPTURE_BASELINE_TIMEOUT_MS {baseline_timeout}u\n']
+if persistent=='1':
+    text += ['#define CAPTURE_WAIT_MS 0u\n',
+             '#define CAPTURE_INTERVAL_MS 1000u\n',
+             '#define CAPTURE_STABLE_MS 1500u\n',
+             '#define SCAN_MS 45000u\n',
+             '#define FILM_CAPTURE_LATEST_DIR_ONLY 1\n',
+             '#define FILM_CAPTURE_PROC_TRIGGER 1\n',
+             '#define FILM_CAPTURE_IDLE_HEARTBEAT_MS 8000u\n']
 (out/'film_capture_daemon_build.h').write_text(''.join(text))
 pins.update(active_ms=int(active),persistent=bool(int(persistent)),job_timeout_ms=int(job_timeout),
             baseline_timeout_ms=int(baseline_timeout),

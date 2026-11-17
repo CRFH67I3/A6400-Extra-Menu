@@ -19,10 +19,20 @@
 #include <unistd.h>
 #ifndef CAPTURE_STARTUP_MS
 #define CAPTURE_STARTUP_MS 1000u
+#endif
+#ifndef CAPTURE_COMMAND_MS
 #define CAPTURE_COMMAND_MS 4000u
+#endif
+#ifndef CAPTURE_WAIT_MS
 #define CAPTURE_WAIT_MS 25000u
+#endif
+#ifndef CAPTURE_ACTIVE_MS
 #define CAPTURE_ACTIVE_MS 600000u
+#endif
+#ifndef CAPTURE_INTERVAL_MS
 #define CAPTURE_INTERVAL_MS 3000u
+#endif
+#ifndef CAPTURE_STABLE_MS
 #define CAPTURE_STABLE_MS 3000u
 #endif
 #ifndef CAPTURE_QUIET_MS
@@ -31,10 +41,14 @@
 #ifndef CAPTURE_STARTUP_MAX_MS
 #define CAPTURE_STARTUP_MAX_MS 3000u
 #endif
+#ifndef MAX_FILES
 #define MAX_FILES 128u
+#endif
 #define MAX_DIRS 8u
 #define RESPONSE_BYTES 8192u
+#ifndef SCAN_MS
 #define SCAN_MS 15000u
+#endif
 #define PREAMBLE_BYTES 131072u
 #define FRAME_LINE_BYTES 256u
 struct entry { char path[80],time[32]; unsigned size; };
@@ -44,7 +58,7 @@ struct seen { struct entry value; uint32_t stable; int reported,present; };
 struct transport {
     pid_t pid; int in,out; uint32_t scan_started,command_started;
     unsigned command_seq,response_bytes,tail_bytes,preamble_bytes,body_bytes,overflow_match;
-    int header_seen,prompt_after_header,echo_seen;
+    int header_seen,prompt_after_header,echo_seen,metadata_retryable;
     char command[128],expected[40]; unsigned char tail[384];
     unsigned body_prefix_bytes;unsigned char body_prefix[768];
 };
@@ -198,6 +212,10 @@ static int exact_echo(const char *line,unsigned size,const char *command) {
 }
 static int exchange_complete(struct transport *t,char *out,unsigned used,unsigned prompt_start) {
     t->prompt_after_header=1;response_context(t,out,used);
+    /* A NUL inside a framed native body means the response was interleaved or
+     * corrupted. Keep it as a bounded, whole-inventory retry signal; never
+     * let C-string parsing turn the prefix into a valid directory entry. */
+    if(memchr(out,'\0',prompt_start)!=NULL)t->metadata_retryable=1;
     out[prompt_start]=0;
     if(t->command_seq==1u || t->preamble_bytes)
         printf("CAPTURE_FRAME command_seq=%u response_bytes=%u preamble_bytes=%u body_bytes=%u echo_seen=%d\n",
@@ -317,6 +335,7 @@ static int wd_version_line(const char *line,size_t bytes) {
  * explicit unmounted-media outcome. The caller must discard the whole partial
  * inventory and start a new root FFirst; never resume an invalidated cursor. */
 static int native_item(struct transport *t,const char *directory,int first,struct item *item) {
+    t->metadata_retryable=0;
     char cmd[128],response[RESPONSE_BYTES];const char *verb=first?"FFirst":"FNext";
     if(first)snprintf(cmd,sizeof(cmd),"MPR FileIf FFirst %s/*",directory);
     else strcpy(cmd,"MPR FileIf FNext");
@@ -330,12 +349,17 @@ static int native_item(struct transport *t,const char *directory,int first,struc
     unsigned headers=0,no_more=0,statuses=0,end_status=0,unmounted_status=0;
     unsigned unmounted=0,unmounted_detail=0,unmounted_info_detail=0;
     unsigned first_ok=0,next_ok=0,other=0;
-    unsigned retries=0,wd_version=0;int outcome_started=0,invalid_retry=0,invalid_version=0;
+    unsigned retries=0,wd_version=0,getstill=0,cache_notice=0;
+    int outcome_started=0,invalid_retry=0,invalid_version=0,invalid_callback=0,invalid_cache=0;
     for(const char *line=body;*line;) {
         const char *next=strchr(line,'\n');size_t bytes=next?(size_t)(next-line):strlen(line);
         const char *value=line;
         while(bytes && (*value==' '||*value=='\t')){++value;--bytes;}
         while(bytes && (value[bytes-1]==' '||value[bytes-1]=='\t'))--bytes;
+        if(bytes && ((cache_notice==1u &&
+           !line_equals(value,bytes,"[CACHE]ERROR(C1000002h)")) ||
+           (cache_notice==2u &&
+           !line_equals(value,bytes,"[MprIf] Callback EnterStillPb"))))invalid_cache=1;
         if(!bytes){}
         else if(line_equals(value,bytes,expected))++headers;
         else if(bytes>=5u && !memcmp(value,"[MSL]",5u)) {
@@ -344,6 +368,28 @@ static int native_item(struct transport *t,const char *directory,int first,struc
              * may precede a complete successful directory entry. */
             if(!first || strcmp(directory,"ms:/DCIM") || headers!=1u ||
                outcome_started || wd_version++ || !wd_version_line(value,bytes))invalid_version=1;
+        }
+        else if(bytes>=7u && !memcmp(value,"[CACHE]",7u)) {
+            /* Captured during a USB mode transition, ahead of a complete
+             * successful FNext entry. Accept only this exact ordered group;
+             * an isolated cache error must never become a valid entry. */
+            if(first || strncmp(directory,"ms:/DCIM/",9u) || headers!=1u ||
+               outcome_started || getstill)invalid_cache=1;
+            if(!cache_notice && line_equals(value,bytes,
+                "[CACHE]BUFFER SIZE TOO SMALL : 00000000"))cache_notice=1u;
+            else if(cache_notice==1u && line_equals(value,bytes,
+                "[CACHE]ERROR(C1000002h)"))cache_notice=2u;
+            else invalid_cache=1;
+        }
+        else if(bytes>=7u && !memcmp(value,"[MprIf]",7u)) {
+            /* Actual shooting-mode FNext frame: one exact informational
+             * callback between header and filename in a DCIM subdirectory.
+             * Never discard arbitrary callbacks, mixed outcomes or suffixes. */
+            if(cache_notice==2u && line_equals(value,bytes,"[MprIf] Callback EnterStillPb"))
+                cache_notice=3u;
+            else if(first || strncmp(directory,"ms:/DCIM/",9u) || headers!=1u ||
+               outcome_started || cache_notice || getstill++ ||
+               !line_equals(value,bytes,"[MprIf] Callback GetStillAttrInfo"))invalid_callback=1;
         }
         else if((bytes>=15u && !memcmp(value,"FindFirst Retry",15u)) ||
                 (bytes>=14u && !memcmp(value,"FindNext Retry",14u))) {
@@ -371,24 +417,35 @@ static int native_item(struct transport *t,const char *directory,int first,struc
         if(!next)break;
         line=next+1;
     }
+    if(invalid_cache || (cache_notice && cache_notice!=3u))return diagnostic(t,"invalid_cache_notice",0);
     if(invalid_version)return diagnostic(t,"invalid_wd_version",0);
+    if(invalid_callback)return diagnostic(t,"invalid_callback",0);
     if(invalid_retry)return diagnostic(t,"invalid_retry",0);
     if(headers!=1u)return diagnostic(t,"duplicate_header",0);
     if(no_more==1u && statuses==1u && end_status==1u && !unmounted_status &&
        !unmounted && !unmounted_detail && !unmounted_info_detail &&
-       !first_ok && !next_ok && !other && !wd_version)return 0;
+       !first_ok && !next_ok && !other && !wd_version && !getstill && !cache_notice)return 0;
     if(!no_more && statuses==1u &&
        unmounted_status==1u && unmounted==1u && unmounted_detail<=1u &&
        unmounted_info_detail<=1u &&
-       !end_status && !first_ok && !next_ok && !other && !wd_version)return -2;
+       !end_status && !first_ok && !next_ok && !other && !wd_version && !getstill && !cache_notice)return -2;
     if(no_more || statuses || unmounted || unmounted_detail || unmounted_info_detail ||
        first_ok!=(first?1u:0u) || next_ok!=(first?0u:1u))return diagnostic(t,"native_status",0);
+    /* Only a completed, singly successful response can qualify for a fresh
+     * whole-inventory read. Metadata corruption never yields an entry. The
+     * daemon may discard the snapshot and retry root FFirst a bounded number
+     * of times; transport/native errors and invalid callbacks stay fatal. */
+    t->metadata_retryable=1;
     memset(item,0,sizeof(*item));int kind=0,size=0,stamp=0,header=0;
     char *save=NULL;
     for(char *line=strtok_r(body,"\n",&save);line;line=strtok_r(NULL,"\n",&save)) {
         line=trim(line);if(!*line)continue;
         if(strstr(line,expected)==line){if(header++)return diagnostic(t,"duplicate_header",0);continue;}
         if(wd_version && !strncmp(line,"[MSL]",5u))continue; /* Fully validated above. */
+        if(getstill && !strcmp(line,"[MprIf] Callback GetStillAttrInfo"))continue;
+        if(cache_notice && (!strcmp(line,"[CACHE]BUFFER SIZE TOO SMALL : 00000000") ||
+           !strcmp(line,"[CACHE]ERROR(C1000002h)") ||
+           !strcmp(line,"[MprIf] Callback EnterStillPb")))continue;
         if(!strcmp(line,"FindFirst Retry."))continue; /* Already position/verb/count validated. */
         if(!item->name[0]) {
             if(!component(line))return diagnostic(t,"invalid_name",0);
@@ -412,7 +469,9 @@ static int native_item(struct transport *t,const char *directory,int first,struc
             if(!n)return diagnostic(t,"invalid_stamp",0);
         }
     }
-    return item->name[0] && kind==1 && size==1 && stamp==1 ? 1 : diagnostic(t,"incomplete_metadata",0);
+    if(!item->name[0] || kind!=1 || size!=1 || stamp!=1)return diagnostic(t,"incomplete_metadata",0);
+    t->metadata_retryable=0;
+    return 1;
 }
 static int dcf_directory(const char *s) {
     if(strlen(s)!=8 || s[0]<'1'||s[0]>'9')return 0;
@@ -420,15 +479,25 @@ static int dcf_directory(const char *s) {
     return 1;
 }
 static int jpeg_name(const char *s) {return strlen(s)==12 && !strcmp(s+8,".JPG");}
-static int inventory(struct transport *t,struct catalogue *out) {
+static int inventory_dirs(struct transport *t,struct catalogue *out,int latest_only) {
     char directories[MAX_DIRS][48];unsigned count=0;int first=1,result;
     struct item item;out->count=0;t->scan_started=now_ms();
+    if(latest_only)directories[0][0]=0;
     while((result=native_item(t,"ms:/DCIM",first,&item))==1) {
         first=0;
         if(item.directory && dcf_directory(item.name)) {
-            if(count==MAX_DIRS)return diagnostic(t,"directory_capacity",0);
+            char dir[48];
             /* dcf_directory already requires exactly eight characters. */
-            snprintf(directories[count++],sizeof(directories[0]),"ms:/DCIM/%.8s",item.name);
+            snprintf(dir,sizeof(dir),"ms:/DCIM/%.8s",item.name);
+            if(latest_only) {
+                if(!count || strcmp(dir,directories[0])>0) {
+                    strcpy(directories[0],dir);
+                    count=1u;
+                }
+            } else {
+                if(count==MAX_DIRS)return diagnostic(t,"directory_capacity",0);
+                strcpy(directories[count++],dir);
+            }
         }
     }
     if(result<0){out->count=0;return result;}
@@ -448,6 +517,9 @@ static int inventory(struct transport *t,struct catalogue *out) {
         if(result<0){out->count=0;return result;}
     }
     return 0;
+}
+static int inventory(struct transport *t,struct catalogue *out) {
+    return inventory_dirs(t,out,0);
 }
 int main(int argc,char **argv) {
     struct transport t={.pid=-1,.in=-1,.out=-1};int result=1,lock=-1;

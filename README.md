@@ -11,7 +11,8 @@
 主要文件使用繁體中文。本專案採 **PolyForm Noncommercial 1.0.0**：允許在授權範圍內免費研究、使用、修改與分享，商業用途須另取得相關權利人的授權。這是**非商業用途的公開原始碼專案（source-available）**，不是 OSI 定義的開源軟件。正式條款見 [LICENSE](LICENSE)，中文重點見 [授權說明](docs/授權說明.md)。
 
 > ### 📘 快速入口：把選單部署到另一台 A6400 ＋ 日常操作規範
-> - **[部署與操作規範（docs/部署與操作規範.md）](docs/部署與操作規範.md)** — 完整收錄建置依賴、交叉編譯、PMCA 寫入、冷開機驗收、**日常使用限制（128 張／15.94 MiB／`/A6400/TEST/`）** 與緊急停用／回滾步驟。
+> - **📦 [直接下載預編譯一鍵懶人包（A6400-V3-CLite-OneClick.zip）](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/download/v3-clite-10film-opensource-20261117/A6400-V3-CLite-OneClick.zip)** — **Windows / macOS / Linux 免編譯器、免 WSL2/Docker**，解壓後只需一行 `python oneclick_deploy.py`（或交給任何 AI 依包內 `README_AI_一鍵部署.md` 執行）。
+> - **[部署與操作規範（docs/部署與操作規範.md）](docs/部署與操作規範.md)** — 完整收錄從源碼建置、交叉編譯、PMCA 寫入、冷開機驗收、**日常使用限制（128 張／15.94 MiB／`/A6400/TEST/`）** 與緊急停用／回滾步驟。
 
 ## 外觀版本對照
 

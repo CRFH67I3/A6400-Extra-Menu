@@ -401,6 +401,12 @@
       "release_sha256": "d275d4e16da33c06a73d9a488f0e4a7125397287f95d577254370da594606116",
       "approval": "Explicit user request on 2026-11-17 for the GitHub README V3 CLite showcase",
       "processing": "Kept at 1024x768; EXIF/APP1 and other image metadata removed; original private photo not published"
+    },
+    {
+      "path": "docs/images/a6400-extra-menu-v0-early.jpg",
+      "release_sha256": "5eb2ea263806f734d6778e649011617d8f75368303911441b360bc5d92aca1ee",
+      "approval": "Explicit user request on 2026-11-17 for the early prototype showcase",
+      "processing": "Converted PNG (640x480) to metadata-free JPEG; original PNG not published"
     }
   ]
 }

@@ -16,6 +16,7 @@
 | --- | --- |
 | **V3 CLite（最新版）** | 半透明深色浮動卡片（可隱約保留背後取景畫面）、頂部 Sony Alpha 橘條、`LUT 濾鏡` 開啟與目前選中 `膠片風格` 橘金側條高亮、右下角獨立 `關閉`／`返回` 按鈕，並以繁體中文顯示。<br><img src="docs/images/a6400-extra-menu-v3-clite.jpg" alt="A6400 V3 CLite 最新版繁體中文半透明浮動卡片選單" width="460"> |
 | **V1 Beta（早期初版）** | 早期實機驗證版本，採全屏深色不透明背景、等寬純英文條狀按鈕（`LUT: ON/OFF`、`Film`、`Close`）。<br><img src="docs/images/a6400-extra-menu-camera.jpg" alt="A6400 V1 Beta 早期實機觸控選單" width="460"> |
+| **V0 早期測試原形** | 最早期的自製 OSD 觸控選單介面試驗畫面（`A6400 CUSTOM MENU / TOUCH TEST`）。<br><img src="docs/images/a6400-extra-menu-v0-early.jpg" alt="A6400 V0 早期 OSD 觸控測試原形" width="460"> |
 
 ## 這個版本包含甚麼？
 
@@ -77,7 +78,7 @@ python3 tools/check_public_tree.py
 
 ## 致謝
 
-感謝 **ivica00** 的 A6400 研究、**DevCrashDay** 的 homebrew 與 The Ritual 探索，以及 **ma1co／Sony-PMCA-RE 貢獻者**提供的研究工具。這些公開成果，讓我們有機會繼續替 A6400 嘗試新的操作方式。
+感謝 **ivica00** 的 A6400 研究、**DevCrashDay** 的 homebrew 與 The Ritual 探索、**ma1co／Sony-PMCA-RE 貢獻者**提供的研究工具，以及 **G'MIC** 與 **YahiaAngelo/Film-Luts** 整理的 `.cube` 膠片參考資源（本公開版僅作致謝，不隨附第三方 `.cube` 資產）。這些公開成果，讓我們有機會繼續替 A6400 嘗試新的操作方式。
 
 我們希望把自己補上的選單與控制程式整理清楚，回饋願意一起研究的人。完整致謝見 [致謝與致敬](ACKNOWLEDGEMENTS.md)。
 

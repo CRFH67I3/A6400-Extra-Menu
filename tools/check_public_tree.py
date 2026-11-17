@@ -14,6 +14,8 @@ APPROVED_IMAGES = {
         'd689dc9801bdefaf1c4711665278e28baba223e9b700a2e6e04dbcf94c91b04d',
     'docs/images/a6400-extra-menu-v3-clite.jpg':
         'd275d4e16da33c06a73d9a488f0e4a7125397287f95d577254370da594606116',
+    'docs/images/a6400-extra-menu-v0-early.jpg':
+        '5eb2ea263806f734d6778e649011617d8f75368303911441b360bc5d92aca1ee',
 }
 FORBIDDEN_SUFFIXES = {
     '.elf', '.so', '.dylib', '.o', '.a', '.bin', '.dump', '.req',

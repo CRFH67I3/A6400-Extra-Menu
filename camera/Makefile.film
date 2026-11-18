@@ -11,7 +11,7 @@ CC := arm-linux-gnueabihf-gcc
 CXX := arm-linux-gnueabihf-g++
 BUILD := film-build-arm
 TARGET := film_jpeg.elf
-COMMON := -Os -mcpu=cortex-a5 -mfpu=vfpv3-d16 -mfloat-abi=hard -ffreestanding -fno-builtin -fno-stack-protector -ffunction-sections -fdata-sections -fno-pie -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -Wall -Wextra -Werror
+COMMON := -O2 -mcpu=cortex-a5 -mfpu=vfpv3-d16 -mfloat-abi=hard -ffreestanding -fno-builtin -fno-stack-protector -ffunction-sections -fdata-sections -fno-pie -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -Wall -Wextra -Werror
 LINK := -nostdlib -static -no-pie -Wl,--gc-sections -Wl,-s -Wl,-e,_start
 RUNTIME := $(BUILD)/rt.o
 endif
@@ -38,7 +38,7 @@ $(BUILD):
 $(BUILD)/film_jpeg.o: film_jpeg.cpp author_film.h author_fast_jpeg.h film_paths.h rt.h host/film_rt.h jpeg_frame.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 $(BUILD)/author_film.o: author_film.c author_film.h author_curves.h | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -O2 -c $< -o $@
 $(BUILD)/picojpeg.o: ../vendor/picojpeg.c ../vendor/picojpeg.h | $(BUILD)
 	$(CC) $(CFLAGS) -Wno-unused-parameter -Wno-unused-function -Wno-unused-variable -Wno-unused-but-set-variable -c $< -o $@
 $(BUILD)/jpge.o: ../vendor/jpge.cpp ../vendor/jpge.h | $(BUILD)

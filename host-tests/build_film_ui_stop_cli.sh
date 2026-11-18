@@ -55,7 +55,7 @@ for source in film_ui_stop_cli film_settings_source film_settings_snapshot film_
 done
 $CC $COMMON -c "$ROOT/camera/film_settings_start.S" -o "$OUT/start.o"
 $CC -mfloat-abi=hard -nostdlib -pie \
- -Wl,-e,_start,-z,now,--dynamic-linker=/lib/ld-linux.so.3 \
+ -Wl,-s,-e,_start,-z,now,--dynamic-linker=/lib/ld-linux.so.3 \
  "$OUT/start.o" $OBJECTS -Wl,--no-as-needed "$LIBS/libc-2.11.2.so" -lgcc \
  -o "$OUT/a6400-film-ui-stop.elf"
 arm-linux-gnueabihf-readelf -lWdVs "$OUT/a6400-film-ui-stop.elf" > "$OUT/elf-compatibility.txt"

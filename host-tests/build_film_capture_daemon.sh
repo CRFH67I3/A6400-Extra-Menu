@@ -56,13 +56,28 @@ text += [f'#define FILM_CAPTURE_ACTIVE_MS {active}u\n',
          f'#define FILM_CAPTURE_PERSISTENT {persistent}\n',
          f'#define FILM_CAPTURE_JOB_TIMEOUT_MS {job_timeout}u\n',
          f'#define FILM_CAPTURE_BASELINE_TIMEOUT_MS {baseline_timeout}u\n']
+import os
+ui_dir = os.environ.get('FILM_UI_DIR', '')
+if ui_dir:
+    ui_path = Path(ui_dir) / 'a6400-film-ui-v3.so'
+    syms = (Path(ui_dir) / 'symbols.txt').read_text()
+    tm = sorted(set(re.findall(r'^\s*\d+:\s+([0-9a-f]+)\s+\d+\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+a6400_ui_toast_v1$', syms, re.M)))
+    assert len(tm) == 1, f'expected unique a6400_ui_toast_v1 symbol, got {tm}'
+    text += [
+        '#define FILM_DAEMON_UI_MODULE "/tmp_bt/a6400-film-ui-v3-persist.so"\n',
+        f'#define FILM_DAEMON_TOAST_RVA 0x{int(tm[0], 16):x}u\n',
+    ]
 if persistent=='1':
     text += ['#define CAPTURE_WAIT_MS 0u\n',
-             '#define CAPTURE_INTERVAL_MS 1000u\n',
-             '#define CAPTURE_STABLE_MS 1500u\n',
+             '#define CAPTURE_STARTUP_MS 200u\n',
+             '#define CAPTURE_QUIET_MS 50u\n',
+             '#define CAPTURE_INTERVAL_MS 20u\n',
+             '#define CAPTURE_STABLE_MS 100u\n',
              '#define SCAN_MS 45000u\n',
              '#define FILM_CAPTURE_LATEST_DIR_ONLY 1\n',
              '#define FILM_CAPTURE_PROC_TRIGGER 1\n',
+             '#define FILM_CAPTURE_PROC_TICK_MS 100u\n',
+             '#define FILM_CAPTURE_PROC_QUIET_TICKS 2u\n',
              '#define FILM_CAPTURE_IDLE_HEARTBEAT_MS 8000u\n']
 (out/'film_capture_daemon_build.h').write_text(''.join(text))
 pins.update(active_ms=int(active),persistent=bool(int(persistent)),job_timeout_ms=int(job_timeout),
@@ -77,10 +92,11 @@ PY
 CC=arm-linux-gnueabihf-gcc
 COMMON="-march=armv7-a+fp -mfpu=vfpv3-d16 -mfloat-abi=hard -marm -Os -Wall -Wextra -Werror -fno-stack-protector -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
 $CC $COMMON -std=c11 -fPIE -I"$OUT" -c "$ROOT/camera/film_capture_daemon.c" -o "$OUT/capture-daemon.o"
+$CC $COMMON -std=c11 -fPIE -I"$ROOT/camera" -c "$ROOT/camera/film_settings_maps.c" -o "$OUT/settings-maps.o"
 $CC $COMMON -std=c11 -fPIE -I"$ROOT/camera" -c "$ROOT/camera/film_runtime_log.c" -o "$OUT/runtime-log.o"
 $CC $COMMON -c "$ROOT/camera/film_settings_start.S" -o "$OUT/start.o"
-$CC -mfloat-abi=hard -nostdlib -pie -Wl,-e,_start,-z,now,--dynamic-linker=/lib/ld-linux.so.3 \
- "$OUT/start.o" "$OUT/capture-daemon.o" "$OUT/runtime-log.o" -Wl,--no-as-needed "$LIBS/libc-2.11.2.so" -lgcc \
+$CC -mfloat-abi=hard -nostdlib -pie -Wl,-s,-e,_start,-z,now,--dynamic-linker=/lib/ld-linux.so.3 \
+ "$OUT/start.o" "$OUT/capture-daemon.o" "$OUT/settings-maps.o" "$OUT/runtime-log.o" -Wl,--no-as-needed "$LIBS/libc-2.11.2.so" -lgcc \
  -o "$OUT/a6400-film-capture-daemon.elf"
 arm-linux-gnueabihf-readelf -lWdVs "$OUT/a6400-film-capture-daemon.elf" > "$OUT/elf-compatibility.txt"
 python3 - "$OUT/elf-compatibility.txt" <<'PY'

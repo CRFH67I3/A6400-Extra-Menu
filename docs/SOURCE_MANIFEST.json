@@ -9,20 +9,20 @@
   "files": [
     {
       "path": "camera/film_menu.c",
-      "source_sha256": "ebdf5851217526f654499fafb06994ac9c530f348c4b07715d0effe9a3401c52",
-      "release_sha256": "ebdf5851217526f654499fafb06994ac9c530f348c4b07715d0effe9a3401c52",
+      "source_sha256": "58e68c3f9a0ab06f3072e7294798b4f2afe8320efe1d08c99fac5b8f332a7ac7",
+      "release_sha256": "58e68c3f9a0ab06f3072e7294798b4f2afe8320efe1d08c99fac5b8f332a7ac7",
       "release_adjustments": []
     },
     {
       "path": "camera/film_menu.h",
-      "source_sha256": "77202fc73b17fa2a6a38e67214a2dfad1597685401c2f10d038cbf4c86ca3f24",
-      "release_sha256": "77202fc73b17fa2a6a38e67214a2dfad1597685401c2f10d038cbf4c86ca3f24",
+      "source_sha256": "f2dd4f75b7ba3782c7011dff45d71dcb3e483596392727ea0625336ac176e2ce",
+      "release_sha256": "f2dd4f75b7ba3782c7011dff45d71dcb3e483596392727ea0625336ac176e2ce",
       "release_adjustments": []
     },
     {
       "path": "camera/film_native_view.c",
-      "source_sha256": "36b2c67913c30a82fe9806c349c487c959c0db3c5625ffc640cac91f7d17972b",
-      "release_sha256": "36b2c67913c30a82fe9806c349c487c959c0db3c5625ffc640cac91f7d17972b",
+      "source_sha256": "be1dfe65a016c94819825b9a77d45548c684e498afe327f0335b85fe15e83ded",
+      "release_sha256": "be1dfe65a016c94819825b9a77d45548c684e498afe327f0335b85fe15e83ded",
       "release_adjustments": []
     },
     {
@@ -81,8 +81,8 @@
     },
     {
       "path": "camera/film_settings_snapshot.c",
-      "source_sha256": "ad7217dae2639fd7044f1f212a75adb536788c617561d881b72dd351a7fc0970",
-      "release_sha256": "ad7217dae2639fd7044f1f212a75adb536788c617561d881b72dd351a7fc0970",
+      "source_sha256": "7158cabadebecda31d08ffb626aece480cf2ac1194260bc87430b52864934de0",
+      "release_sha256": "7158cabadebecda31d08ffb626aece480cf2ac1194260bc87430b52864934de0",
       "release_adjustments": []
     },
     {
@@ -117,20 +117,20 @@
     },
     {
       "path": "camera/film_native_command.c",
-      "source_sha256": "e62f7d0d5c68f9633eed8c80f6043eee51e7f1fa780832ba25e4ae806d305c10",
-      "release_sha256": "e62f7d0d5c68f9633eed8c80f6043eee51e7f1fa780832ba25e4ae806d305c10",
+      "source_sha256": "58888f4b9c60cb100df25b9ff7bebddda600d0e1d947e23a63649d775cdb8e75",
+      "release_sha256": "58888f4b9c60cb100df25b9ff7bebddda600d0e1d947e23a63649d775cdb8e75",
       "release_adjustments": []
     },
     {
       "path": "camera/film_capture_daemon.c",
-      "source_sha256": "52a160022ac4fdf5779fbf411073b4a1c41d7c8fe601c8561b663bc182a2ab60",
-      "release_sha256": "52a160022ac4fdf5779fbf411073b4a1c41d7c8fe601c8561b663bc182a2ab60",
+      "source_sha256": "9125e8592e383909eb56d31423745e6d3063820db36a50dabd7e647edd3a476b",
+      "release_sha256": "9125e8592e383909eb56d31423745e6d3063820db36a50dabd7e647edd3a476b",
       "release_adjustments": []
     },
     {
       "path": "camera/native_capture_probe.c",
-      "source_sha256": "7c4a777778751d92a77ae8c3ad009eab43a2350146eccc0016892cc6797b17d6",
-      "release_sha256": "7c4a777778751d92a77ae8c3ad009eab43a2350146eccc0016892cc6797b17d6",
+      "source_sha256": "aa3512437cdd2d05c4cc908ea6f9ce70412c618abe871bd43ff9030c07178336",
+      "release_sha256": "aa3512437cdd2d05c4cc908ea6f9ce70412c618abe871bd43ff9030c07178336",
       "release_adjustments": []
     },
     {
@@ -147,8 +147,8 @@
     },
     {
       "path": "camera/film_ram_job.sh",
-      "source_sha256": "1889213ac890943e1d5a821a4ed2c0e6a6271618fb01b3b3a88f34e78f1f2213",
-      "release_sha256": "1889213ac890943e1d5a821a4ed2c0e6a6271618fb01b3b3a88f34e78f1f2213",
+      "source_sha256": "dfbea0ca7364833425201147b1c964bab2529362f1c980c501a65e8d37d30dac",
+      "release_sha256": "dfbea0ca7364833425201147b1c964bab2529362f1c980c501a65e8d37d30dac",
       "release_adjustments": []
     },
     {
@@ -159,8 +159,8 @@
     },
     {
       "path": "camera/native_film_ui_trial3.c",
-      "source_sha256": "299f9cc2e2f7f2510a3c8f6766698b4b62e50523f7d4e8f0ad4d1176923ef7c1",
-      "release_sha256": "299f9cc2e2f7f2510a3c8f6766698b4b62e50523f7d4e8f0ad4d1176923ef7c1",
+      "source_sha256": "da05407f31c7c487c8bb88dbef9939d109b428d9ae734d267e16f00d360621f7",
+      "release_sha256": "da05407f31c7c487c8bb88dbef9939d109b428d9ae734d267e16f00d360621f7",
       "release_adjustments": []
     },
     {
@@ -225,14 +225,14 @@
     },
     {
       "path": "camera/test_film_menu.c",
-      "source_sha256": "adcfa4dbc969c49d8d71a1b2a6e0e55bf5493c551762abe5d4b0a723589af0c6",
-      "release_sha256": "adcfa4dbc969c49d8d71a1b2a6e0e55bf5493c551762abe5d4b0a723589af0c6",
+      "source_sha256": "72a9b6ce8570c1bfe225a2d17c7be0b08199669a3a390afeff0d494d2b288762",
+      "release_sha256": "72a9b6ce8570c1bfe225a2d17c7be0b08199669a3a390afeff0d494d2b288762",
       "release_adjustments": []
     },
     {
       "path": "camera/test_film_native_view.c",
-      "source_sha256": "ee2f676639831c3fa967775e5c67f7f4ba6829deae6f4d089094c2a705e6eafa",
-      "release_sha256": "ee2f676639831c3fa967775e5c67f7f4ba6829deae6f4d089094c2a705e6eafa",
+      "source_sha256": "1e0a26c273363836eb0b2dbe705c125a2b93b6475d8788016d112dc6aa124372",
+      "release_sha256": "1e0a26c273363836eb0b2dbe705c125a2b93b6475d8788016d112dc6aa124372",
       "release_adjustments": []
     },
     {
@@ -249,8 +249,8 @@
     },
     {
       "path": "host-tests/build_film_menu_job_cli.sh",
-      "source_sha256": "b63662f8e548a2b49e1f4834f0d635668e94096d299e67573cff50f204dc6352",
-      "release_sha256": "b63662f8e548a2b49e1f4834f0d635668e94096d299e67573cff50f204dc6352",
+      "source_sha256": "cdcfa7a86e6dc9458875055ed5fafe6057ffb76c0be1b647447dddc82f6519d4",
+      "release_sha256": "cdcfa7a86e6dc9458875055ed5fafe6057ffb76c0be1b647447dddc82f6519d4",
       "release_adjustments": []
     },
     {
@@ -261,20 +261,20 @@
     },
     {
       "path": "host-tests/build_film_capture_daemon.sh",
-      "source_sha256": "db49d59f52f97586393931e5bdc9fa37d52adfac81ffaf602bb202e28e40edc1",
-      "release_sha256": "db49d59f52f97586393931e5bdc9fa37d52adfac81ffaf602bb202e28e40edc1",
+      "source_sha256": "4f0d603975907946f155369b8c85880c82ba0c10fa5e4cfc34725e07dc3652b3",
+      "release_sha256": "4f0d603975907946f155369b8c85880c82ba0c10fa5e4cfc34725e07dc3652b3",
       "release_adjustments": []
     },
     {
       "path": "host-tests/build_film_native_command.sh",
-      "source_sha256": "c02deaacf45091e60f16e52f1a3dc351e3c4b356d7160c45c2bf0df1979fb2bb",
-      "release_sha256": "c02deaacf45091e60f16e52f1a3dc351e3c4b356d7160c45c2bf0df1979fb2bb",
+      "source_sha256": "4c46864b4088dcee6a2c97681267fab66153a47cefd524f7806935d384b1ce5b",
+      "release_sha256": "4c46864b4088dcee6a2c97681267fab66153a47cefd524f7806935d384b1ce5b",
       "release_adjustments": []
     },
     {
       "path": "host-tests/build_film_ui_stop_cli.sh",
-      "source_sha256": "98d82b070466c5019e6feaf356e394214d816a9a561d9c3b8040dc1718e872b9",
-      "release_sha256": "98d82b070466c5019e6feaf356e394214d816a9a561d9c3b8040dc1718e872b9",
+      "source_sha256": "c5ecde3314886a47e9286c0d34ccd11bf33428f23945ef4cf54ad775bcbf0e26",
+      "release_sha256": "c5ecde3314886a47e9286c0d34ccd11bf33428f23945ef4cf54ad775bcbf0e26",
       "release_adjustments": []
     },
     {
@@ -309,28 +309,28 @@
     },
     {
       "path": "test_native_film_view.py",
-      "source_sha256": "09339a21f86a02a30b847333ac3d0fd3ef3cc9fb6f9e28fbad5e4144911f3084",
-      "release_sha256": "09339a21f86a02a30b847333ac3d0fd3ef3cc9fb6f9e28fbad5e4144911f3084",
+      "source_sha256": "f5faf32e75f91b5305accf161222485f078073b34243425bb01e9fab66573df0",
+      "release_sha256": "f5faf32e75f91b5305accf161222485f078073b34243425bb01e9fab66573df0",
       "release_adjustments": []
     },
     {
       "path": "test_film_settings_snapshot.py",
-      "source_sha256": "d204e723180dd4388dca888839029a2837e9029ada1d301416cabda802b84e32",
-      "release_sha256": "12efb1b75449a83bc3a60b397038666ccf039635bffb8ae6cc8f41085d921475",
+      "source_sha256": "d4366dfbf306a37407a329efef73d957e77a0159ef0e2d409331055c2e0ba038",
+      "release_sha256": "d4366dfbf306a37407a329efef73d957e77a0159ef0e2d409331055c2e0ba038",
       "release_adjustments": [
         "Replaced private UI dump with an explicit synthetic layout fixture."
       ]
     },
     {
       "path": "test_film_settings_gate.py",
-      "source_sha256": "0adc10ee7c2695850831a34c14b992524ba0555a52cef2078136a971a154b0d9",
-      "release_sha256": "0adc10ee7c2695850831a34c14b992524ba0555a52cef2078136a971a154b0d9",
+      "source_sha256": "5a594a3cbbde4a8135a1487c0b0306000062934353289e3bc041289990b0153e",
+      "release_sha256": "5a594a3cbbde4a8135a1487c0b0306000062934353289e3bc041289990b0153e",
       "release_adjustments": []
     },
     {
       "path": "test_film_settings_io.py",
-      "source_sha256": "ebc9359da438a76e343a846e0379b4157dd26c9d5de6be15a4ebc8c814336be9",
-      "release_sha256": "ebc9359da438a76e343a846e0379b4157dd26c9d5de6be15a4ebc8c814336be9",
+      "source_sha256": "9695696e3f9631038a7f7846ba81d8765a3f4fe1699f060f87971a5f3b6cc621",
+      "release_sha256": "9695696e3f9631038a7f7846ba81d8765a3f4fe1699f060f87971a5f3b6cc621",
       "release_adjustments": []
     },
     {
@@ -341,7 +341,7 @@
     },
     {
       "path": "test_native_capture_probe.py",
-      "source_sha256": "cc27cd7105cf24c76bacdaac45f61d3be0c2370cd0345545cc80610b649f2710",
+      "source_sha256": "5c41af7416fc8ebc75fae8197098dac2e382cc6ff23c470c5c91608bd93e32ea",
       "release_sha256": "5c41af7416fc8ebc75fae8197098dac2e382cc6ff23c470c5c91608bd93e32ea",
       "release_adjustments": [
         "Kept five private-recording-only tests excluded.",
@@ -350,7 +350,7 @@
     },
     {
       "path": "test_film_capture_daemon.py",
-      "source_sha256": "9ad2b26a3d04d6f9d20d8f2bd9e53180bbd6c83785405461bf0e755f05f00c3f",
+      "source_sha256": "64e35e4d668df0522c18d5c95204e93bc83bab231534c64afec29421a7eabf5c",
       "release_sha256": "64e35e4d668df0522c18d5c95204e93bc83bab231534c64afec29421a7eabf5c",
       "release_adjustments": [
         "Replaced private version/unmounted recordings with hand-authored synthetic protocol frames; synced latest-dir and proc mmc0 trigger tests."
@@ -358,7 +358,7 @@
     },
     {
       "path": "test_film_native_command.py",
-      "source_sha256": "26f175d66e876064ecc427674e6a91da70aae2995e084fc14be106f2c3315e2e",
+      "source_sha256": "99f0b3dc08291142e7be48efce46ca1b69e6c22ea8799f263927c3b1a2e9f856",
       "release_sha256": "99f0b3dc08291142e7be48efce46ca1b69e6c22ea8799f263927c3b1a2e9f856",
       "release_adjustments": [
         "Replaced verbatim pre-execution Sony console tags in re-anchor regression fixtures with synthetic background diagnostic tags."

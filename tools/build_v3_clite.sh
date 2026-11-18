@@ -71,7 +71,15 @@ mkdir -p "$OUT/guard"
 arm-linux-gnueabihf-gcc -march=armv7-a+fp -mfpu=vfpv3-d16 -mfloat-abi=hard \
     -Os -Wall -Wextra -Werror -fno-stack-protector -fno-unwind-tables \
     -fno-asynchronous-unwind-tables -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
-    "$ROOT/camera/native_ui_load_guard.c" -o "$OUT/guard/a6400-ui-load-guard.elf"
+    -marm -fPIE -c "$ROOT/camera/native_ui_load_guard.c" -o "$OUT/guard/guard.o"
+arm-linux-gnueabihf-gcc -march=armv7-a+fp -mfpu=vfpv3-d16 -mfloat-abi=hard \
+    -Os -Wall -Wextra -Werror -fno-stack-protector -fno-unwind-tables \
+    -fno-asynchronous-unwind-tables -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
+    -marm -c "$ROOT/camera/native_start.S" -o "$OUT/guard/start.o"
+arm-linux-gnueabihf-gcc -mfloat-abi=hard -nostdlib -pie \
+    -Wl,-s,-e,_start,--dynamic-linker=/lib/ld-linux.so.3 \
+    "$OUT/guard/start.o" "$OUT/guard/guard.o" -Wl,--no-as-needed "$LIBS/libc-2.11.2.so" -lgcc \
+    -o "$OUT/guard/a6400-ui-load-guard.elf"
 chmod 755 "$OUT/guard/a6400-ui-load-guard.elf"
 python3 - "$OUT/ui/payload.bin" "$OUT/guard" <<'PY'
 import struct, sys
@@ -110,6 +118,7 @@ PY
 echo "[8/9] Building persistent capture daemon..."
 rm -rf "$OUT/daemon"
 FILM_CAPTURE_PERSISTENT=1 \
+FILM_UI_DIR="$OUT/ui" \
     sh "$ROOT/host-tests/build_film_capture_daemon.sh" \
     "$OUT/daemon" "$LIBS" "$OUT/a6400-film-ram-job.sh" "$OUT/menu/a6400-film-menu-job.elf"
 

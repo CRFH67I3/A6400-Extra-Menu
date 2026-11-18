@@ -434,15 +434,17 @@ mount_state=$?
 if test "$mount_state" = 2; then retain=1;fail mount_unconfirmed 21; fi
 test "$mount_rc" = 0 && test "$mount_state" = 0 || fail mount
 
-if test "$MODE" = apply; then read_source_ready before_read; else native_run read "$SOURCE"; fi
-file_bytes "$INPUT" && test "$FILE_BYTES" = "$EXPECTED_BYTES" || fail source_size
-hash_file "$INPUT" || fail source_hash
-INPUT_SHA=$HASH
-
-# The renderer validates JPEG framing and fully decodes its selected image.
-# Keep the full-primary preflight in diagnostic render mode only.
-if test "$MODE" = render; then decode_input verify_input input_decode; fi
-if test "$MODE" = apply; then confirm_settings settings_before_processing; fi
+if test "$MODE" = apply; then
+    read_source_ready before_read
+    file_bytes "$INPUT" && test "$FILE_BYTES" = "$EXPECTED_BYTES" || fail source_size
+    INPUT_SHA=size:$EXPECTED_BYTES
+else
+    native_run read "$SOURCE"
+    file_bytes "$INPUT" && test "$FILE_BYTES" = "$EXPECTED_BYTES" || fail source_size
+    hash_file "$INPUT" || fail source_hash
+    INPUT_SHA=$HASH
+    decode_input verify_input input_decode
+fi
 
 PHASE=render
 guard && hash_is "$WORKER" "$WORKER_SHA" || fail pre_render_guard
@@ -460,14 +462,13 @@ worker_inflight=0
 "$BB" cat "$LOCK/render.log"
 test "$worker_rc" = 0 && "$BB" grep -q '^FILM_DONE ' "$LOCK/render.log" || fail render
 stage_done render "$render_started"
-hash_is "$INPUT" "$INPUT_SHA" || fail input_changed
+file_bytes "$INPUT" && test "$FILE_BYTES" = "$EXPECTED_BYTES" || fail input_changed
 file_bytes "$OUTPUT" && test "$FILE_BYTES" -gt 0 && test "$FILE_BYTES" -le 16777216 || fail output_size
 OUTPUT_BYTES=$FILE_BYTES
 hash_file "$OUTPUT" || fail output_hash
 OUTPUT_SHA=$HASH
 guard || fail post_render_guard
 if test "$MODE" = apply; then
-    confirm_settings settings_after_render
     PHASE=release_original_scratch
     manifest || fail manifest_rendered
     # The pinned worker has only read the source scratch. It was hash-checked
@@ -479,8 +480,7 @@ if test "$MODE" = apply; then
     test ! -e "$INPUT" && test ! -L "$INPUT" || { retain=1;fail absence_scratch_unconfirmed 21; }
     confirm_settings settings_before_write
     test ! -e "$CAPTURE_STOP" || fail stopped_before_write 20
-    guard && file_bytes "$OUTPUT" && test "$FILE_BYTES" = "$OUTPUT_BYTES" &&
-        hash_is "$OUTPUT" "$OUTPUT_SHA" || fail pre_write_output
+    guard && file_bytes "$OUTPUT" && test "$FILE_BYTES" = "$OUTPUT_BYTES" || fail pre_write_output
     TARGET_ATTEMPTED=1
     retain=1
     # absent is a fresh nonexistence check, not atomic exclusive-create.
@@ -488,17 +488,20 @@ if test "$MODE" = apply; then
     native_run write "$TARGET"
     native_run flush "$TARGET"
     PHASE=release_output_scratch
-    hash_is "$OUTPUT" "$OUTPUT_SHA" || fail output_changed
+    file_bytes "$OUTPUT" && test "$FILE_BYTES" = "$OUTPUT_BYTES" || fail output_changed
     manifest || fail manifest_flushed
     "$BB" rm -f "$OUTPUT" || fail release_output
     test ! -e "$OUTPUT" && test ! -L "$OUTPUT" || fail release_output
     native_run readback "$TARGET"
+    PHASE=verify_readback
+    clock_ms || :
+    verify_started=$CLOCK_MS
     file_bytes "$INPUT" && test "$FILE_BYTES" = "$OUTPUT_BYTES" || fail target_readback_size
     READBACK_BYTES=$FILE_BYTES
     hash_file "$INPUT" || fail target_readback_hash
     READBACK_SHA=$HASH
     test "$READBACK_SHA" = "$OUTPUT_SHA" || fail target_readback_hash
-    decode_input verify_readback target_readback_decode
+    stage_done verify_readback "$verify_started"
     TARGET_VERIFIED=1
     PHASE=verified_target
     manifest || fail manifest_verified_target

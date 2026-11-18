@@ -122,6 +122,24 @@ _Static_assert(offsetof(struct a6400_ui_state,running)==0x190,"ui.running ABI mi
  * stops owned layers and publishes 2. Retained widgets keep this SO loaded. */
 volatile unsigned a6400_ui_stop_requested_v1;
 
+/* Owned corner-toast ABI, separate from the 1120-byte UI snapshot ABI. */
+struct a6400_ui_toast_v1 {
+    uint32_t magic;
+    uint32_t seq;
+    uint32_t kind;
+    uint32_t duration_ms;
+    char text[64];
+};
+__attribute__((visibility("default")))
+volatile struct a6400_ui_toast_v1 a6400_ui_toast_v1 = { 0x54534f54u, 0u, 0u, 0u, "" };
+
+static struct {
+    void *bg, *accent, *label;
+    uint32_t seq, until_ms;
+    int visible;
+    char text[64];
+} ui_toast;
+
 /* Decorative theme panels kept outside `ui` so the 1120-byte snapshot ABI stays exact. */
 static struct {
     void *card_border, *card_panel, *header_accent, *header_divider, *page_btn;
@@ -187,6 +205,44 @@ static void place(void *widget,int label,int x,int y,int w,int h) {
     ui.set_position(widget,xy);
     (label?ui.label_size:ui.panel_size)(widget,(float)w,(float)h);
 }
+static void show_menu_chrome(void) {
+    static const unsigned char background[4]={8,10,14,148};
+    static const unsigned char card_border[4]={84,92,106,224};
+    static const unsigned char card_panel[4]={18,22,29,230};
+    static const unsigned char header_accent[4]={234,106,28,255};
+    static const unsigned char header_divider[4]={58,66,78,200};
+    place(ui.background,0,0,0,640,480);ui.set_color(ui.background,background);
+    place(ui_theme.card_border,0,54,34,532,412);ui.set_color(ui_theme.card_border,card_border);
+    place(ui_theme.card_panel,0,56,36,528,408);ui.set_color(ui_theme.card_panel,card_panel);
+    place(ui_theme.header_accent,0,56,36,528,4);ui.set_color(ui_theme.header_accent,header_accent);
+    place(ui_theme.header_divider,0,76,86,488,1);ui.set_color(ui_theme.header_divider,header_divider);
+}
+static void hide_menu_widgets(void) {
+    static const unsigned char clear_c[4]={0,0,0,0};
+    place(ui.background,0,0,0,0,0);ui.set_color(ui.background,clear_c);
+    place(ui_theme.card_border,0,0,0,0,0);ui.set_color(ui_theme.card_border,clear_c);
+    place(ui_theme.card_panel,0,0,0,0,0);ui.set_color(ui_theme.card_panel,clear_c);
+    place(ui_theme.header_accent,0,0,0,0,0);ui.set_color(ui_theme.header_accent,clear_c);
+    place(ui_theme.header_divider,0,0,0,0,0);ui.set_color(ui_theme.header_divider,clear_c);
+    place(ui_theme.page_btn,0,0,0,0,0);ui.set_color(ui_theme.page_btn,clear_c);
+    for(unsigned i=0;i<6;i++){
+        place(ui.panels[i],0,0,0,0,0);ui.set_color(ui.panels[i],clear_c);
+        place(ui_theme.row_accents[i],0,0,0,0,0);ui.set_color(ui_theme.row_accents[i],clear_c);
+    }
+    for(unsigned i=0;i<8;i++){
+        ui.texts[i][0]=0;
+        place(ui.labels[i],1,0,0,0,0);
+        ui.set_text(ui.labels[i],ui.texts[i]);
+    }
+}
+static void hide_toast_widgets(void) {
+    static const unsigned char clear_c[4]={0,0,0,0};
+    if(!ui_toast.bg)return;
+    place(ui_toast.bg,0,0,0,0,0);ui.set_color(ui_toast.bg,clear_c);
+    place(ui_toast.accent,0,0,0,0,0);ui.set_color(ui_toast.accent,clear_c);
+    ui_toast.text[0]=0;
+    place(ui_toast.label,1,0,0,0,0);ui.set_text(ui_toast.label,ui_toast.text);
+}
 static void visibility(void *unused,int active) {
     (void)unused;
     input_snapshot(active?3:5);
@@ -203,6 +259,10 @@ static void visibility(void *unused,int active) {
 static void draw(void *unused,const struct film_menu *menu) {
     (void)unused;
     record("DRAW_BEGIN",menu->page,menu->selected);
+    hide_toast_widgets();
+    ui_toast.visible=0;
+    show_menu_chrome();
+    place(ui.labels[0],1,76,48,488,34);
     const unsigned char row_plain[4]={30,36,46,226};
     const unsigned char row_active[4]={58,44,24,236};
     const unsigned char row_pressed[4]={234,114,36,245};
@@ -270,6 +330,7 @@ static void stop_trial(const char *why) {
     film_native_view_hide(&ui.view);
     record("STOP_MENU_HIDDEN",0,0);
     if(ui.layer)ui.layer_active(ui.layer,0);
+    ui_toast.visible=0;
     ui.running=0;
     input_snapshot(7);
     /* setAnimate only changes the flag/counter; retain allocated native nodes. */
@@ -340,6 +401,44 @@ static void animate(void *self) {
 #endif
     if(now-ui.last_tick<15u)return;
     ui.last_tick=now;
+    if(ui_toast.bg && ui.layer) {
+        if(ui.view.menu.visible) {
+            ui_toast.visible=0;
+        } else {
+            uint32_t seq=a6400_ui_toast_v1.seq;
+            if(seq!=ui_toast.seq && a6400_ui_toast_v1.magic==0x54534f54u) {
+                for(unsigned i=0;i<63;i++)ui_toast.text[i]=a6400_ui_toast_v1.text[i];
+                ui_toast.text[63]=0;
+                uint32_t kind=a6400_ui_toast_v1.kind;
+                uint32_t dur=a6400_ui_toast_v1.duration_ms;
+                ui_toast.seq=seq;
+                if(ui_toast.text[0]) {
+                    static const unsigned char bg_c[4]={18,22,29,235};
+                    static const unsigned char k1_c[4]={234,158,28,255};
+                    static const unsigned char k2_c[4]={46,196,96,255};
+                    static const unsigned char k3_c[4]={220,62,62,255};
+                    hide_menu_widgets();
+                    place(ui_toast.bg,0,24,390,480,36);
+                    place(ui_toast.accent,0,24,390,8,36);
+                    place(ui_toast.label,1,40,394,456,28);
+                    ui.set_color(ui_toast.bg,bg_c);
+                    ui.set_color(ui_toast.accent,kind==2?k2_c:kind==3?k3_c:k1_c);
+                    ui.set_text(ui_toast.label,ui_toast.text);
+                    ui.move_last(ui.layer);
+                    ui.layer_active(ui.layer,1);
+                    ui_toast.visible=1;
+                    ui_toast.until_ms=now+(dur?dur:3000u);
+                } else if(ui_toast.visible) {
+                    ui.layer_active(ui.layer,0);
+                    ui_toast.visible=0;
+                }
+            }
+            if(ui_toast.visible && (int32_t)(now-ui_toast.until_ms)>=0) {
+                ui.layer_active(ui.layer,0);
+                ui_toast.visible=0;
+            }
+        }
+    }
 #ifdef A6400_UI_RENDER_DIAGNOSTIC
     /* Isolate rendering from the entire input state machine. A simulated
      * chord can lose its release latch after a startup dispatch gap and
@@ -404,7 +503,7 @@ static void animate(void *self) {
     if(change&FILM_MENU_SETTINGS_CHANGED)record("FILM_TAP",x,y);
     if(ui.ticks%300u==0)record("FILM_ALIVE",(int)ui.ticks,ui.view.menu.visible);
 }
-static void *make(int label) {
+static void *make_on(int label,const uint32_t *layer_id) {
     void *p=calloc(1,label?0x400u:0x200u);
     if(p){
         record(label?"LABEL_CTOR_BEFORE":"PANEL_CTOR_BEFORE",0,0);
@@ -423,11 +522,12 @@ static void *make(int label) {
             if(!*(void **)((unsigned char *)p+0x1f4))return 0;
         }
         record("WIDGET_LAYER_BEFORE",label,0);
-        ui.set_layer(p,&ui.layer_id);
+        ui.set_layer(p,layer_id);
         record("WIDGET_LAYER_AFTER",label,0);
     }
     return p;
 }
+static void *make(int label) { return make_on(label,&ui.layer_id); }
 int a6400_ui_attach_v1(void *system,unsigned tid) {
     record("FILM_ATTACH_BEGIN",(int)tid,(int)(uintptr_t)system);
     if(ui.attached || system!=UI_SYSTEM || tid!=(uint32_t)syscall(SYS_gettid))return -1;
@@ -488,6 +588,14 @@ int a6400_ui_attach_v1(void *system,unsigned tid) {
     ui_theme.page_btn=make(0);
     if(!ui_theme.page_btn)return -5;
     for(unsigned i=0;i<8;i++){ui.labels[i]=make(1);if(!ui.labels[i])return -5;}
+    ui_toast.bg=make(0);
+    ui_toast.accent=make(0);
+    ui_toast.label=make(1);
+    if(ui_toast.bg && ui_toast.accent && ui_toast.label) {
+        hide_toast_widgets();
+    } else {
+        ui_toast.bg=ui_toast.accent=ui_toast.label=0;
+    }
     strcpy(ui.texts[0],"A6400 V3 CLite  |  關閉");
 #ifdef A6400_UI_SETTINGS_DIAGNOSTIC
     strcpy(ui.texts[7],"MENU + 放大鏡 | RAM");

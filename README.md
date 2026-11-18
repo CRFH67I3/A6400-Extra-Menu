@@ -2,49 +2,50 @@
 
 ![A6400 V3 CLite 機身實拍：半透明深色浮動卡片、頂部 Sony Alpha 橘條與繁體中文介面](docs/images/a6400-extra-menu-v3-clite.jpg)
 
-*最新版 **V3 CLite** 實機選單展示（半透明深色浮動卡片、Sony Alpha 橘金狀態高亮與繁體中文介面）。*
+*最新版 **V3.1 CLite（Toast 進度提示 ＋ `-O2` 處理加速穩定版）** 實機選單展示（半透明深色浮動卡片、Sony Alpha 橘金狀態高亮、繁體中文介面與左下角即時處理進度提示條）。*
 
-以 **MENU＋放大鏡** 召喚自製觸控選單，在相機上管理 LUT 開關和 Film 選項的研究專案。
+以 **MENU＋放大鏡** 召喚自製觸控選單，在相機上管理 LUT 開關、10 款 Film 選項與左下角即時處理狀態提示的研究專案。
 
 **本專案仍在持續開發與更新，目前處於實驗階段。** 選單操作、LUT 管理與拍攝後處理會隨實機驗證逐步完善；已驗證的功能、已知限制及待完成項目會同步更新在下方的「實際進度」與 [功能狀態](docs/功能狀態.md) 中。
 
 主要文件使用繁體中文。本專案採 **PolyForm Noncommercial 1.0.0**：允許在授權範圍內免費研究、使用、修改與分享，商業用途須另取得相關權利人的授權。這是**非商業用途的公開原始碼專案（source-available）**，不是 OSI 定義的開源軟件。正式條款見 [LICENSE](LICENSE)，中文重點見 [授權說明](docs/授權說明.md)。
 
-> ### 📘 快速入口：把選單部署到另一台 A6400 ＋ 日常操作規範
-> - **📦 [直接下載預編譯一鍵懶人包（A6400-V3-CLite-OneClick.zip）](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/download/v3-clite-10film-opensource-20261117/A6400-V3-CLite-OneClick.zip)** — **Windows / macOS / Linux 免編譯器、免 WSL2/Docker**，解壓後只需一行 `python oneclick_deploy.py`（或交給任何 AI 依包內 `README_AI_一鍵部署.md` 執行）。
-> - **[部署與操作規範（docs/部署與操作規範.md）](docs/部署與操作規範.md)** — 完整收錄從源碼建置、交叉編譯、PMCA 寫入、冷開機驗收、**日常使用限制（128 張／15.94 MiB／`/A6400/TEST/`）** 與緊急停用／回滾步驟。
+> ### 📘 快速入口：從 GitHub 原始碼完整建置／部署 V3.1 穩定版 ＋ 日常操作規範
+> - **[從原始碼建置、部署與操作規範（docs/部署與操作規範.md）](docs/部署與操作規範.md)** — **不需依賴懶人包**，完整收錄從源碼交叉編譯（含 V3.1 左下角 Toast 進度提示條 `a6400_ui_toast_v1` 與 `-O2` 加速 JPEG Worker）、自動化 PMCA 寫入（自動偵測並修補全新機身開機掛勾 `/tmp/a6400-autoexec.so`）、冷開機驗收、**日常使用限制（128 張／15.94 MiB／`/A6400/TEST/`）** 與緊急停用／回滾步驟。
+> - **📦 [直接下載預編譯一鍵懶人包（A6400-V3.1-CLite-OneClick.zip）](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/latest)** — 若不想自行架設 ARM 交叉編譯器，亦可從 Releases 下載預編譯包直接執行 `python oneclick_deploy.py`。
 
 ## 外觀版本對照
 
 | 版本 | 說明與實機畫面 |
 | --- | --- |
-| **V3 CLite（最新版）** | 半透明深色浮動卡片（可隱約保留背後取景畫面）、頂部 Sony Alpha 橘條、`LUT 濾鏡` 開啟與目前選中 `膠片風格` 橘金側條高亮、右下角獨立 `關閉`／`返回` 按鈕，並以繁體中文顯示。<br><img src="docs/images/a6400-extra-menu-v3-clite.jpg" alt="A6400 V3 CLite 最新版繁體中文半透明浮動卡片選單" width="460"> |
+| **V3.1 CLite（最新穩定版）** | 半透明深色浮動卡片（可隱約保留背後取景畫面）、頂部 Sony Alpha 橘條、`LUT 濾鏡` 開啟與目前選中 `膠片風格` 橘金側條高亮、右下角獨立 `關閉`／`返回` 按鈕、繁體中文顯示；**新增拍攝後左下角即時狀態提示條（Toast HUD：橘色 `處理中: <濾鏡>...` → 綠色 `OK 已存SD: <濾鏡> (<檔名>)`）與 `-O2` 處理加速（實測縮短至約 18.9 秒／張）**。<br><img src="docs/images/a6400-extra-menu-v3-clite.jpg" alt="A6400 V3.1 CLite 最新版繁體中文半透明浮動卡片選單" width="460"> |
 | **V1 Beta（早期初版）** | 早期實機驗證版本，採全屏深色不透明背景、等寬純英文條狀按鈕（`LUT: ON/OFF`、`Film`、`Close`）。<br><img src="docs/images/a6400-extra-menu-camera.jpg" alt="A6400 V1 Beta 早期實機觸控選單" width="460"> |
 | **V0 早期測試原形** | 最早期的自製 OSD 觸控選單介面試驗畫面（`A6400 CUSTOM MENU / TOUCH TEST`）。<br><img src="docs/images/a6400-extra-menu-v0-early.jpg" alt="A6400 V0 早期 OSD 觸控測試原形" width="460"> |
 | **社群跨機身移植紀錄（`A7R4A`）** | 2026-11-17 社群開發者基於本專案架構成功移植至其他 Sony Alpha 機身之實機畫面（畫面標題顯示 `A7R4A FILM MENU TEST`、`C1+C2 or MENU+C1 \| Tap LUT / Film / Close`，顯示 5 款膠片選單與觸控介面；僅作開發紀錄，不代表本倉庫直接提供非 A6400 機身之記憶體位址）。<br><img src="docs/images/community-a7r4a-film-menu.jpg" alt="社群移植至 A7R4A 的 Film Menu 實機測試畫面" width="460"> |
 
 ## 這個版本包含甚麼？
 
-- **A6400 V3 CLite 雙頁自製選單**：採用半透明深色浮動卡片、頂部 Sony Alpha 橘條與繁體中文介面，含觸控命中判斷、無限重複召喚與右下角獨立 `關閉`／`返回` 按鈕，並支援雙頁切換（`下一頁 >` / `< 上一頁`）。
-- **10 款開源膠片 LUT 濾鏡引擎**：隨本倉庫完整開源 `camera/Makefile.film`、`author_film.c`、`author_curves.h`、`author_fast_jpeg.h`、`film_jpeg.cpp` 與 Public Domain 的 `picojpeg`/`jpge`，支援 `Portra 400`、`CineStill 800T`、`Fuji Provia`、`Kodak Gold`、`Tri-X 400`、`Classic Chrome`、`Agfa Ultra 100`、`Polaroid 669`、`Fuji Acros`、`Polaroid PX680+`（含暖琥珀／橘金狀態高亮；關閉選單不影響已開啟的 LUT）。
-- **AI 一鍵編譯與 PMCA 部署工具**：提供 [`tools/build_v3_clite.sh`](tools/build_v3_clite.sh) 與 [`tools/pmca_deploy_v3_clite.py`](tools/pmca_deploy_v3_clite.py)，配合 [部署與操作規範](docs/部署與操作規範.md) 讓任何 AI 皆可一鍵編譯、雜湊驗證、自動備份並部署到目標 A6400。
-- **設定讀取與套件安全檢查**：包含 1120-byte snapshot ABI 驗證、背景派工條件、只讀設定 CLI，以及套件建置期對 `a6400-film-ram-job.sh` 內部雜湊的強制一致性防呆。
-- **照片掃描與原生檔案協調**：支援僅掃描最新 DCF 目錄、`mmc0` 中斷觸發（排除 `emmc0`）、動態解析 SD 卡 `B:`／`A:` 磁碟代號，以及寫回、強制 `flush` 與讀回解碼驗證。
-- **原生 UI 接駁與建置工具**：研究用載入保護（含瞬時執行緒變動重試）、`--gc-sections` 體積精簡建置與套件組裝腳本。
-- **電腦端自動化驗證**：可在一般電腦執行的合成資料與控制測試；不需要連接相機或 Sony 韌體。
+- **A6400 V3.1 CLite 雙頁自製選單與左下角即時進度提示條（Toast HUD）**：採用半透明深色浮動卡片、頂部 Sony Alpha 橘條與繁體中文介面，含觸控命中判斷、無限重複召喚與右下角獨立 `關閉`／`返回` 按鈕，並支援雙頁切換（`下一頁 >` / `< 上一頁`）。在選單關閉的正常取景畫面下，背景守護行程透過獨立 `a6400_ui_toast_v1` 共享槽位（不影響 1120-byte 設定快照 ABI），於偵測到新相片瞬間在左下角顯示橘色 **`處理中: <濾鏡名>...`**，寫卡校驗完成後切換為綠色 **`OK 已存SD: <濾鏡名> (<檔名>)`**（約 3.5 秒自動隱藏）。
+- **10 款開源膠片 LUT 濾鏡引擎（V3.1 `-O2` 加速版）**：隨本倉庫完整開源 `camera/Makefile.film`、`author_film.c`、`author_curves.h`、`author_fast_jpeg.h`、`film_jpeg.cpp` 與 Public Domain 的 `picojpeg`/`jpge`，支援 `Portra 400`、`CineStill 800T`、`Fuji Provia`、`Kodak Gold`、`Tri-X 400`、`Classic Chrome`、`Agfa Ultra 100`、`Polaroid 669`、`Fuji Acros`、`Polaroid PX680+`。V3.1 開啟完整 `-O2` 最佳化、最新 DCF 目錄提示快取（`inventory_dirs_with_hint`）與單次寫回讀回 SHA-256 驗證，實測單張處理時間由約 `25.5 秒`縮短至約 **`18.9 秒`**。
+- **AI 一鍵編譯與全自動 PMCA 部署工具**：提供 [`tools/build_v3_clite.sh`](tools/build_v3_clite.sh) 與強化版 [`tools/pmca_deploy_v3_clite.py`](tools/pmca_deploy_v3_clite.py)（自動下載 `Sony-PMCA-RE` 與相依套件、自動偵測相機 BusyBox／OpenSSL 與 `/tmp_bt` 容量、對全新未掛勾機身自動從相機讀取 `/usr/lib/libAK8975.so` 修補 `/tmp/a6400-autoexec.so`），配合 [部署與操作規範](docs/部署與操作規範.md) 讓任何開發者或 AI 不需懶人包也能從 GitHub 原始碼一鍵編譯並部署到目標 A6400。
+- **設定讀取與套件安全檢查**：包含 1120-byte snapshot ABI 驗證、背景派工條件、只讀設定 CLI，以及套件建置期對 `a6400-film-ram-job.sh` 內部雜湊與 `FILM_DAEMON_TOAST_RVA` 的強制一致性防呆。
+- **照片掃描與原生檔案協調**：支援僅掃描最新 DCF 目錄與目錄提示直掃、`mmc0` 中斷觸發（排除 `emmc0`）、動態解析 SD 卡 `B:`／`A:` 磁碟代號，以及寫回、強制 `flush` 與讀回 SHA-256 驗證。
+- **原生 UI 接駁與建置工具**：研究用載入保護（含瞬時執行緒變動重試與相機端 `libc-2.11.2.so` 相容連結）、`--gc-sections -Wl,-s` 體積精簡建置與套件組裝腳本。
+- **電腦端自動化驗證**：可在一般電腦執行的合成資料與控制測試（含 V3.1 Toast HUD 與 1120-byte ABI 測試）；不需要連接相機或 Sony 韌體。
 
 **這是研究用原始碼公開版，並非可直接複製到 SD 卡的完整安裝包。** 原生 UI 接駁使用特定實機版本的地址與佈局，不能假設適用於其他機身或韌體。
 
 ## 實際進度
 
-截至 2026 年 11 月 17 日的研究記錄：
+截至 2026 年 11 月 18 日的研究記錄：
 
 | 項目 | 狀態 |
 | --- | --- |
-| MENU＋放大鏡召喚、觸控關閉、重複開關 | 已有多輪實機測試確認（最新 `V3 CLite` 半透明橘金卡片＋繁體中文介面已實機驗證） |
+| MENU＋放大鏡召喚、觸控關閉、重複開關 | 已有多輪實機測試確認（最新 `V3.1 CLite` 半透明橘金卡片＋繁體中文介面已實機驗證） |
 | LUT／Film 切換、關閉與自動隱藏後保留設定 | 已有實機測試確認（`LUT` 開啟與目前選中 Film 支援高亮標示） |
+| 拍攝後左下角即時進度提示條（Toast HUD） | 已於 `V3.1 CLite` 實機冷開機驗證（偵測即顯示橘色 `處理中: <濾鏡>...`，完成顯示綠色 `OK 已存SD: <濾鏡> (<檔名>)`） |
+| 冷開機不插線自動掃描並另存 LUT JPEG（`-O2` 加速） | 已完成實機冷開機驗證（支援動態解析 `B:`/`A:` 與寫回讀回雜湊驗證，單張約 `18.9 秒`） |
 | 關閉後原生按鍵與觸控恢復正常 | 已有多輪實機測試確認 |
-| 冷開機不插線自動掃描並另存 LUT JPEG | 已完成實機冷開機驗證（支援動態解析 `B:`/`A:` 與寫回讀回雜湊驗證） |
 | OFF 略過、切換 Tri-X 等長期多輪驗收 | 仍待補齊更多場景實測 |
 | 即時取景套色、影片 LUT、任意 `.cube` 匯入 | 此公開版沒有提供 |
 

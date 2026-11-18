@@ -155,8 +155,8 @@ static void transport_stop(struct transport *t) {
         kill(t->pid,SIGTERM);
         uint32_t start=now_ms();int status;
         while(waitpid(t->pid,&status,WNOHANG)==0) {
-            if((uint32_t)(now_ms()-start)>500u) {kill(t->pid,SIGKILL);break;}
-            pause_ms(10);
+            if((uint32_t)(now_ms()-start)>80u) {kill(t->pid,SIGKILL);break;}
+            pause_ms(5);
         }
         while(waitpid(t->pid,&status,0)<0 && errno==EINTR){}
     }
@@ -479,9 +479,27 @@ static int dcf_directory(const char *s) {
     return 1;
 }
 static int jpeg_name(const char *s) {return strlen(s)==12 && !strcmp(s+8,".JPG");}
-static int inventory_dirs(struct transport *t,struct catalogue *out,int latest_only) {
+static int scan_one_dir(struct transport *t,const char *directory,struct catalogue *out) {
+    struct item item;int first=1,result;
+    while((result=native_item(t,directory,first,&item))==1) {
+        first=0;
+        if(!item.directory && jpeg_name(item.name)) {
+            if(out->count==MAX_FILES)return diagnostic(t,"file_capacity",0);
+            struct entry *e=&out->items[out->count++];
+            /* Directory is ms:/DCIM/ plus eight validated DCF characters. */
+            snprintf(e->path,sizeof(e->path),"%.17s/%.12s",directory,item.name);
+            strcpy(e->time,item.time);e->size=item.size;
+            for(unsigned i=0;i+1<out->count;++i)if(!strcmp(out->items[i].path,e->path))return diagnostic(t,"duplicate_path",0);
+        }
+    }
+    if(result<0){out->count=0;return result;}
+    return 0;
+}
+static int inventory_dirs_with_hint(struct transport *t,struct catalogue *out,int latest_only,const char *hint_dir) {
     char directories[MAX_DIRS][48];unsigned count=0;int first=1,result;
     struct item item;out->count=0;t->scan_started=now_ms();
+    if(latest_only && hint_dir && hint_dir[0])
+        return scan_one_dir(t,hint_dir,out);
     if(latest_only)directories[0][0]=0;
     while((result=native_item(t,"ms:/DCIM",first,&item))==1) {
         first=0;
@@ -502,21 +520,13 @@ static int inventory_dirs(struct transport *t,struct catalogue *out,int latest_o
     }
     if(result<0){out->count=0;return result;}
     for(unsigned d=0;d<count;++d) {
-        first=1;
-        while((result=native_item(t,directories[d],first,&item))==1) {
-            first=0;
-            if(!item.directory && jpeg_name(item.name)) {
-                if(out->count==MAX_FILES)return diagnostic(t,"file_capacity",0);
-                struct entry *e=&out->items[out->count++];
-                /* Directory is ms:/DCIM/ plus eight validated DCF characters. */
-                snprintf(e->path,sizeof(e->path),"%.17s/%.12s",directories[d],item.name);
-                strcpy(e->time,item.time);e->size=item.size;
-                for(unsigned i=0;i+1<out->count;++i)if(!strcmp(out->items[i].path,e->path))return diagnostic(t,"duplicate_path",0);
-            }
-        }
-        if(result<0){out->count=0;return result;}
+        result=scan_one_dir(t,directories[d],out);
+        if(result<0)return result;
     }
     return 0;
+}
+static int inventory_dirs(struct transport *t,struct catalogue *out,int latest_only) {
+    return inventory_dirs_with_hint(t,out,latest_only,NULL);
 }
 static int inventory(struct transport *t,struct catalogue *out) {
     return inventory_dirs(t,out,0);

@@ -685,7 +685,14 @@ int main(int argc,char **argv) {
             latest_dcim_dir[0]=0;early_toast_sent=0;
             reset_candidate_stability();post_trigger_follow=0;
             if(!metadata_retry(&metadata_failures,"watch")) {
+#if FILM_CAPTURE_PERSISTENT
+                metadata_failures=0;
+                transport_stop(&transport);
+                pause_interruptible(200u,start,1);
+                continue;
+#else
                 result=21;retain_lock=1;reason="scan_unconfirmed";break;
+#endif
             }
             phase="metadata_wait";
             if(save_manifest()){reason="manifest";break;}

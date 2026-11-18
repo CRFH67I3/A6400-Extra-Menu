@@ -123,14 +123,14 @@
     },
     {
       "path": "camera/film_capture_daemon.c",
-      "source_sha256": "9125e8592e383909eb56d31423745e6d3063820db36a50dabd7e647edd3a476b",
-      "release_sha256": "9125e8592e383909eb56d31423745e6d3063820db36a50dabd7e647edd3a476b",
+      "source_sha256": "929fc0c1d9318b6691d98acc69967cb951183da30008c90769c1fbea694f7bb9",
+      "release_sha256": "929fc0c1d9318b6691d98acc69967cb951183da30008c90769c1fbea694f7bb9",
       "release_adjustments": []
     },
     {
       "path": "camera/native_capture_probe.c",
-      "source_sha256": "aa3512437cdd2d05c4cc908ea6f9ce70412c618abe871bd43ff9030c07178336",
-      "release_sha256": "aa3512437cdd2d05c4cc908ea6f9ce70412c618abe871bd43ff9030c07178336",
+      "source_sha256": "97a1d9ca90037fec48b2e83e2fb000c4e464174f0c7cc87deb864f8343afdbe3",
+      "release_sha256": "97a1d9ca90037fec48b2e83e2fb000c4e464174f0c7cc87deb864f8343afdbe3",
       "release_adjustments": []
     },
     {

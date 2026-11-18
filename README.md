@@ -18,7 +18,8 @@
 
 | 版本 | 說明與實機畫面 |
 | --- | --- |
-| **V3.1 CLite（最新穩定版）** | 半透明深色浮動卡片（可隱約保留背後取景畫面）、頂部 Sony Alpha 橘條、`LUT 濾鏡` 開啟與目前選中 `膠片風格` 橘金側條高亮、右下角獨立 `關閉`／`返回` 按鈕、繁體中文顯示；**新增拍攝後左下角即時狀態提示條（Toast HUD：橘色 `處理中: <濾鏡>...` → 綠色 `OK 已存SD: <濾鏡> (<檔名>)`）與 `-O2` 處理加速（實測縮短至約 18.9 秒／張）**。<br><img src="docs/images/a6400-extra-menu-v3-clite.jpg" alt="A6400 V3.1 CLite 最新版繁體中文半透明浮動卡片選單" width="460"> |
+| **V3.1 CLite（官方穩定版／回滾基準）** | 半透明深色浮動卡片（可隱約保留背後取景畫面）、頂部 Sony Alpha 橘條、`LUT 濾鏡` 開啟與目前選中 `膠片風格` 橘金側條高亮、右下角獨立 `關閉`／`返回` 按鈕、繁體中文顯示；**新增拍攝後左下角即時狀態提示條（Toast HUD：橘色 `處理中: <濾鏡>...` → 綠色 `OK 已存SD: <濾鏡> (<檔名>)`）與 `-O2` 處理加速（實測單張 RAM 任務僅約 `12.36 秒`）**。本倉庫 `main` 與 `v3.1-stable` 標籤均以此版本為穩定基準。<br><img src="docs/images/a6400-extra-menu-v3-clite.jpg" alt="A6400 V3.1 CLite 最新版繁體中文半透明浮動卡片選單" width="460"> |
+| **V3.2 CLite（個人自訂快門音效展示）** | 基於 V3.1 穩定版實機擴充：選單第 3 列新增 **`快門聲: Charo (開啟)`** 橘金高亮開關與試聽列，支援 `0 ms` 快門同步自訂日文快門語音（音檔屬個人資產不隨本公開倉庫附帶；主線與回滾基準仍為 **V3.1 CLite 穩定版**）。<br><img src="docs/images/a6400-extra-menu-v32-charo.jpg" alt="A6400 V3.2 CLite 自訂快門聲選單實拍畫面" width="460"> |
 | **V1 Beta（早期初版）** | 早期實機驗證版本，採全屏深色不透明背景、等寬純英文條狀按鈕（`LUT: ON/OFF`、`Film`、`Close`）。<br><img src="docs/images/a6400-extra-menu-camera.jpg" alt="A6400 V1 Beta 早期實機觸控選單" width="460"> |
 | **V0 早期測試原形** | 最早期的自製 OSD 觸控選單介面試驗畫面（`A6400 CUSTOM MENU / TOUCH TEST`）。<br><img src="docs/images/a6400-extra-menu-v0-early.jpg" alt="A6400 V0 早期 OSD 觸控測試原形" width="460"> |
 | **社群跨機身移植紀錄（`A7R4A`）** | 2026-11-17 社群開發者基於本專案架構成功移植至其他 Sony Alpha 機身之實機畫面（畫面標題顯示 `A7R4A FILM MENU TEST`、`C1+C2 or MENU+C1 \| Tap LUT / Film / Close`，顯示 5 款膠片選單與觸控介面；僅作開發紀錄，不代表本倉庫直接提供非 A6400 機身之記憶體位址）。<br><img src="docs/images/community-a7r4a-film-menu.jpg" alt="社群移植至 A7R4A 的 Film Menu 實機測試畫面" width="460"> |

@@ -308,8 +308,8 @@
     },
     {
       "path": "test_native_film_view.py",
-      "source_sha256": "144c4b7809b09cca4dd3e789f737b3b4133f036c8444c97c7e02de5489a71d96",
-      "release_sha256": "144c4b7809b09cca4dd3e789f737b3b4133f036c8444c97c7e02de5489a71d96",
+      "source_sha256": "e1d3ce64b5d2ac1342366253eaa705aec7a9738b834f4b5a00b79b56f52834e5",
+      "release_sha256": "e1d3ce64b5d2ac1342366253eaa705aec7a9738b834f4b5a00b79b56f52834e5",
       "release_adjustments": []
     },
     {

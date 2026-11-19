@@ -118,6 +118,7 @@ const char *model_toast_text(void) { return model_toast_label; }
                 (inc / name).write_text((ROOT / 'camera' / name).read_text(encoding='utf-8'), encoding='utf-8')
             src = (ROOT / 'camera/native_film_ui_trial3.c').read_text(encoding='utf-8')
             body = model_c.replace('#include "native_film_ui_trial3.c"', src)
+            body = body.replace('__attribute__((pcs("aapcs")))', '')
             preamble = (
                 'static unsigned char ui_sys_stub[4096];\n'
                 '#define _Static_assert(cond, msg)\n'
@@ -126,7 +127,7 @@ const char *model_toast_text(void) { return model_toast_label; }
             so_file = d / 'toast_model.so'
             subprocess.run([
                 'cc', '-std=c11', '-shared', '-fPIC', '-Wall', '-Wextra', '-Werror',
-                '-Wno-unknown-attributes', '-Wno-ignored-attributes', '-Wno-unused-function',
+                '-Wno-unused-function',
                 '-DA6400_UI_TRIAL_MS=0', '-DA6400_UI_DISPLAY_MS=20000',
                 '-I', str(inc), '-I', str(d),
                 str(d / 'model.c'),

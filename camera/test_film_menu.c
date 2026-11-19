@@ -15,11 +15,14 @@ static void chord(struct film_menu *m) {
 }
 static unsigned tap(struct film_menu *m, int row) {
     int stocks_page = m->page == FILM_MENU_STOCKS || m->page == FILM_MENU_STOCKS_P2;
-    int is_dismiss = (m->page == FILM_MENU_HOME && row == 2) || (stocks_page && row == 5);
+    int is_dismiss = (m->page == FILM_MENU_HOME && row == 2) ||
+                     ((stocks_page || m->page == FILM_MENU_DETAILS) && row == 5);
     int is_pager = stocks_page && row == 6;
     int x = is_dismiss ? 480 : 120;
     int y = (is_dismiss || is_pager) ? 405 :
-            (m->page == FILM_MENU_HOME ? (row == 0 ? 140 : 230) : 98 + row * 54 + 20);
+            (m->page == FILM_MENU_HOME
+                 ? (row == 0 ? 128 : (row == 1 ? 198 : (row == 4 ? 268 : 338)))
+                 : (m->page == FILM_MENU_DETAILS ? (106 + row * 92 + 30) : (98 + row * 54 + 20)));
     film_menu_touch(m, now += 20, 0, 32767, 32767);
     film_menu_touch(m, now += 20, 1, x, y);
     return film_menu_touch(m, now += 20, 0, 32767, 32767);
@@ -95,6 +98,16 @@ int main(void) {
     }
     assert(strcmp(film_stock_worker_name(m.settings.stock), "polaroid_px680") == 0);
     assert(film_stock_worker_name(-1) == NULL && film_stock_worker_name(10) == NULL);
+    assert(tap(&m, 4) & FILM_MENU_REDRAW);
+    assert(m.page == FILM_MENU_DETAILS);
+    assert(tap(&m, 0) & FILM_MENU_SETTINGS_CHANGED);
+    assert(m.settings.grain == 3);
+    assert(tap(&m, 1) & FILM_MENU_SETTINGS_CHANGED);
+    assert(m.settings.halation == 0);
+    assert(tap(&m, 2) & FILM_MENU_SETTINGS_CHANGED);
+    assert(m.settings.grain == 2 && m.settings.halation == 1);
+    assert(tap(&m, 5) & FILM_MENU_REDRAW);
+    assert(m.page == FILM_MENU_HOME);
     chord(&m); assert(!m.visible); chord(&m); assert(m.visible);
     /* All real persisted choices round-trip, independent of menu visibility. */
     for (int enabled = 0; enabled < 2; ++enabled)

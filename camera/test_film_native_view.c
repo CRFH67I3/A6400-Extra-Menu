@@ -66,11 +66,22 @@ int main(void) {
     assert(persistence==3 && saved.stock==5);
     tick(&v,0,0,1,6,0,0);assert(!visible && !v.menu.visible);
     chord(&v);assert(visible && v.menu.settings.enabled && v.menu.settings.stock==5);
+    tap(&v,80,260);assert(v.menu.page==FILM_MENU_DETAILS);
+    assert(!strcmp(labels[0],"顆粒強度: 標準"));
+    assert(!strcmp(labels[1],"底片光暈: 開啟"));
+    tap(&v,120,140);assert(v.menu.settings.grain==3 && persistence==4 && saved.grain==3);
+    assert(!strcmp(labels[0],"顆粒強度: 濃厚"));
+    tap(&v,120,140);assert(v.menu.settings.grain==0 && persistence==5 && saved.grain==0);
+    assert(!strcmp(labels[0],"顆粒強度: 無 (加速)"));
+    tap(&v,120,230);assert(v.menu.settings.halation==0 && persistence==6 && saved.halation==0);
+    assert(!strcmp(labels[1],"底片光暈: 關閉 (加速)"));
+    tap(&v,120,320);assert(v.menu.settings.grain==2 && v.menu.settings.halation==1 && persistence==7);
+    tap(&v,480,405);assert(v.menu.page==FILM_MENU_HOME);
     tap(&v,480,405);assert(!visible && !v.menu.visible);
     chord(&v);assert(visible);
     tick(&v,0,0,0,5,80,140); /* Incomplete gesture followed by invalid input. */
-    tick(&v,0,0,0,0,80,140);assert(!visible && persistence==3);
-    film_native_view_hide(&v);assert(!visible && persistence==3);
+    tick(&v,0,0,0,0,80,140);assert(!visible && persistence==7);
+    film_native_view_hide(&v);assert(!visible && persistence==7);
     assert(film_native_view_row(&v.menu,7,labels[0],80,0,0,0,0)==-1);
     puts("NATIVE_FILM_VIEW_OK");
 }

@@ -58,24 +58,31 @@ case "${A6400_INPUT_DIAGNOSTIC:-0}" in
  1|2) DIAGNOSTIC_FLAGS="$DIAGNOSTIC_FLAGS -DA6400_INPUT_DIAGNOSTIC=$A6400_INPUT_DIAGNOSTIC" ;;
  *) echo "A6400_INPUT_DIAGNOSTIC must be 0, 1 or 2" >&2; exit 2 ;;
 esac
+case "${A6400_CHARO_SHUTTER:-0}" in
+ 0) ;;
+ 1) DIAGNOSTIC_FLAGS="$DIAGNOSTIC_FLAGS -DA6400_CHARO_SHUTTER=1" ;;
+ *) echo "A6400_CHARO_SHUTTER must be 0 or 1" >&2; exit 2 ;;
+esac
 mkdir -p "$OUT"
 CC=arm-linux-gnueabihf-gcc
 COMMON="-march=armv7-a+fp -mfpu=vfpv3-d16 -mfloat-abi=hard -Os -Wall -Wextra -Werror -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
-$CC $COMMON -mthumb -nostdlib -static -no-pie -fno-pie -ffreestanding -fno-builtin -fomit-frame-pointer \
- "-DA6400_UI_MODULE_PATH=\"$MODULE_PATH\"" \
- -Wl,-T,"$ROOT/camera/native_ui_payload.ld",-e,ui_release_loader,--build-id=none \
- "$ROOT/camera/native_ui_load_payload.c" "$ROOT/camera/native_ui_trampoline.S" \
+$CC $COMMON -mthumb -fPIC -nostdlib -ffreestanding -fno-builtin -fomit-frame-pointer \
+ "-DA6400_UI_MODULE_PATH=\"$MODULE_PATH\"" -c "$ROOT/camera/native_ui_load_payload.c" -o "$OUT/payload_c.o"
+$CC $COMMON -mthumb -nostdlib -static -no-pie -fno-pie \
+ -Wl,-T,"$ROOT/camera/native_ui_payload.ld",-e,a6400_entry,--build-id=none \
+ "$OUT/payload_c.o" "$ROOT/camera/native_ui_trampoline.S" \
  -o "$OUT/payload.elf"
 arm-linux-gnueabihf-objcopy -O binary -j .text "$OUT/payload.elf" "$OUT/payload.bin"
 for source in native_film_ui_trial3 film_native_view film_menu; do
- $CC $COMMON $DIAGNOSTIC_FLAGS -marm -fPIC -c "$ROOT/camera/$source.c" -o "$OUT/$source.o"
+ $CC $COMMON $DIAGNOSTIC_FLAGS -ffunction-sections -fdata-sections -mthumb -fPIC -c "$ROOT/camera/$source.c" -o "$OUT/$source.o"
 done
-$CC -mfloat-abi=hard -nostdlib -shared -Wl,--no-undefined \
+$CC -mfloat-abi=hard -nostdlib -shared -Wl,--no-undefined,--gc-sections \
  "$OUT/native_film_ui_trial3.o" "$OUT/film_native_view.o" "$OUT/film_menu.o" \
  -Wl,--no-as-needed "$LIBS/libdl-2.11.2.so" "$LIBS/libc-2.11.2.so" -lgcc \
  -o "$OUT/a6400-film-ui-v3.so"
 arm-linux-gnueabihf-readelf -lWdV "$OUT/a6400-film-ui-v3.so" > "$OUT/elf-compatibility.txt"
 arm-linux-gnueabihf-readelf -sW "$OUT/a6400-film-ui-v3.so" > "$OUT/symbols.txt"
+arm-linux-gnueabihf-strip --strip-unneeded "$OUT/a6400-film-ui-v3.so"
 python3 - "$OUT" <<'PY'
 from pathlib import Path
 import re,sys

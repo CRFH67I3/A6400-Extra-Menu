@@ -5,6 +5,7 @@
 #include "film_settings_source.h"
 #include "film_settings_maps.h"
 #include "film_ui_stop_build.h"
+#include "im_pid_find.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -30,11 +31,13 @@ static int fail(const char *reason) {
     printf("FILM_UI_STOP_UNAVAILABLE reason=%s\n",reason);return 11;
 }
 static int path(char *out,unsigned capacity,const char *name) {
-    int n=snprintf(out,capacity,"%s/%s",FILM_UI_STOP_PROC,name);
-    return n>0 && (unsigned)n<capacity;
+    return a6400_im_proc_path(out,capacity,name)==0;
 }
 static int identity(char start[24]) {
-    char file[512],line[1024];
+    char file[512],line[1024],prefix[32];
+    pid_t pid=a6400_find_im_pid();
+    if(pid<=0)return 0;
+    snprintf(prefix,sizeof(prefix),"%ld (im.elf) ",(long)pid);
     if(!path(file,sizeof(file),"comm"))return 0;
     FILE *f=fopen(file,"r");
     if(!f)return 0;
@@ -42,8 +45,9 @@ static int identity(char start[24]) {
     fclose(f);if(!ok || !path(file,sizeof(file),"stat"))return 0;
     f=fopen(file,"r");if(!f)return 0;
     ok=fgets(line,sizeof(line),f)!=0;fclose(f);
-    if(!ok || strncmp(line,"149 (im.elf) ",13))return 0;
-    char *p=line+13;
+    size_t plen=strlen(prefix);
+    if(!ok || strncmp(line,prefix,plen))return 0;
+    char *p=line+plen;
     for(unsigned field=3;field<22;field++) {
         if(!*p || *p=='\n')return 0;
         while(*p && *p!=' ' && *p!='\n')++p;
@@ -202,7 +206,7 @@ static const char *read_state(int fd,struct observed *out) {
         if(memcmp(out->first,out->second,16))return "state";
         for(unsigned i=0;i<sizeof(fixed)/sizeof(*fixed);i++)
             if(word(out->first,fixed[i])!=word(out->second,fixed[i]))return "state";
-        if(word(out->second,0x68)!=0x956f0u || word(out->second,0xc0)!=380u ||
+        if(word(out->second,0x68)<0x10000u || !word(out->second,0xc0) ||
            !word(out->second,0xc4) || word(out->second,0x18c)!=1u ||
            word(out->second,0x190)!=0u)return "state";
         return 0;

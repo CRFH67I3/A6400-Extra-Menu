@@ -106,8 +106,18 @@ for request in sys.stdin:
  if fault=='native_error':print('native ERROR 0x123\nMWF>',flush=True);continue
  if fault=='delayed_copy':
   time.sleep(.16);(root/'input.jpg').write_bytes(b'delayed complete file')
+ if fault=='nul_interleaved':
+  sys.stdout.buffer.write(b'[ObjCntMgr] \x00I\x00nfr\x00aMedia\r\nMWF>');sys.stdout.buffer.flush();continue
  if fault=='silent_copy_failure':
   print('MWF>',flush=True);continue
+ (root/'commands.log').open('a').write(command+'\n')
+ if fault.startswith('commit_'):
+  if command.endswith('input.jpg'):
+   if fault=='commit_target_exists':print('MWF>',flush=True);continue
+   print("[IFSYS]Can't open file "+command.split()[2],flush=True)
+   print('MWF>',flush=True);continue
+  if command.startswith('IFSYS flush ') and fault=='commit_flush_missing':
+   print('MWF>',flush=True);continue
  if command.startswith('IFSYS flush ') and fault!='flush_marker_missing':
   print('Fsys_Flush OK',flush=True)
  print('MWF>',flush=True)
@@ -593,6 +603,41 @@ class FilmNativeCommandTests(unittest.TestCase):
         self.assertEqual(triple.returncode, 21, triple.stdout)
         self.assertIn('reason=response_capacity', triple.stdout)
         self.assertIn('uncertain=1', triple.stdout)
+
+
+    def test_nul_bytes_from_monitor_do_not_hide_mwf_prompt(self):
+        result = self.run_native('read', CAPTURE, fault='nul_interleaved')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('NATIVE_RETURN operation=read reason=fresh_prompt', result.stdout)
+
+
+    def test_commit_runs_absent_write_flush_in_one_session(self):
+        result = self.run_native('commit', TARGET, fault='commit_ok')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('NATIVE_RETURN operation=commit reason=fresh_prompt', result.stdout)
+        self.assertIn('uncertain=0', result.stdout)
+        cmds = (self.base / 'commands.log').read_text().splitlines()
+        self.assertEqual(cmds, [
+            f'IFSYS cp {TARGET} {self.base}/input.jpg',
+            f'IFSYS cp {self.base}/output.jpg {TARGET}',
+            f'IFSYS flush {TARGET}',
+        ])
+        self.assert_child_reaped()
+
+    def test_commit_aborts_before_write_if_target_absence_unproven(self):
+        result = self.run_native('commit', TARGET, fault='commit_target_exists')
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn('reason=absence_unproven', result.stdout)
+        self.assertIn('uncertain=0', result.stdout)
+        cmds = (self.base / 'commands.log').read_text().splitlines()
+        self.assertEqual(cmds, [f'IFSYS cp {TARGET} {self.base}/input.jpg'])
+        self.assert_child_reaped()
+
+    def test_commit_requires_flush_ok_marker(self):
+        result = self.run_native('commit', TARGET, fault='commit_flush_missing')
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn('reason=flush_success_missing', result.stdout)
+        self.assert_child_reaped()
 
 
 if __name__ == '__main__':

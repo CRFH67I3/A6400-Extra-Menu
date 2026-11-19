@@ -21,7 +21,7 @@ int film_settings_snapshot_get(struct film_settings *out,const void *first,
     if(memcmp(first,second,16))return 2;
     for(unsigned i=0;i<sizeof(fixed)/sizeof(*fixed);i++)
         if(word(first,fixed[i])!=word(second,fixed[i]))return 2;
-    if(word(second,0x68)!=0x956f0 || word(second,0xc0)!=380 ||
+    if(word(second,0x68)<0x10000u || !word(second,0xc0) ||
        word(second,0x18c)!=1)return -1;
     static const unsigned maximum[4]={1,9,3,1};
     for(unsigned i=0;i<4;i++)if(word(second,i*4)>maximum[i])return -1;

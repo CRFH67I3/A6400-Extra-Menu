@@ -279,13 +279,17 @@ int main(int argc,char **argv) {
         return result?result:closed?2:0;
     }
 #endif
-    int preset=argc>=2?preset_index(argv[1]):-1,grain=2,halo=1;
-    if(argc==6) {
+    int preset=argc>=2?preset_index(argv[1]):-1,grain=2,halo=1,hires=0;
+    if(argc>=6) {
         grain=strlen(argv[4])==1?argv[4][0]-'0':-1;
         halo=strlen(argv[5])==1?argv[5][0]-'0':-1;
     }
-    if((argc!=4 && argc!=6)||preset<0||grain<0||grain>3||halo<0||halo>1) {
-        printf("usage: film_jpeg PRESET INPUT NEW_OUTPUT [GRAIN_0_TO_3 HALATION_0_OR_1]\n");return 1;
+    if(argc==5 && !strcmp(argv[4],"--hires")) hires=1;
+    if(argc==7 && !strcmp(argv[6],"--hires")) hires=1;
+    if((argc!=4 && argc!=5 && argc!=6 && argc!=7)||
+       (argc==5 && !hires)||(argc==7 && !hires)||
+       preset<0||grain<0||grain>3||halo<0||halo>1) {
+        printf("usage: film_jpeg PRESET INPUT NEW_OUTPUT [GRAIN_0_TO_3 HALATION_0_OR_1] [--hires]\n");return 1;
     }
     if(!strcmp(argv[2],argv[3])) return 1;
 #ifndef A6400_FILM_HOST
@@ -300,7 +304,7 @@ int main(int argc,char **argv) {
         sys_close(fd);printf("FILM_ERROR input_markers_or_size\n");return 3;
     }
 #ifdef A6400_FILM_JOB
-    int result=render_author_fast(fd,argv[3],preset,grain,halo,metadata,(unsigned)metadata_size);
+    int result=render_author_fast(fd,argv[3],preset,grain,halo,metadata,(unsigned)metadata_size,hires);
 #else
     int result=render(fd,argv[3],preset,grain,halo,metadata,(unsigned)metadata_size);
 #endif

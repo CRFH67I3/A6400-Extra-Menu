@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <sys/syscall.h>
+#include "im_pid_find.h"
 static pid_t freeze_tids[512];
 static unsigned freeze_count,freeze_attached;
 /* Successful detach is recorded independently: a partial resume must not
@@ -15,7 +16,9 @@ static unsigned long long freeze_ms(void) {
     return (unsigned long long)t.tv_sec*1000+t.tv_nsec/1000000;
 }
 static int freeze_enumerate(pid_t *out,unsigned *count) {
-    DIR *dir=opendir("/proc/149/task");struct dirent *entry;unsigned n=0;
+    char task_dir[64];
+    if(a6400_im_proc_path(task_dir,sizeof(task_dir),"task"))return -90;
+    DIR *dir=opendir(task_dir);struct dirent *entry;unsigned n=0;
     if(!dir)return -90;
     while((entry=readdir(dir))) {
         char *end;long id=strtol(entry->d_name,&end,10);

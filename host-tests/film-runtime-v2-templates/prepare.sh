@@ -10,8 +10,12 @@ STAGE=$RAM/a6400-film-stage.lock
 fail() { echo "FILM_STAGE_FAIL stage=$1"; exit 1; }
 hash_is() {
     test -f "$1" && test ! -L "$1" || return 1
-    hash_line=$("$BB" sha256sum "$1") || return 1
-    test "${hash_line%% *}" = "$2"
+    if hash_line=$("$BB" sha256sum "$1" 2>/dev/null); then
+        test "${hash_line%% *}" = "$2"
+        return $?
+    fi
+    hash_line=$(/usr/bin/openssl dgst -sha256 "$1" 2>/dev/null) || return 1
+    test "${hash_line##* }" = "$2"
 }
 if test -e /tmp/disable_hook || test -e /mnt/disable_hook ||
    test -e /mnt/disable.txt || test -e /mnt/A6400/DISABLE ||
@@ -29,7 +33,7 @@ done <<'FILM_ARTIFACTS'
 FILM_ARTIFACTS
 test ! -e "$RAM/a6400-film-staged" && test ! -L "$RAM/a6400-film-staged" || fail existing_receipt
 "$BB" mkdir "$STAGE" || fail existing_stage
-printf 'phase=copying\npid=%s\n' "$$" > "$STAGE/manifest" || fail stage_manifest
+{ echo "phase=copying"; echo "pid=$$"; } > "$STAGE/manifest" || fail stage_manifest
 while read -r name dest expected mode; do
     "$BB" cp "$ROOT/$name" "$RAM/$dest" || fail "copy-$dest"
     "$BB" chmod "$mode" "$RAM/$dest" || fail "mode-$dest"
@@ -37,6 +41,6 @@ while read -r name dest expected mode; do
 done <<'FILM_ARTIFACTS'
 @@ROWS@@
 FILM_ARTIFACTS
-printf 'FILM_STAGE_PREPARED package=@@PACKAGE_ID@@ initial_enabled=0\n' > "$RAM/a6400-film-staged" || fail receipt
-printf 'phase=prepared\npid=%s\n' "$$" > "$STAGE/manifest" || fail stage_manifest
+echo "FILM_STAGE_PREPARED package=@@PACKAGE_ID@@ initial_enabled=0" > "$RAM/a6400-film-staged" || fail receipt
+{ echo "phase=prepared"; echo "pid=$$"; } > "$STAGE/manifest" || fail stage_manifest
 echo FILM_STAGE_PREPARED

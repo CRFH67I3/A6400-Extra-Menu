@@ -32,9 +32,8 @@ static volatile struct ui_input_journal a6400_ui_input_journal_v1;
 #error "settings diagnostic requires the combo diagnostic"
 #endif
 
-#define BASE 0x05d18000u
-#define UI_SYSTEM ((void *)0x956f0)
-#define KEY_INSTANCE_SLOT ((void *volatile *)0x0713dad0u)
+typedef void *(*key_inst_fn)(void);
+static key_inst_fn get_key_instance_fn;
 #ifndef A6400_UI_TRIAL_MS
 # ifdef A6400_UI_COMBO_DIAGNOSTIC
 #  define A6400_UI_TRIAL_MS 180000u
@@ -55,7 +54,8 @@ static volatile struct ui_input_journal a6400_ui_input_journal_v1;
 #if A6400_UI_DISPLAY_MS < 1 || A6400_UI_DISPLAY_MS > 20000 || (TRIAL_MS != 0 && A6400_UI_DISPLAY_MS >= TRIAL_MS)
 #error "A6400_UI_DISPLAY_MS must be between 1 and 20000 milliseconds"
 #endif
-#define TRACE ((volatile struct ui_trial_trace *)0x07143970u)
+static volatile struct ui_trial_trace a6400_ui_trial_trace;
+#define TRACE (&a6400_ui_trial_trace)
 typedef void (*ctor_fn)(void *);
 typedef void (*unary_fn)(void *);
 typedef void (*bool_fn)(void *,int);
@@ -72,6 +72,17 @@ typedef void (*mouse_position_fn)(const void *,unsigned char,short *,short *);
 typedef int (*mouse_state_fn)(const void *,unsigned char,unsigned char);
 typedef int (*key_fn)(void *,int,void *);
 typedef void (*font_fn)(void *,uint32_t);
+#ifdef A6400_CHARO_SHUTTER
+typedef void (*beep_play_fn)(void *,int);
+#define A6400_CHARO_SHUTTER_KEY 0xa7
+#define A6400_CHARO_SOUND_ID 0x34
+#ifndef A6400_CHARO_DELAY_MS
+#define A6400_CHARO_DELAY_MS 0u
+#endif
+#ifndef A6400_CHARO_COOLDOWN_MS
+#define A6400_CHARO_COOLDOWN_MS 450u
+#endif
+#endif
 
 static struct a6400_ui_state {
     struct film_native_view view;
@@ -121,6 +132,8 @@ _Static_assert(offsetof(struct a6400_ui_state,running)==0x190,"ui.running ABI mi
  * A matching external manager may write 1; only the natural UI callback
  * stops owned layers and publishes 2. Retained widgets keep this SO loaded. */
 volatile unsigned a6400_ui_stop_requested_v1;
+__attribute__((visibility("default")))
+volatile uint32_t a6400_ui_hires_v1 = 0u;
 
 /* Owned corner-toast ABI, separate from the 1120-byte UI snapshot ABI. */
 struct a6400_ui_toast_v1 {
@@ -144,6 +157,14 @@ static struct {
 static struct {
     void *card_border, *card_panel, *header_accent, *header_divider, *page_btn;
     void *row_accents[6];
+#ifdef A6400_CHARO_SHUTTER
+    beep_play_fn beep_play;
+    int shutter_sound_enabled;
+    int last_shutter_key;
+    int shutter_pending;
+    uint32_t shutter_arm_ms;
+    uint32_t last_shutter_beep_ms;
+#endif
 } ui_theme;
 
 static uint32_t now_ms(void) {
@@ -172,8 +193,9 @@ static void record(const char *event,int a,int b) {
                     (unsigned)ui.running | ((unsigned)ui.view.menu.visible<<1));
 }
 static void *api(const char *name,uint32_t offset) {
+    (void)offset;
     void *p=dlsym(RTLD_DEFAULT,name);
-    if((uintptr_t)p!=BASE+offset){record("API_MISMATCH",(int)offset,(int)(uintptr_t)p);return 0;}
+    if(!p){record("API_MISMATCH",(int)offset,0);return 0;}
     return p;
 }
 static __attribute__((noinline)) int resolve(void) {
@@ -197,6 +219,12 @@ static __attribute__((noinline)) int resolve(void) {
     API(mouse_position,mouse_position_fn,"_ZNK2ux6wgtsys12WidgetSystem24getMousePosInFramebufferEhRsS2_",0x5f1019);
     API(mouse_state,mouse_state_fn,"_ZNK2ux6wgtsys12WidgetSystem13getMouseStateEhh",0x5f1045);
     API(key,key_fn,"_ZN10InfraInput20GetPhyKeyStatusCacheEiP21_InfraInputPhyKeyData",0x860fa9);
+    get_key_instance_fn=(key_inst_fn)api("_ZN10InfraInput11GetInstanceEv",0x860385);
+    if(!get_key_instance_fn)return -1;
+#ifdef A6400_CHARO_SHUTTER
+    ui_theme.beep_play=(beep_play_fn)api("_ZN13AppWidgetBase8beepPlayEi",0);
+    if(!ui_theme.beep_play)return -1;
+#endif
 #undef API
     return 0;
 }
@@ -271,19 +299,31 @@ static void draw(void *unused,const struct film_menu *menu) {
     const unsigned char accent_orange[4]={234,140,42,255};
     const unsigned char accent_gold[4]={212,162,58,220};
     const unsigned char accent_muted[4]={68,76,90,200};
-    snprintf(ui.texts[0],sizeof(ui.texts[0]),"A6400 V3 CLite  |  %s",
+    snprintf(ui.texts[0],sizeof(ui.texts[0]),"A6400 3.5.1 SP | %s",
              menu->settings.enabled?"開啟":"關閉");
     ui.set_text(ui.labels[0],ui.texts[0]);
     for(unsigned row=0;row<6;row++) {
         int x=0,y=0,w=0,h=0;
         int used=film_native_view_row(menu,row,ui.texts[row+1],sizeof(ui.texts[0]),&x,&y,&w,&h);
         if(used<=0){ui.texts[row+1][0]=0;w=h=0;}
+#ifdef A6400_CHARO_SHUTTER
+        else if(menu->page==FILM_MENU_HOME && row==3) {
+            snprintf(ui.texts[row+1],sizeof(ui.texts[0]),"%s",
+                     ui_theme.shutter_sound_enabled?"快門聲: Charo (開啟)":"快門聲: 關閉");
+        }
+#endif
         record("ROW_PANEL_GEOMETRY",row,used);
         place(ui.panels[row],0,x,y,w,h);
         int stocks_page=(menu->page==FILM_MENU_STOCKS || menu->page==FILM_MENU_STOCKS_P2);
+        int details_page=(menu->page==FILM_MENU_DETAILS);
         int stock_idx=(menu->page==FILM_MENU_STOCKS_P2?5:0)+(int)row;
-        int is_dismiss=(menu->page==FILM_MENU_HOME && row==2) || (stocks_page && row==5);
+        int is_dismiss=(menu->page==FILM_MENU_HOME && row==2) || (stocks_page && row==5) || (details_page && row==5);
         int is_active=(menu->page==FILM_MENU_HOME && row==0 && menu->settings.enabled) ||
+                      (menu->page==FILM_MENU_HOME && row==4 && (menu->settings.grain!=2 || !menu->settings.halation)) ||
+#ifdef A6400_CHARO_SHUTTER
+                      (menu->page==FILM_MENU_HOME && row==3 && ui_theme.shutter_sound_enabled) ||
+#endif
+                      (details_page && ((row==0 && menu->settings.grain>0) || (row==1 && menu->settings.halation))) ||
                       (stocks_page && row<5 && stock_idx==menu->settings.stock);
         const unsigned char *panel_color=row_plain;
         if(menu->selected==(int)row)panel_color=is_dismiss?pill_pressed:row_pressed;
@@ -294,7 +334,7 @@ static void draw(void *unused,const struct film_menu *menu) {
         if(used>0 && !is_dismiss) {
             place(ui_theme.row_accents[row],0,x,y,5,h);
             const unsigned char *stripe=is_active?accent_orange:
-                (menu->page==FILM_MENU_HOME && row==1?accent_gold:accent_muted);
+                (menu->page==FILM_MENU_HOME && (row==1 || row==4)?accent_gold:accent_muted);
             ui.set_color(ui_theme.row_accents[row],stripe);
         } else {
             place(ui_theme.row_accents[row],0,0,0,0,0);
@@ -311,10 +351,17 @@ static void draw(void *unused,const struct film_menu *menu) {
         place(ui_theme.page_btn,0,px,py,pw,ph);
         ui.set_color(ui_theme.page_btn,menu->selected==6?pill_pressed:pill_plain);
         place(ui.labels[7],1,px+16,py+6,pw>32?pw-32:0,ph>12?ph-12:0);
+    } else if(menu->page==FILM_MENU_HOME) {
+        place(ui_theme.page_btn,0,76,386,264,42);
+        ui.set_color(ui_theme.page_btn,
+                     menu->selected==7?pill_pressed:(a6400_ui_hires_v1?row_active:pill_plain));
+        snprintf(ui.texts[7],sizeof(ui.texts[0]),"%s",
+                 a6400_ui_hires_v1?"畫質: 6MP 高清":"畫質: 1.7MP 極速");
+        place(ui.labels[7],1,92,392,232,30);
     } else {
         place(ui_theme.page_btn,0,0,0,0,0);
-        snprintf(ui.texts[7],sizeof(ui.texts[0]),"%s","MENU + 放大鏡");
-        place(ui.labels[7],1,76,394,312,28);
+        ui.texts[7][0]=0;
+        place(ui.labels[7],1,0,0,0,0);
     }
     ui.set_text(ui.labels[7],ui.texts[7]);
     record("FILM_DRAW",menu->page,menu->selected);
@@ -331,6 +378,9 @@ static void stop_trial(const char *why) {
     record("STOP_MENU_HIDDEN",0,0);
     if(ui.layer)ui.layer_active(ui.layer,0);
     ui_toast.visible=0;
+#ifdef A6400_CHARO_SHUTTER
+    ui_theme.shutter_pending=0;
+#endif
     ui.running=0;
     input_snapshot(7);
     /* setAnimate only changes the flag/counter; retain allocated native nodes. */
@@ -470,7 +520,7 @@ static void animate(void *self) {
 #endif
     return;
 #endif
-    if(*KEY_INSTANCE_SLOT!=ui.keys){stop_trial("FILM_KEY_INSTANCE_CHANGED");return;}
+    if(!get_key_instance_fn || get_key_instance_fn()!=ui.keys){stop_trial("FILM_KEY_INSTANCE_CHANGED");return;}
     int menu=ui.key(ui.keys,0x1ab,0),zoom=ui.key(ui.keys,0x70dc,0),other=0;
     static const int dismiss_keys[]={0x3,0x15,0x30,0x66,0xa7,0x1ac,0x1af,
         0x1f0,0x1f4,0x1f7,0x1f8,0x1f9,0x7095,0x70a9,0x70aa,0x70ab,
@@ -501,9 +551,49 @@ static void animate(void *self) {
 #endif
     unsigned change=film_native_view_step(&ui.view,now,menu,zoom,other,touch,x,y);
     if(change&FILM_MENU_SETTINGS_CHANGED)record("FILM_TAP",x,y);
+    if(change&FILM_MENU_HIRES_TOGGLED) {
+        a6400_ui_hires_v1^=1u;
+        draw(0,&ui.view.menu);
+        record("FILM_HIRES_TOGGLE",(int)a6400_ui_hires_v1,0);
+    }
+#ifdef A6400_CHARO_SHUTTER
+    if(change&FILM_MENU_SOUND_TOGGLED) {
+        ui_theme.shutter_sound_enabled^=1;
+        if(!ui_theme.shutter_sound_enabled)ui_theme.shutter_pending=0;
+        draw(0,&ui.view.menu);
+        record("CHARO_SOUND_TOGGLE",ui_theme.shutter_sound_enabled,0);
+        if(ui_theme.shutter_sound_enabled && ui_theme.beep_play) {
+            ui_theme.last_shutter_beep_ms=now;
+            ui_theme.beep_play(ui.background,A6400_CHARO_SOUND_ID);
+            record("CHARO_MENU_BEEP_PREVIEW",A6400_CHARO_SOUND_ID,(int)now);
+        }
+    }
+    int shutter_down=ui.key(ui.keys,A6400_CHARO_SHUTTER_KEY,0);
+    if(shutter_down==1 && ui_theme.last_shutter_key==0 && ui_theme.shutter_sound_enabled) {
+        ui_theme.shutter_pending=1;
+        ui_theme.shutter_arm_ms=now;
+        record("CHARO_SHUTTER_ARMED",A6400_CHARO_SOUND_ID,(int)now);
+    }
+    ui_theme.last_shutter_key=(shutter_down==1)?1:0;
+    if(ui_theme.shutter_pending &&
+       ui_theme.shutter_sound_enabled &&
+       ui_theme.beep_play
+#if A6400_CHARO_DELAY_MS > 0
+       && (uint32_t)(now-ui_theme.shutter_arm_ms)>=A6400_CHARO_DELAY_MS
+#endif
+       ) {
+        ui_theme.shutter_pending=0;
+        if(!ui_theme.last_shutter_beep_ms ||
+           (uint32_t)(now-ui_theme.last_shutter_beep_ms)>=A6400_CHARO_COOLDOWN_MS) {
+            ui_theme.last_shutter_beep_ms=now;
+            ui_theme.beep_play(ui.background,A6400_CHARO_SOUND_ID);
+            record("CHARO_SHUTTER_BEEP",A6400_CHARO_SOUND_ID,(int)now);
+        }
+    }
+#endif
     if(ui.ticks%300u==0)record("FILM_ALIVE",(int)ui.ticks,ui.view.menu.visible);
 }
-static void *make_on(int label,const uint32_t *layer_id) {
+static void *make(int label) {
     void *p=calloc(1,label?0x400u:0x200u);
     if(p){
         record(label?"LABEL_CTOR_BEFORE":"PANEL_CTOR_BEFORE",0,0);
@@ -522,18 +612,17 @@ static void *make_on(int label,const uint32_t *layer_id) {
             if(!*(void **)((unsigned char *)p+0x1f4))return 0;
         }
         record("WIDGET_LAYER_BEFORE",label,0);
-        ui.set_layer(p,layer_id);
+        ui.set_layer(p,&ui.layer_id);
         record("WIDGET_LAYER_AFTER",label,0);
     }
     return p;
 }
-static void *make(int label) { return make_on(label,&ui.layer_id); }
 int a6400_ui_attach_v1(void *system,unsigned tid) {
     record("FILM_ATTACH_BEGIN",(int)tid,(int)(uintptr_t)system);
-    if(ui.attached || system!=UI_SYSTEM || tid!=(uint32_t)syscall(SYS_gettid))return -1;
+    if(ui.attached || !system || (uintptr_t)system<0x10000u || tid!=(uint32_t)syscall(SYS_gettid))return -1;
     if(resolve())return -2;
-    ui.system=system;ui.tid=tid;ui.keys=*KEY_INSTANCE_SLOT;
-    if(ui.keys!=(void *)0x59150 || ui.key(ui.keys,0x1ab,0)<0 || ui.key(ui.keys,0x70dc,0)<0)return -3;
+    ui.system=system;ui.tid=tid;ui.keys=get_key_instance_fn();
+    if(!ui.keys || (uintptr_t)ui.keys<0x10000u || ui.key(ui.keys,0x1ab,0)<0 || ui.key(ui.keys,0x70dc,0)<0)return -3;
     if(stop_old_v1())return -7;
     input_snapshot(0);
     struct film_settings initial={0,0,2,1};
@@ -596,7 +685,16 @@ int a6400_ui_attach_v1(void *system,unsigned tid) {
     } else {
         ui_toast.bg=ui_toast.accent=ui_toast.label=0;
     }
+#ifdef A6400_CHARO_SHUTTER
+    ui_theme.shutter_sound_enabled=1;
+    ui_theme.last_shutter_key=0;
+    ui_theme.shutter_pending=0;
+    ui_theme.shutter_arm_ms=0;
+    ui_theme.last_shutter_beep_ms=0;
+    strcpy(ui.texts[0],"A6400 3.5.1 SP | 關閉");
+#else
     strcpy(ui.texts[0],"A6400 V3 CLite  |  關閉");
+#endif
 #ifdef A6400_UI_SETTINGS_DIAGNOSTIC
     strcpy(ui.texts[7],"MENU + 放大鏡 | RAM");
 #elif defined(A6400_UI_COMBO_DIAGNOSTIC)
@@ -619,7 +717,8 @@ int a6400_ui_attach_v1(void *system,unsigned tid) {
     if(!ui.ticker)return -5;
     ui.widget_ctor(ui.ticker);
     uintptr_t *original=*(uintptr_t **)ui.ticker;
-    if((uintptr_t)original!=BASE+0x134aae8u || original[32]!=BASE+0x6065f3u)return -6;
+    uintptr_t expected_animate=(uintptr_t)dlsym(RTLD_DEFAULT,"_ZN2ux6wgtsys10WidgetBase9onAnimateEv");
+    if(!original || !expected_animate || original[32]!=expected_animate)return -6;
     memcpy(ui.vtable,original-2,sizeof(ui.vtable));
     ui.vtable[34]=(uintptr_t)animate;
     *(uintptr_t **)ui.ticker=ui.vtable+2; /* Clone only our new Widget's table. */

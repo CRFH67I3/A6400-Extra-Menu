@@ -75,10 +75,24 @@ unsigned film_menu_input(struct film_menu *m, unsigned now, int menu, int zoom, 
 int film_menu_hit(int page, int x, int y) {
     if (page == FILM_MENU_HOME) {
         if (x >= 76 && x < 564) {
+            if (y >= 98 && y < 158) return 0;
+            if (y >= 168 && y < 228) return 1;
+            if (y >= 238 && y < 298) return 4;
+#ifdef A6400_CHARO_SHUTTER
+            if (y >= 308 && y < 368) return 3;
+#endif
+        }
+        if (x >= 76 && x < 340 && y >= 386 && y < 428) return 7;
+        if (x >= 404 && x < 564 && y >= 386 && y < 428) return 2;
+        return -1;
+    }
+    if (page == FILM_MENU_DETAILS) {
+        if (x >= 76 && x < 564) {
             if (y >= 106 && y < 182) return 0;
             if (y >= 198 && y < 274) return 1;
+            if (y >= 290 && y < 366) return 2;
         }
-        if (x >= 404 && x < 564 && y >= 386 && y < 428) return 2;
+        if (x >= 404 && x < 564 && y >= 386 && y < 428) return 5;
         return -1;
     }
     if (x >= 76 && x < 564 && y >= 98 && y < 98 + 5 * 54) {
@@ -104,7 +118,33 @@ static unsigned activate(struct film_menu *m, int row) {
             change |= FILM_MENU_SETTINGS_CHANGED;
         } else if (row == 1) {
             m->page = m->settings.stock >= 5 ? FILM_MENU_STOCKS_P2 : FILM_MENU_STOCKS;
-        } else if (row == 2) return film_menu_close(m);
+        } else if (row == 4) {
+            m->page = FILM_MENU_DETAILS;
+        } else if (row == 2) {
+            return film_menu_close(m);
+        } else if (row == 7) {
+            change |= FILM_MENU_HIRES_TOGGLED;
+#ifdef A6400_CHARO_SHUTTER
+        } else if (row == 3) {
+            change |= FILM_MENU_SOUND_TOGGLED;
+#endif
+        }
+    } else if (m->page == FILM_MENU_DETAILS) {
+        if (row == 0) {
+            m->settings.grain = (m->settings.grain + 1) & 3;
+            change |= FILM_MENU_SETTINGS_CHANGED;
+        } else if (row == 1) {
+            m->settings.halation ^= 1;
+            change |= FILM_MENU_SETTINGS_CHANGED;
+        } else if (row == 2) {
+            if (m->settings.grain != 2 || m->settings.halation != 1) {
+                m->settings.grain = 2;
+                m->settings.halation = 1;
+                change |= FILM_MENU_SETTINGS_CHANGED;
+            }
+        } else if (row == 5) {
+            m->page = FILM_MENU_HOME;
+        }
     } else if (row == 5) {
         m->page = FILM_MENU_HOME;
     } else if (row == 6) {

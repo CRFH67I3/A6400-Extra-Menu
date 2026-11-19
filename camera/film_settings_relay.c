@@ -39,12 +39,17 @@ static int module_matches(void) {
     close(fd);
     return n==0 && total==FILM_RELAY_MODULE_BYTES && hash==FILM_RELAY_MODULE_FNV;
 }
+#include "im_pid_find.h"
 static int sample(struct film_settings *out) {
-    char line[512];FILE *f=fopen("/proc/149/comm","r");
+    char proc_comm[64], proc_maps[64], proc_mem[64];
+    if(a6400_im_proc_path(proc_comm,sizeof(proc_comm),"comm") ||
+       a6400_im_proc_path(proc_maps,sizeof(proc_maps),"maps") ||
+       a6400_im_proc_path(proc_mem,sizeof(proc_mem),"mem"))return -10;
+    char line[512];FILE *f=fopen(proc_comm,"r");
     if(!f)return -10;
     int ok=fgets(line,sizeof(line),f)&&!strcmp(line,"im.elf\n");fclose(f);
     if(!ok)return -11;
-    struct film_settings_map map={0};f=fopen("/proc/149/maps","r");
+    struct film_settings_map map={0};f=fopen(proc_maps,"r");
     if(!f)return -12;
     while(fgets(line,sizeof(line),f))
         film_settings_map_line(&map,line,FILM_RELAY_MODULE,FILM_RELAY_UI_RVA);
@@ -52,7 +57,7 @@ static int sample(struct film_settings *out) {
     if(!map.image_count)return 10;
     if(map.image_count!=1 || map.state_count!=1)return -13;
     unsigned char first[FILM_UI_SNAPSHOT_BYTES],second[FILM_UI_SNAPSHOT_BYTES];
-    int fd=open("/proc/149/mem",O_RDONLY);if(fd<0)return -14;
+    int fd=open(proc_mem,O_RDONLY);if(fd<0)return -14;
     ok=pread(fd,first,sizeof(first),map.state)==sizeof(first) &&
        pread(fd,second,sizeof(second),map.state)==sizeof(second);
     close(fd);if(!ok)return -15;

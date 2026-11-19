@@ -31,10 +31,10 @@ input_path='/tmp_bt/a6400-film-boot.copy' if stage=='1' else '/tmp_bt/a6400-film
 print('PINNED_MONITOR',monitor,expected)
 PY
 CC=arm-linux-gnueabihf-gcc
-COMMON="-march=armv7-a+fp -mfpu=vfpv3-d16 -mfloat-abi=hard -marm -Os -Wall -Wextra -Werror -fno-stack-protector -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
-$CC $COMMON -mthumb -std=c11 -fPIE -I"$OUT" -c "$ROOT/camera/film_native_command.c" -o "$OUT/native-command.o"
+COMMON="-march=armv7-a+fp -mfpu=vfpv3-d16 -mfloat-abi=hard -marm -Os -fno-unwind-tables -fno-asynchronous-unwind-tables -ffunction-sections -fdata-sections -Wall -Wextra -Werror -fno-stack-protector -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
+$CC $COMMON -mthumb -std=c11 -fPIE -DRESPONSE_BYTES=131072u -DHISTORY_BYTES=262144u -DFILM_NATIVE_STARTUP_MS=180u -DFILM_NATIVE_QUIET_MS=45u -I"$OUT" -c "$ROOT/camera/film_native_command.c" -o "$OUT/native-command.o"
 $CC $COMMON -c "$ROOT/camera/film_settings_start.S" -o "$OUT/start.o"
-$CC -mfloat-abi=hard -nostdlib -pie -Wl,-s,-e,_start,-z,now,--dynamic-linker=/lib/ld-linux.so.3 \
+$CC -mfloat-abi=hard -nostdlib -pie -Wl,--gc-sections,-s,-e,_start,-z,now,--dynamic-linker=/lib/ld-linux.so.3 \
  "$OUT/start.o" "$OUT/native-command.o" -Wl,--no-as-needed "$LIBS/libc-2.11.2.so" -lgcc \
  -o "$OUT/a6400-film-native-command.elf"
 arm-linux-gnueabihf-readelf -lWdVs "$OUT/a6400-film-native-command.elf" > "$OUT/elf-compatibility.txt"

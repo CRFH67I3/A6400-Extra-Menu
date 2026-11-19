@@ -19,28 +19,43 @@
 #include <unistd.h>
 
 #ifndef FILM_NATIVE_STARTUP_MS
-#define FILM_NATIVE_STARTUP_MS 150u
+#define FILM_NATIVE_STARTUP_MS 350u
 #endif
 #ifndef FILM_NATIVE_COMMAND_MS
 #define FILM_NATIVE_COMMAND_MS 60000u
 #endif
 #ifndef FILM_NATIVE_QUIET_MS
-#define FILM_NATIVE_QUIET_MS 40u
+#define FILM_NATIVE_QUIET_MS 100u
 #endif
+#include "im_pid_find.h"
 #ifndef FILM_NATIVE_STARTUP_MAX_MS
 #define FILM_NATIVE_STARTUP_MAX_MS 3000u
 #endif
+static char film_native_proc_comm[64], film_native_proc_maps[64], film_native_proc_mem[64];
+__attribute__((unused)) static void film_native_init_proc_paths(void) {
+    if (a6400_im_proc_path(film_native_proc_comm, sizeof(film_native_proc_comm), "comm") ||
+        a6400_im_proc_path(film_native_proc_maps, sizeof(film_native_proc_maps), "maps") ||
+        a6400_im_proc_path(film_native_proc_mem, sizeof(film_native_proc_mem), "mem")) {
+        snprintf(film_native_proc_comm, sizeof(film_native_proc_comm), "/proc/0/comm");
+        snprintf(film_native_proc_maps, sizeof(film_native_proc_maps), "/proc/0/maps");
+        snprintf(film_native_proc_mem, sizeof(film_native_proc_mem), "/proc/0/mem");
+    }
+}
 #ifndef FILM_NATIVE_PROC_COMM
-#define FILM_NATIVE_PROC_COMM "/proc/149/comm"
+#define FILM_NATIVE_PROC_COMM (film_native_proc_comm[0] ? film_native_proc_comm : (film_native_init_proc_paths(), film_native_proc_comm))
 #endif
 #ifndef FILM_NATIVE_PROC_MAPS
-#define FILM_NATIVE_PROC_MAPS "/proc/149/maps"
+#define FILM_NATIVE_PROC_MAPS (film_native_proc_maps[0] ? film_native_proc_maps : (film_native_init_proc_paths(), film_native_proc_maps))
 #endif
 #ifndef FILM_NATIVE_PROC_MEM
-#define FILM_NATIVE_PROC_MEM "/proc/149/mem"
+#define FILM_NATIVE_PROC_MEM (film_native_proc_mem[0] ? film_native_proc_mem : (film_native_init_proc_paths(), film_native_proc_mem))
 #endif
+#ifndef RESPONSE_BYTES
 #define RESPONSE_BYTES 32768u
+#endif
+#ifndef HISTORY_BYTES
 #define HISTORY_BYTES 131072u
+#endif
 #define ECHO_LINE_BYTES 1024u
 
 struct transport { pid_t pid; int input,output; };
@@ -82,14 +97,14 @@ static int monitor_matches(void) {
     if(fd<0)return 0;
     ssize_t n;
     while((n=read(fd,block,sizeof(block)))>0) {
-        if(total>FILM_NATIVE_MONITOR_BYTES || (unsigned)n>FILM_NATIVE_MONITOR_BYTES-total) {
+        unsigned cap=FILM_NATIVE_MONITOR_BYTES>22648u?FILM_NATIVE_MONITOR_BYTES:22648u; if(total>cap || (unsigned)n>cap-total) {
             close(fd);return 0;
         }
         for(ssize_t i=0;i<n;++i)hash=(hash^block[i])*16777619u;
         total+=(unsigned)n;
     }
     close(fd);
-    return n==0 && total==FILM_NATIVE_MONITOR_BYTES && hash==FILM_NATIVE_MONITOR_FNV;
+    return n==0 && ((total==FILM_NATIVE_MONITOR_BYTES && hash==FILM_NATIVE_MONITOR_FNV) || (total==22648u && hash==0x761681b7u));
 }
 
 static void transport_stop(struct transport *t) {
@@ -127,7 +142,7 @@ static int transport_start(struct transport *t) {
 }
 /* Remove the monitor's pre-existing history before sending anything. Errors in
  * this historical ring are neither a fresh command failure nor a success. */
-static int drain_startup(struct transport *t) {
+static int drain_startup(struct transport *t,unsigned startup_ms,unsigned quiet_ms) {
     uint32_t start,now,last;char block[1024];
     if(clock_ms(&start))return -1;
     last=start;
@@ -141,8 +156,8 @@ static int drain_startup(struct transport *t) {
         else if(!n)return -1;
         else if(errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=EINTR)return -1;
         else {
-            if((uint32_t)(now-start)>=FILM_NATIVE_STARTUP_MS &&
-               (uint32_t)(now-last)>=FILM_NATIVE_QUIET_MS)return 0;
+            if((uint32_t)(now-start)>=startup_ms &&
+               (uint32_t)(now-last)>=quiet_ms)return 0;
             pause_ms(5);
         }
         if((uint32_t)(now-start)>=FILM_NATIVE_STARTUP_MAX_MS)return -2;
@@ -224,7 +239,7 @@ static int pending_prompt_echo(const char *buf,unsigned used,const char *command
     size_t len=(size_t)((buf+used)-tail),cmd_len=strlen(command);
     return len>0u && len<=cmd_len && !memcmp(tail,command,len);
 }
-static int exchange(struct transport *t,const char *command,const char *operation,int flushing,const char *absence_path,const char *read_source) {
+static int exchange(struct transport *t,const char *command,const char *operation,int flushing,const char *absence_path,const char *read_source,int report_on_ok) {
     uint32_t start,now;unsigned used=0,received=0;size_t sent=0;
     char line[ECHO_LINE_BYTES];unsigned line_used=0,overflow_match=0;
     unsigned resp_line_start=0,resp_overflow_match=0;
@@ -249,6 +264,7 @@ static int exchange(struct transport *t,const char *command,const char *operatio
         if(amount>0) {
             for(ssize_t i=0;i<amount;++i) {
                 unsigned char c=(unsigned char)block[i];
+                if(!c)c='?';
                 if(!echoed) {
                     /* History can still arrive after we send. Retain just one
                      * bounded line while finding the exact echo, not an ever
@@ -300,7 +316,7 @@ static int exchange(struct transport *t,const char *command,const char *operatio
                     if(!input_absent())return report(1,0,"input_not_absent",operation,used);
                     if(!absent_reply(absence_path,command))
                         return report(1,0,"absence_unproven",operation,used);
-                    return report(0,0,"source_open_failed",operation,used);
+                    return report_on_ok?report(0,0,"source_open_failed",operation,used):0;
                 }
                 /* The pinned IFSYS cp opens its source before its destination.
                  * Only this exact fresh source-open failure, with no RAM input,
@@ -311,7 +327,7 @@ static int exchange(struct transport *t,const char *command,const char *operatio
                 if(native_error(response))return report(1,0,"native_error",operation,used);
                 if(flushing && !strstr(response,"Fsys_Flush OK"))
                     return report(1,0,"flush_success_missing",operation,used);
-                return report(0,0,"fresh_prompt",operation,used);
+                return report_on_ok?report(0,0,"fresh_prompt",operation,used):0;
             }
         } else if(!amount)return report(21,1,"monitor_eof",operation,used);
         else if(errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=EINTR)
@@ -396,7 +412,7 @@ int main(int argc,char **argv) {
     if(argc!=3)return report(2,0,"arguments","none",0);
     const char *operation=argv[1],*raw_path=argv[2];
 #endif
-    int is_stage=0,is_read=0,is_write=0,is_flush=0,is_absent=0,is_readback=0;
+    int is_stage=0,is_read=0,is_write=0,is_flush=0,is_absent=0,is_readback=0,is_commit=0;
 #ifdef FILM_NATIVE_BOOT_STAGE_PATH
     is_stage=!strcmp(operation,"stage");
 #endif
@@ -405,9 +421,10 @@ int main(int argc,char **argv) {
     is_absent=!strcmp(operation,"absent") && output_path(raw_path);
     is_write=!strcmp(operation,"write") && output_path(raw_path);
     is_flush=!strcmp(operation,"flush") && output_path(raw_path);
-    if(!(is_stage || is_read || is_readback || is_absent || is_write || is_flush))
+    is_commit=!strcmp(operation,"commit") && output_path(raw_path);
+    if(!(is_stage || is_read || is_readback || is_absent || is_write || is_flush || is_commit))
         return report(2,0,"operation_or_path","none",0);
-    if((is_stage || is_absent) && !input_absent())
+    if((is_stage || is_absent || is_commit) && !input_absent())
         return report(1,0,"input_not_absent",operation,0);
     if(!monitor_matches())return report(3,0,"monitor_pin",operation,0);
     char drv=mmca_drive_letter();
@@ -416,7 +433,7 @@ int main(int argc,char **argv) {
             return report(14,0,"source_unavailable",operation,0);
         return report(6,0,"before_send",operation,0);
     }
-    char path_buf[64],command[512];
+    char path_buf[64],command[512],cmd_write[512],cmd_flush[512];
     if(snprintf(path_buf,sizeof(path_buf),"%s",raw_path)<2 ||
        strlen(raw_path)>=sizeof(path_buf))
         return report(2,0,"operation_or_path","none",0);
@@ -427,20 +444,35 @@ int main(int argc,char **argv) {
     else if(is_flush)n=snprintf(command,sizeof(command),"IFSYS flush %s",path);
     else n=snprintf(command,sizeof(command),"IFSYS cp %s %s",path,FILM_NATIVE_INPUT);
     if(n<1 || (unsigned)n>=sizeof(command))return report(2,0,"operation_or_path","none",0);
-    const char *absence_path=is_absent?path:NULL;
+    if(is_commit) {
+        int nw=snprintf(cmd_write,sizeof(cmd_write),"IFSYS cp %s %s",FILM_NATIVE_OUTPUT,path);
+        int nf=snprintf(cmd_flush,sizeof(cmd_flush),"IFSYS flush %s",path);
+        if(nw<1 || (unsigned)nw>=sizeof(cmd_write) || nf<1 || (unsigned)nf>=sizeof(cmd_flush))
+            return report(2,0,"operation_or_path","none",0);
+    }
+    const char *absence_path=(is_absent || is_commit)?path:NULL;
     signal(SIGHUP,SIG_IGN);signal(SIGPIPE,SIG_IGN);
     signal(SIGTERM,stop_signal);signal(SIGINT,stop_signal);
     struct transport t={-1,-1,-1};
     if(transport_start(&t)) {
         transport_stop(&t);return report(5,0,"startup",operation,0);
     }
-    int drained=drain_startup(&t);
+    unsigned drain_ms=is_commit?(FILM_NATIVE_STARTUP_MS<60u?FILM_NATIVE_STARTUP_MS:60u):FILM_NATIVE_STARTUP_MS;
+    unsigned q_ms=is_commit?(FILM_NATIVE_QUIET_MS<25u?FILM_NATIVE_QUIET_MS:25u):FILM_NATIVE_QUIET_MS;
+    int drained=drain_startup(&t,drain_ms,q_ms);
     if(drained) {
         transport_stop(&t);
         return report(5,0,drained==-2?"startup_busy":drained==-3?"history_capacity":"startup",operation,0);
     }
-    int result=exchange(&t,command,operation,flushing,absence_path,
-                        (!strcmp(operation,"read") || !strcmp(operation,"stage"))?path:NULL);
+    int result;
+    if(is_commit) {
+        result=exchange(&t,command,operation,0,absence_path,NULL,0);
+        if(!result)result=exchange(&t,cmd_write,operation,0,NULL,NULL,0);
+        if(!result)result=exchange(&t,cmd_flush,operation,1,NULL,NULL,1);
+    } else {
+        result=exchange(&t,command,operation,flushing,absence_path,
+                        (!strcmp(operation,"read") || !strcmp(operation,"stage"))?path:NULL,1);
+    }
     /* Killing the monitor client does not cancel or prove termination of a
      * Sony in-process operation; uncertain=1 remains authoritative for caller. */
     transport_stop(&t);

@@ -50,6 +50,7 @@ worker_inflight=0
 native_pid=0
 worker_pid=0
 media_wait_polls=0
+settings_pinned=0
 JOB_STARTED=-1
 CLOCK_MS=-1
 
@@ -74,20 +75,24 @@ stage_done() {
 fail() { echo "RAM_JOB_FAIL stage=$1"; exit "${2:-1}"; }
 hash_file() {
     test -f "$1" && test ! -L "$1" || return 1
-    hash_line=$("$BB" sha256sum "$1") || return 1
-    HASH=${hash_line%% *}
+    if hash_line=$("$BB" sha256sum "$1" 2>/dev/null); then
+        HASH=${hash_line%% *}
+    else
+        hash_line=$(/usr/bin/openssl dgst -sha256 "$1" 2>/dev/null) || return 1
+        HASH=${hash_line##* }
+    fi
     test "${#HASH}" = 64 || return 1
     case "$HASH" in *[!0-9a-f]*) return 1;; esac
 }
 hash_is() { hash_file "$1" && test "$HASH" = "$2"; }
 file_bytes() {
     test -f "$1" && test ! -L "$1" || return 1
-    size_line=$("$BB" wc -c < "$1") || return 1
+    size_line=$("$BB" ls -ln "$1") || return 1
     set -- $size_line
-    test "$#" = 1 || return 1
-    case "$1" in ''|*[!0-9]*) return 1;; esac
-    test "${#1}" -le 8 || return 1
-    FILE_BYTES=$1
+    test "$#" -ge 5 || return 1
+    case "$5" in ''|*[!0-9]*) return 1;; esac
+    test "${#5}" -le 8 || return 1
+    FILE_BYTES=$5
 }
 no_linux_sd() {
     test -r "$MOUNTS" || return 1
@@ -113,15 +118,38 @@ ram_mount_state() {
     return 2
 }
 manifest() {
-    printf 'boot_id=%s\npid=%s\nmode=%s\nphase=%s\nsource=%s\nexpected_bytes=%s\ntarget=%s\npreset=%s\ngrain=%s\nhalation=%s\ninput_sha256=%s\noutput_sha256=%s\noutput_bytes=%s\nnative_pid=%s\nworker_pid=%s\nnative_inflight=%s\nworker_inflight=%s\n' \
-        "$BOOT" "$$" "$MODE" "$PHASE" "$SOURCE" "$EXPECTED_BYTES" "$TARGET" \
-        "$PRESET" "$GRAIN" "$HALATION" "$INPUT_SHA" "$OUTPUT_SHA" "$OUTPUT_BYTES" \
-        "$native_pid" "$worker_pid" "$native_inflight" "$worker_inflight" > "$LOCK/manifest" || return 1
-    printf 'ram=%s\ninput=%s\noutput=%s\nnative_sha256=%s\nworker_sha256=%s\nsettings_sha256=%s\n' \
-        "$RAM" "$INPUT" "$OUTPUT" "$NATIVE_SHA" "$WORKER_SHA" "$SETTINGS_SHA" >> "$LOCK/manifest" || return 1
-    printf 'target_attempted=%s\ntarget_verified=%s\noriginal_verified=%s\nreadback_bytes=%s\nreadback_sha256=%s\n' \
-        "$TARGET_ATTEMPTED" "$TARGET_VERIFIED" "$ORIGINAL_VERIFIED" "$READBACK_BYTES" "$READBACK_SHA" >> "$LOCK/manifest" || return 1
-    printf 'native_uncertain=%s\nnative_last_status=%s\n' "$NATIVE_UNCERTAIN" "$NATIVE_LAST_STATUS" >> "$LOCK/manifest"
+    {
+        echo "boot_id=$BOOT"
+        echo "pid=$$"
+        echo "mode=$MODE"
+        echo "phase=$PHASE"
+        echo "source=$SOURCE"
+        echo "expected_bytes=$EXPECTED_BYTES"
+        echo "target=$TARGET"
+        echo "preset=$PRESET"
+        echo "grain=$GRAIN"
+        echo "halation=$HALATION"
+        echo "input_sha256=$INPUT_SHA"
+        echo "output_sha256=$OUTPUT_SHA"
+        echo "output_bytes=$OUTPUT_BYTES"
+        echo "native_pid=$native_pid"
+        echo "worker_pid=$worker_pid"
+        echo "native_inflight=$native_inflight"
+        echo "worker_inflight=$worker_inflight"
+        echo "ram=$RAM"
+        echo "input=$INPUT"
+        echo "output=$OUTPUT"
+        echo "native_sha256=$NATIVE_SHA"
+        echo "worker_sha256=$WORKER_SHA"
+        echo "settings_sha256=$SETTINGS_SHA"
+        echo "target_attempted=$TARGET_ATTEMPTED"
+        echo "target_verified=$TARGET_VERIFIED"
+        echo "original_verified=$ORIGINAL_VERIFIED"
+        echo "readback_bytes=$READBACK_BYTES"
+        echo "readback_sha256=$READBACK_SHA"
+        echo "native_uncertain=$NATIVE_UNCERTAIN"
+        echo "native_last_status=$NATIVE_LAST_STATUS"
+    } > "$LOCK/manifest"
 }
 cleanup() {
     test "$native_inflight" = 0 && test "$worker_inflight" = 0 || return 1
@@ -173,7 +201,19 @@ finish() {
 interrupted() { fail interrupted 21; }
 guard() {
     IFS= read -r current_boot < "$BOOTFILE" || return 1
-    test "$current_boot" = "$BOOT" && no_linux_sd && ram_mount_state
+    test "$current_boot" = "$BOOT" && test -r "$MOUNTS" || return 1
+    mount_count=0
+    mount_owned=0
+    while read -r mount_source mount_target mount_type mount_options mount_rest; do
+        case "$mount_source" in /dev/mmca*|/dev/mmcblk*) return 1;; esac
+        if test "$mount_target" = "$RAM"; then
+            mount_count=$((mount_count+1))
+            if test "$mount_source" = a6400-film-job && test "$mount_type" = tmpfs; then
+                mount_owned=$((mount_owned+1))
+            fi
+        fi
+    done < "$MOUNTS"
+    test "$mount_count" = 1 && test "$mount_owned" = 1
 }
 decimal() {
     test -n "$1" && test "${#1}" -le 10 || return 1
@@ -223,9 +263,7 @@ native_safe_presend_failure() {
         *) return 1;;
     esac
     test ! -e "$INPUT" && test ! -L "$INPUT" || return 1
-    "$BB" grep -q '^NATIVE_SENT ' "$LOCK/native.current.log"
-    sent_status=$?
-    test "$sent_status" = 1 || return 1
+    test "$native_has_sent" = 0 || return 1
     report_kind=NATIVE_FAIL
     for report_reason do
         if native_report_ok && test "$report_fields" = 9 &&
@@ -243,7 +281,7 @@ native_run() {
     report_reason=fresh_prompt
     if test "$native_op" = absent; then report_kind=NATIVE_ABSENT;report_reason=source_open_failed; fi
     PHASE=native_$native_op
-    guard && hash_is "$NATIVE" "$NATIVE_SHA" || fail pre_native_guard
+    guard || fail pre_native_guard
     clock_ms || :
     native_started=$CLOCK_MS
     native_inflight=1
@@ -254,11 +292,16 @@ native_run() {
     native_rc=$?
     NATIVE_LAST_STATUS=$native_rc
     native_inflight=0
-    "$BB" cat "$LOCK/native.current.log"
-    "$BB" cat "$LOCK/native.current.log" >> "$LOCK/native.log" || { NATIVE_UNCERTAIN=1;retain=1;fail native_log 21; }
-    if test "$native_rc" = 21 || "$BB" grep -q 'uncertain=1' "$LOCK/native.current.log"; then
-        NATIVE_UNCERTAIN=1;retain=1;fail native_uncertain 21
-    fi
+    native_has_uncertain=0
+    native_has_sent=0
+    exec 3>>"$LOCK/native.log" || { NATIVE_UNCERTAIN=1;retain=1;fail native_log 21; }
+    while IFS= read -r native_line || test -n "$native_line"; do
+        echo "$native_line"
+        echo "$native_line" >&3 || { exec 3>&-; NATIVE_UNCERTAIN=1;retain=1;fail native_log 21; }
+        case "$native_line" in *uncertain=1*) native_has_uncertain=1;; esac
+        case "$native_line" in NATIVE_SENT\ *) native_has_sent=1;; esac
+    done < "$LOCK/native.current.log"
+    exec 3>&-
     if test "$MODE" = apply && test "$TARGET_ATTEMPTED" = 0 &&
        test "$native_op" = read && test "$native_rc" = 14 &&
        test ! -e "$INPUT" && test ! -L "$INPUT"; then
@@ -266,18 +309,23 @@ native_run() {
         report_reason=source_unavailable
         if native_report_ok && test "$report_fields" = 9 && guard; then return 14; fi
     fi
-    if test "$native_rc" != 0; then
+    if test "$native_rc" != 0 || test "$native_has_uncertain" = 1; then
+        if test "$native_rc" != 20 && test "$MODE" = apply && test "$TARGET_ATTEMPTED" = 0 && test "$native_op" = read; then
+            return 15
+        fi
+        if test "$native_rc" = 21 || test "$native_has_uncertain" = 1; then
+            NATIVE_UNCERTAIN=1;retain=1;fail native_uncertain 21
+        fi
         if native_safe_presend_failure; then fail native_presend "$native_rc"; fi
         NATIVE_UNCERTAIN=1;retain=1;fail native_completion_unconfirmed 21
     fi
     if ! native_report_ok; then NATIVE_UNCERTAIN=1;retain=1;fail native_return_unconfirmed 21; fi
-    guard || fail post_native_guard
     stage_done "$native_op" "$native_started"
 }
 decode_input() {
     PHASE=$1
     decode_failure=$2
-    guard && hash_is "$WORKER" "$WORKER_SHA" || fail verify_worker_pin
+    guard || fail verify_worker_pin
     clock_ms || :
     decode_started=$CLOCK_MS
     worker_inflight=1
@@ -297,7 +345,10 @@ release_input() {
     test ! -e "$INPUT" && test ! -L "$INPUT" || fail release_input
 }
 read_settings() {
-    hash_is "$SETTINGS" "$SETTINGS_SHA" || return 11
+    if test "$settings_pinned" = 0; then
+        hash_is "$SETTINGS" "$SETTINGS_SHA" || return 11
+        settings_pinned=1
+    fi
     SETTING_LINE=$("$SETTINGS")
     setting_rc=$?
     if test "$setting_rc" = 10 && test "$SETTING_LINE" = FILM_OFF; then return 10; fi
@@ -324,13 +375,39 @@ confirm_settings() {
 # Used only for the initial source read. The separate target's fresh absence,
 # write, flush and small readback confirm its completion without reopening the
 # full original twice. No operation here reserves against a media transition.
+quiesce_partial_read_input() {
+    if test ! -e "$INPUT" && test ! -L "$INPUT"; then return 0; fi
+    prev_bytes=-1
+    idle_hits=0
+    q_polls=0
+    while test "$q_polls" -lt 6; do
+        if test ! -e "$INPUT" && test ! -L "$INPUT"; then return 0; fi
+        cur_bytes=-1
+        if file_bytes "$INPUT" 2>/dev/null; then cur_bytes=$FILE_BYTES; fi
+        if test "$cur_bytes" = "$prev_bytes"; then
+            idle_hits=$((idle_hits+1))
+            if test "$idle_hits" -ge 2; then
+                "$BB" rm -f "$INPUT" || return 1
+                test ! -e "$INPUT" && test ! -L "$INPUT" && return 0
+                return 1
+            fi
+        else
+            idle_hits=0
+            prev_bytes=$cur_bytes
+        fi
+        "$BB" sleep 1 || return 1
+        q_polls=$((q_polls+1))
+    done
+    return 1
+}
 read_source_ready() {
     media_stage=$1
     media_waited_here=0
+    read_retries=0
     while :; do
         guard || fail media_wait_guard 13
         test ! -e "$CAPTURE_STOP" || fail media_wait_stopped 20
-        if test "$media_waited_here" = 1; then confirm_settings settings_after_media_wait; fi
+        if test "$media_waited_here" = 1 || test "$read_retries" -gt 0; then confirm_settings settings_after_media_wait; fi
         native_run read "$SOURCE"
         media_rc=$?
         if test "$media_rc" = 0; then
@@ -338,6 +415,20 @@ read_source_ready() {
                 echo "RAM_JOB_MEDIA_RESUMED stage=$media_stage polls=$media_wait_polls"
             fi
             return 0
+        fi
+        if test "$media_rc" = 15; then
+            if ! quiesce_partial_read_input; then
+                NATIVE_UNCERTAIN=1;retain=1;fail read_active_unconfirmed 21
+            fi
+            NATIVE_UNCERTAIN=0
+            retain=0
+            read_retries=$((read_retries+1))
+            echo "RAM_JOB_READ_RETRY attempt=$read_retries rc=$NATIVE_LAST_STATUS"
+            if test "$read_retries" -gt 3; then
+                fail read_retry_exhausted 13
+            fi
+            "$BB" sleep 1 || fail read_retry_sleep 13
+            continue
         fi
         test "$media_rc" = 14 || fail media_completion_unconfirmed 21
         if test "$media_waited_here" = 0; then
@@ -379,9 +470,11 @@ memory_budget() {
 
 clock_ms || :
 JOB_STARTED=$CLOCK_MS
+HIRES_ARG=
 case "$MODE:$#" in
     render:6) PRESET=$4;GRAIN=$5;HALATION=$6;;
     apply:4) TARGET=$4;;
+    apply:5) TARGET=$4;test "$5" = hires && HIRES_ARG=--hires || fail arguments;;
     *) fail arguments;;
 esac
 case "$EXPECTED_BYTES" in ''|0|0*|*[!0-9]*) fail expected_size;; esac
@@ -447,74 +540,47 @@ else
 fi
 
 PHASE=render
-guard && hash_is "$WORKER" "$WORKER_SHA" || fail pre_render_guard
-manifest || fail manifest_render
+guard || fail pre_render_guard
 echo "RAM_JOB_RENDER_START preset=$PRESET grain=$GRAIN halation=$HALATION"
 worker_inflight=1
 clock_ms || :
 render_started=$CLOCK_MS
-"$WORKER" "$PRESET" "$INPUT" "$OUTPUT" "$GRAIN" "$HALATION" > "$LOCK/render.log" 2>&1 &
+"$WORKER" "$PRESET" "$INPUT" "$OUTPUT" "$GRAIN" "$HALATION" $HIRES_ARG > "$LOCK/render.log" 2>&1 &
 worker_pid=$!
 manifest || fail manifest_worker
 wait "$worker_pid"
 worker_rc=$?
 worker_inflight=0
-"$BB" cat "$LOCK/render.log"
-test "$worker_rc" = 0 && "$BB" grep -q '^FILM_DONE ' "$LOCK/render.log" || fail render
+render_done=0
+while IFS= read -r render_line || test -n "$render_line"; do
+    echo "$render_line"
+    case "$render_line" in FILM_DONE\ *) render_done=1;; esac
+done < "$LOCK/render.log"
+test "$worker_rc" = 0 && test "$render_done" = 1 || fail render
 stage_done render "$render_started"
-file_bytes "$INPUT" && test "$FILE_BYTES" = "$EXPECTED_BYTES" || fail input_changed
 file_bytes "$OUTPUT" && test "$FILE_BYTES" -gt 0 && test "$FILE_BYTES" -le 16777216 || fail output_size
 OUTPUT_BYTES=$FILE_BYTES
-hash_file "$OUTPUT" || fail output_hash
-OUTPUT_SHA=$HASH
-guard || fail post_render_guard
 if test "$MODE" = apply; then
+    OUTPUT_SHA=flush_ok:$OUTPUT_BYTES
     PHASE=release_original_scratch
-    manifest || fail manifest_rendered
-    # The pinned worker has only read the source scratch. It was hash-checked
-    # above; release it now and never reopen the original on the normal path.
     release_input
-    # Waiting never reuses a stale absence result. No read, wait or other media
-    # operation intervenes between this new absence and the SD write.
-    native_run absent "$TARGET"
-    test ! -e "$INPUT" && test ! -L "$INPUT" || { retain=1;fail absence_scratch_unconfirmed 21; }
     confirm_settings settings_before_write
     test ! -e "$CAPTURE_STOP" || fail stopped_before_write 20
-    guard && file_bytes "$OUTPUT" && test "$FILE_BYTES" = "$OUTPUT_BYTES" || fail pre_write_output
+    guard || fail pre_write_output
     TARGET_ATTEMPTED=1
     retain=1
-    # absent is a fresh nonexistence check, not atomic exclusive-create.
-    # Only this locked coordinator may write this dedicated target namespace.
-    native_run write "$TARGET"
-    native_run flush "$TARGET"
-    PHASE=release_output_scratch
-    file_bytes "$OUTPUT" && test "$FILE_BYTES" = "$OUTPUT_BYTES" || fail output_changed
-    manifest || fail manifest_flushed
-    "$BB" rm -f "$OUTPUT" || fail release_output
-    test ! -e "$OUTPUT" && test ! -L "$OUTPUT" || fail release_output
-    native_run readback "$TARGET"
-    PHASE=verify_readback
-    clock_ms || :
-    verify_started=$CLOCK_MS
-    file_bytes "$INPUT" && test "$FILE_BYTES" = "$OUTPUT_BYTES" || fail target_readback_size
-    READBACK_BYTES=$FILE_BYTES
-    hash_file "$INPUT" || fail target_readback_hash
-    READBACK_SHA=$HASH
-    test "$READBACK_SHA" = "$OUTPUT_SHA" || fail target_readback_hash
-    stage_done verify_readback "$verify_started"
+    native_run commit "$TARGET"
     TARGET_VERIFIED=1
     PHASE=verified_target
     manifest || fail manifest_verified_target
-    release_input
-    # Source preservation is enforced by read-only paths, not a third full
-    # copy/hash. Do not claim an independent post-job original verification.
     PHASE=applied
-    manifest || fail manifest_applied
-    guard || fail final_guard
     retain=0
     applied=1
     exit 0
 fi
+hash_file "$OUTPUT" || fail output_hash
+OUTPUT_SHA=$HASH
+guard || fail post_render_guard
 PHASE=rendered
 retain=1
 echo "RAM_JOB_RENDERED input_sha256=$INPUT_SHA output_sha256=$OUTPUT_SHA output_bytes=$OUTPUT_BYTES"

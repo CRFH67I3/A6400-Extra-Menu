@@ -19,8 +19,12 @@ echo "FILM_LOCAL_BOOT_BEGIN package=@@PACKAGE_ID@@ pid=$$"
 fail() { echo "FILM_LOCAL_BOOT_FAIL stage=$1"; exit 1; }
 hash_is() {
     test -f "$1" && test ! -L "$1" || return 1
-    hash_line=$("$BB" sha256sum "$1") || return 1
-    test "${hash_line%% *}" = "$2"
+    if hash_line=$("$BB" sha256sum "$1" 2>/dev/null); then
+        test "${hash_line%% *}" = "$2"
+        return $?
+    fi
+    hash_line=$(/usr/bin/openssl dgst -sha256 "$1" 2>/dev/null) || return 1
+    test "${hash_line##* }" = "$2"
 }
 disabled() {
     test -e /tmp/disable_hook || test -e "$RAM/a6400-film.DISABLE" ||
@@ -32,7 +36,7 @@ gate() {
         case "$source" in /dev/mmca*|/dev/mmcblk*) return 1;; esac
     done < /proc/mounts
 }
-phase() { printf 'phase=%s\npid=%s\npackage=@@PACKAGE_ID@@\n' "$1" "$$" > "$LOCK/manifest"; }
+phase() { { echo "phase=$1"; echo "pid=$$"; echo "package=@@PACKAGE_ID@@"; } > "$LOCK/manifest"; }
 if disabled; then echo FILM_LOCAL_BOOT_DISABLED; exit 0; fi
 gate || fail sd_linux_mounted
 test -f "$RAM/ae.lock" && test ! -L "$RAM/ae.lock" || fail missing_constructor_lock

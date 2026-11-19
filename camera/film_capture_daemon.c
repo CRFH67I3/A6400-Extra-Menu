@@ -332,6 +332,7 @@ static void push_ui_toast(uint32_t kind,uint32_t duration_ms,const char *text) {
         snprintf(toast.text,sizeof(toast.text),"%s",text);
         toast.seq+=1u;
         const char *tp=(const char *)&toast;
+        errno=0;
         ssize_t w1=pwrite(fd,tp+8u,sizeof(toast)-8u,toast_addr+8u);
         ssize_t w2=pwrite(fd,tp+4u,4u,toast_addr+4u);
         printf("FILM_TOAST_PUSH kind=%u seq=%u w1=%d w2=%d errno=%d\n",
@@ -354,15 +355,76 @@ static void toast_preset_name(const char *settings,char *out,size_t cap) {
     while(p[n] && p[n]!=' ' && p[n]!='\n' && n+1<cap){out[n]=p[n];++n;}
     out[n]=0;
 }
-static void push_toast_status(uint32_t kind,uint32_t duration_ms,const char *settings,const char *target) {
-    char preset[32],msg[64];
+static int read_ui_hires(void) {
+#if defined(FILM_DAEMON_TOAST_RVA) && defined(FILM_DAEMON_HIRES_RVA)
+    pid_t im_pid=-1;
+    DIR *dir=opendir("/proc");
+    if(!dir)return 0;
+    struct dirent *entry;
+    while((entry=readdir(dir))) {
+        char *end=0;long id=strtol(entry->d_name,&end,10);
+        if(!*entry->d_name || *end || id<=0)continue;
+        char fp[64],comm[32];snprintf(fp,sizeof(fp),"/proc/%ld/comm",id);
+        FILE *cf=fopen(fp,"r");
+        if(cf){if(fgets(comm,sizeof(comm),cf) && !strcmp(comm,"im.elf\n"))im_pid=(pid_t)id;fclose(cf);}
+        if(im_pid>0)break;
+    }
+    closedir(dir);
+    if(im_pid<=0)return 0;
+    char mp[64],line[256];snprintf(mp,sizeof(mp),"/proc/%ld/maps",(long)im_pid);
+    FILE *mf=fopen(mp,"r");if(!mf)return 0;
+    uint32_t ui_base=0;
+    while(fgets(line,sizeof(line),mf)) {
+        uint32_t lo=0,hi=0,off=0;char perm[8]="";int pos=0;
+        if(sscanf(line,"%x-%x %7s %x %*s %*s %n",&lo,&hi,perm,&off,&pos)>=4 && pos>0) {
+            size_t len=strcspn(line+pos,"\r\n");
+            if(len==strlen(FILM_DAEMON_UI_MODULE) && !memcmp(line+pos,FILM_DAEMON_UI_MODULE,len) && !off) {
+                ui_base=lo;break;
+            }
+        }
+    }
+    fclose(mf);
+    if(!ui_base)return 0;
+    char memp[64];snprintf(memp,sizeof(memp),"/proc/%ld/mem",(long)im_pid);
+    int fd=open(memp,O_RDONLY);if(fd<0)return 0;
+    uint32_t val=0;ssize_t pr=pread(fd,&val,4,(off_t)(ui_base+FILM_DAEMON_HIRES_RVA));
+    close(fd);
+    return (pr==4 && val==1u)?1:0;
+#else
+    return 0;
+#endif
+}
+static unsigned count_active_queue(void) {
+    unsigned n=0;
+    for(unsigned i=0;i<queue_count;++i)
+        if(queue[i].present && (queue[i].state==PENDING || queue[i].state==WAITING))++n;
+    return n;
+}
+static void make_target_path(const struct entry *e,unsigned seq,char *out,size_t cap) {
+    /* Map ms:/DCIM/10661119/DSC09530.JPG -> A:/A6400/TEST/F9530xxx.JPG */
+    const char *slash=strrchr(e->path,'/');
+    const char *stem=slash?slash+1:e->path;
+    size_t slen=strcspn(stem,".");
+    char d[5]="0000";
+    if(slen>=4u) {
+        for(unsigned i=0;i<4u;++i) {
+            char c=stem[slen-4u+i];
+            d[i]=(c>='0' && c<='9')?c:'0';
+        }
+    }
+    snprintf(out,cap,"A:/A6400/TEST/F%s%03u.JPG",d,seq%1000u);
+}
+static void push_toast_status(uint32_t kind,uint32_t duration_ms,const char *settings,const char *target,
+                              unsigned qpos,unsigned qtot,int hires) {
+    char preset[24],qtag[16]="",msg[64];
     toast_preset_name(settings,preset,sizeof(preset));
-    if(kind==1u)snprintf(msg,sizeof(msg),"處理中: %s...",preset);
+    if(qtot>1u)snprintf(qtag,sizeof(qtag)," (%u/%u)",qpos%1000u,qtot%1000u);
+    if(kind==1u)snprintf(msg,sizeof(msg),"處理中%.12s: %.20s%s...",qtag,preset,hires?" 6MP":"");
     else if(kind==2u) {
         const char *base=target?strrchr(target,'/'):NULL;
         base=base?base+1:(target?target:"");
-        snprintf(msg,sizeof(msg),"OK 已存SD: %s (%s)",preset,base);
-    } else snprintf(msg,sizeof(msg),"處理失敗: %s",preset);
+        snprintf(msg,sizeof(msg),"OK%.12s: %.16s (%.16s)",qtot>1u?qtag:" 已存SD",preset,base);
+    } else snprintf(msg,sizeof(msg),"處理失敗%.12s: %.20s",qtag,preset);
     push_ui_toast(kind,duration_ms,msg);
 }
 static void update_latest_dir(char *latest_dir,size_t cap,const struct catalogue *c) {
@@ -370,7 +432,7 @@ static void update_latest_dir(char *latest_dir,size_t cap,const struct catalogue
        strlen(c->items[0].path)<18u || c->items[0].path[17]!='/')return;
     snprintf(latest_dir,cap,"%.17s",c->items[0].path);
 }
-static int run_job(struct queued *q,const char *settings) {
+static int run_job(struct queued *q,const char *settings,int hires) {
     if(capture_log_bad() || !pins() || !absent_file(FILM_CAPTURE_JOB_LOCK) || !absent_file(FILM_CAPTURE_INFLIGHT))return 21;
     int flags=O_WRONLY|O_CREAT|O_NOFOLLOW|(own_log?O_TRUNC:O_EXCL);
     int log=open(FILM_CAPTURE_JOB_LOG,flags,0600);if(log<0)return 21;
@@ -388,7 +450,7 @@ static int run_job(struct queued *q,const char *settings) {
         close(log);char source[40],bytes[16];
         if(source_path(&q->entry,source,sizeof(source)))_exit(124);
         snprintf(bytes,sizeof(bytes),"%u",q->entry.size);
-        execl("/bin/sh","sh",FILM_CAPTURE_SCRIPT,"apply",source,bytes,q->target,(char *)0);_exit(127);
+        execl("/bin/sh","sh",FILM_CAPTURE_SCRIPT,"apply",source,bytes,q->target,hires?"hires":(char *)0,(char *)0);_exit(127);
     }
     close(log);close(gate[0]);phase="job";
     if(save_inflight(q,settings) || save_manifest()) {
@@ -600,9 +662,9 @@ int main(int argc,char **argv) {
     if(lock_bad){unlink(CAPTURE_LOCK);return 5;}
     signal(SIGHUP,SIG_IGN);signal(SIGPIPE,SIG_IGN);
     signal(SIGINT,daemon_stop);signal(SIGTERM,daemon_stop);
-    struct transport transport={.pid=-1,.in=-1,.out=-1};struct catalogue current;
+    struct transport transport={.pid=-1,.in=-1,.out=-1};static struct catalogue current;
     int result=1;const char *reason="error";uint32_t start=now_ms();
-    next_output=(start^((uint32_t)getpid()*2654435761u))%10000000u;
+    next_output=(start^((uint32_t)getpid()*2654435761u))%1000u;
     if(save_manifest()){reason="manifest";goto done;}
     printf("FILM_CAPTURE_READY active_ms=%u persistent=%d queue_capacity=%u\n",
            FILM_CAPTURE_ACTIVE_MS,FILM_CAPTURE_PERSISTENT,MAX_FILES);
@@ -659,6 +721,8 @@ int main(int argc,char **argv) {
 #endif
     start=now_ms();
     int post_trigger_follow=0,early_toast_sent=0;
+    (void)early_toast_sent;
+    unsigned batch_done=0;
     char latest_dcim_dir[48]="";
     update_latest_dir(latest_dcim_dir,sizeof(latest_dcim_dir),&current);
     while(1) {
@@ -670,7 +734,15 @@ int main(int argc,char **argv) {
         if(!FILM_CAPTURE_PERSISTENT && (uint32_t)(now_ms()-start)>=FILM_CAPTURE_ACTIVE_MS) {
             result=0;reason="expired";break;
         }
-        if(transport.pid<0 && transport_start(&transport)){reason="monitor_restart";break;}
+        if(transport.pid<0 && transport_start(&transport)) {
+#if FILM_CAPTURE_PERSISTENT
+            transport_stop(&transport);
+            pause_interruptible(500u,start,1);
+            continue;
+#else
+            reason="monitor_restart";break;
+#endif
+        }
         int use_hint=FILM_CAPTURE_LATEST_DIR_ONLY && any_waiting_candidate() && latest_dcim_dir[0];
         phase="scanning";int scan=inventory_dirs_with_hint(&transport,&current,FILM_CAPTURE_LATEST_DIR_ONLY,use_hint?latest_dcim_dir:NULL);
         if(capture_log_bad()){result=21;retain_lock=1;reason="runtime_log";goto done;}
@@ -698,7 +770,17 @@ int main(int argc,char **argv) {
             if(save_manifest()){reason="manifest";break;}
             pause_interruptible(CAPTURE_INTERVAL_MS,start,1);continue;
         }
-        if(scan){result=21;retain_lock=1;reason="scan_unconfirmed";break;}
+        if(scan) {
+#if FILM_CAPTURE_PERSISTENT
+            latest_dcim_dir[0]=0;early_toast_sent=0;
+            reset_candidate_stability();post_trigger_follow=0;
+            transport_stop(&transport);
+            pause_interruptible(500u,start,1);
+            continue;
+#else
+            result=21;retain_lock=1;reason="scan_unconfirmed";break;
+#endif
+        }
         metadata_resumed(&metadata_failures,"watch");
         if(current.count)update_latest_dir(latest_dcim_dir,sizeof(latest_dcim_dir),&current);
         else latest_dcim_dir[0]=0;
@@ -706,6 +788,43 @@ int main(int argc,char **argv) {
         if(save_manifest()){reason="manifest";break;}
         unsigned pending=0;
         while(pending<queue_count && queue[pending].state!=PENDING)++pending;
+#if FILM_CAPTURE_PERSISTENT && FILM_CAPTURE_PROC_TRIGGER
+        if(pending==queue_count && any_waiting_candidate()) {
+#ifdef FILM_DAEMON_TOAST_RVA
+            if(!early_toast_sent) {
+                char settings[128];
+                if(live_settings(settings,sizeof(settings))==0) {
+                    unsigned active=count_active_queue();
+                    push_toast_status(1u,25000u,settings,NULL,batch_done+1u,batch_done+active,read_ui_hires());
+                    early_toast_sent=1;
+                }
+            }
+#endif
+            uint64_t q0=0,q1=0;
+            if(sd_io_sample(&q0)) {
+                pause_interruptible(100u,start,1);
+                if(!should_break_wait(start,1) && sd_io_sample(&q1) && q1>=q0 && (q1-q0)<=4u) {
+                    int promoted=0;
+                    for(unsigned i=0;i<queue_count;++i) {
+                        if(queue[i].present && queue[i].state==WAITING && queue[i].entry.size>0u) {
+                            char source[40];
+                            if(!source_path(&queue[i].entry,source,sizeof(source))) {
+                                queue[i].state=PENDING;
+                                printf("FILM_CAPTURE_PENDING source=%s bytes=%u heuristic_only=1 uptime_ms=%u\n",
+                                       source,queue[i].entry.size,(unsigned)now_ms());
+                                promoted=1;
+                            }
+                        }
+                    }
+                    if(promoted) {
+                        if(save_manifest()){reason="manifest";break;}
+                        pending=0;
+                        while(pending<queue_count && queue[pending].state!=PENDING)++pending;
+                    }
+                }
+            }
+        }
+#endif
         if(pending<queue_count) {
             /* inventory returned a fresh completed native prompt. Reap MPR
              * before the settings CLI or any IFSYS read/write can begin. */
@@ -715,7 +834,7 @@ int main(int argc,char **argv) {
             int gate=live_settings(settings,sizeof(settings));
             if(daemon_signal || stop_requested()!=0)continue;
             if(gate==10) {
-                early_toast_sent=0;
+                early_toast_sent=0;batch_done=0;
                 /* This fresh OFF observation applies to the entire pending
                  * snapshot, not only its first entry. Later ON must not turn
                  * the rest of this already observed OFF batch into jobs. */
@@ -727,36 +846,42 @@ int main(int argc,char **argv) {
                 early_toast_sent=0;
                 puts("FILM_CAPTURE_SETTINGS_UNAVAILABLE");
             } else {
-                snprintf(q->target,sizeof(q->target),"A:/A6400/TEST/F%07u.JPG",next_output);
-                next_output=(next_output+1u)%10000000u;
-                printf("FILM_CAPTURE_DISPATCH path=%s target=%s %s uptime_ms=%u\n",
-                       q->entry.path,q->target,settings,(unsigned)now_ms());
-                push_toast_status(1u,15000u,settings,NULL);
+                int hires=read_ui_hires();
+                unsigned active=count_active_queue();
+                unsigned bpos=batch_done+1u,btot=batch_done+(active?active:1u);
+                make_target_path(&q->entry,next_output,q->target,sizeof(q->target));
+                next_output=(next_output+1u)%1000u;
+                printf("FILM_CAPTURE_DISPATCH path=%s target=%s %s hires=%d q=%u/%u uptime_ms=%u\n",
+                       q->entry.path,q->target,settings,hires,bpos,btot,(unsigned)now_ms());
+                push_toast_status(1u,hires?45000u:15000u,settings,NULL,bpos,btot,hires);
                 early_toast_sent=0;
                 unsigned prev_applied=applied_jobs;
-                if(run_job(q,settings)) {
+                if(run_job(q,settings,hires)) {
                     push_ui_toast(3u,3000u,"處理失敗 (未確認)");
                     result=21;retain_lock=1;reason="job_uncertain";break;
                 }
                 push_toast_status(applied_jobs>prev_applied?2u:3u,
-                                  applied_jobs>prev_applied?3500u:3000u,settings,q->target);
+                                  applied_jobs>prev_applied?3500u:3000u,settings,q->target,bpos,btot,hires);
+                if(applied_jobs>prev_applied)++batch_done;
+                if(count_active_queue()==0u)batch_done=0;
                 /* Recheck promptly in case another shutter press arrived during render. */
                 post_trigger_follow=1;
             }
             if(save_manifest()){reason="manifest";break;}
-#ifdef FILM_DAEMON_TOAST_RVA
         } else if(any_waiting_candidate()) {
+#ifdef FILM_DAEMON_TOAST_RVA
             if(!early_toast_sent) {
                 char settings[128];
                 if(live_settings(settings,sizeof(settings))==0) {
-                    push_toast_status(1u,20000u,settings,NULL);
+                    unsigned active=count_active_queue();
+                    push_toast_status(1u,25000u,settings,NULL,batch_done+1u,batch_done+active,read_ui_hires());
                     early_toast_sent=1;
                 }
             }
 #endif
         } else {
             early_toast_sent=0;
-            (void)early_toast_sent;
+            batch_done=0;
         }
         wait_before_scan(start,&post_trigger_follow);
     }

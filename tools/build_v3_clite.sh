@@ -43,12 +43,34 @@ cp "$ROOT/camera/film_job.elf" "$OUT/a6400-film-job.elf"
 chmod 755 "$OUT/a6400-film-job.elf"
 make -C "$ROOT/camera" -f Makefile.film JOB=1 clean >/dev/null 2>&1 || true
 
-echo "[2/9] Building persistent V3 CLite UI..."
+CHARO_ENABLE=0
+CHARO_DIR=""
+if [ -f "$ROOT/assets/a6400-charo-shutter.pcm" ]; then
+    CHARO_ENABLE=1
+    CHARO_DIR="$OUT/charo-assets"
+fi
+
+echo "[2/9] Building persistent V3.5.1 Fast SP UI (charo=$CHARO_ENABLE)..."
 rm -rf "$OUT/ui"
 A6400_TRIAL_MS=0 \
 A6400_DISPLAY_MS=20000 \
+A6400_CHARO_SHUTTER="$CHARO_ENABLE" \
 UI_MODULE_PATH=/tmp_bt/a6400-film-ui-v3-persist.so \
     sh "$ROOT/host-tests/build_ui_trial3.sh" "$OUT/ui" "$LIBS"
+
+rm -rf "$OUT/charo-assets"
+if [ "$CHARO_ENABLE" = 1 ]; then
+    mkdir -p "$OUT/charo-assets"
+    cp "$ROOT/assets/a6400-charo-shutter.pcm" "$OUT/charo-assets/a6400-charo-shutter.pcm"
+    chmod 644 "$OUT/charo-assets/a6400-charo-shutter.pcm"
+    arm-linux-gnueabihf-gcc -Os -mcpu=cortex-a5 -mfpu=vfpv3-d16 -mfloat-abi=hard \
+        -ffreestanding -fno-builtin -fno-stack-protector -ffunction-sections -fdata-sections \
+        -fno-pie -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -Wall -Wextra -Werror -std=c11 \
+        -nostdlib -static -no-pie -Wl,--gc-sections -Wl,-s -Wl,-e,_start \
+        "$ROOT/camera/charo_bind.c" "$ROOT/camera/rt.c" -lgcc \
+        -o "$OUT/charo-assets/a6400-charo-bind.elf"
+    chmod 755 "$OUT/charo-assets/a6400-charo-bind.elf"
+fi
 
 echo "[3/9] Building persistent menu job CLI..."
 rm -rf "$OUT/menu"
@@ -93,7 +115,7 @@ for b in payload:
     fnv = ((fnv ^ b) * 16777619) & 0xffffffff
 out = Path(sys.argv[2])
 for op, name in ((0, 'check-persist.req'), (1, 'install-persist.req'), (2, 'remove-persist.req')):
-    hdr = struct.pack('<8I', 0x4d544852, 1, op, len(payload), 0x0700d709, fnv, 1184, 0x06309d48)
+    hdr = struct.pack('<8I', 0x4d544852, 1, op, len(payload), 1, fnv, 1184, 0)
     (out / name).write_bytes(hdr + payload)
 PY
 
@@ -105,7 +127,8 @@ from pathlib import Path
 tpl = Path(sys.argv[1]).read_text()
 out = Path(sys.argv[2])
 def sha(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
-text = (tpl
+lines = [ln if i == 0 else (ln.lstrip() if ln.strip() and not ln.lstrip().startswith('#') else '') for i, ln in enumerate(tpl.splitlines(True))]
+text = (''.join(lines)
     .replace('__NATIVE_SHA__', sha(out / 'native/a6400-film-native-command.elf'))
     .replace('__WORKER_SHA__', sha(out / 'a6400-film-job.elf'))
     .replace('__SETTINGS_SHA__', sha(out / 'menu/a6400-film-menu-job.elf')))
@@ -156,6 +179,7 @@ spec = {
 (out / 'runtime-artifacts.json').write_text(json.dumps(spec, indent=2) + '\n')
 PY
 rm -rf "$OUT/local-boot-package"
+A6400_CHARO_DIR="$CHARO_DIR" \
 python3 "$ROOT/host-tests/build_film_local_boot_package.py" \
     "$OUT/runtime-artifacts.json" "$OUT/local-boot-package"
 

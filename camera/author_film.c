@@ -112,76 +112,177 @@ int film_init(struct film_state *s, int preset, int grain) {
     return 0;
 }
 
+static inline int grain_step_scaled(unsigned *rng, const int *bell_scaled, int lum) {
+    unsigned x = *rng;
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+    *rng = x;
+    int rnd = (int)(x & 255u) - 128;
+    return (rnd * bell_scaled[lum]) >> 15;
+}
 void film_pixels(struct film_state *s, unsigned char *pixels, unsigned long count) {
-    int slot = color_slot(s->preset);
-    const int *m = slot >= 0 ? cube_matrix[slot] : (const int *)0;
-    for (unsigned long i = 0; i < count; ++i) {
-        unsigned char *p = pixels + i * 3u;
-        int r0 = p[0], g0 = p[1], b0 = p[2];
-        int lum = (77 * r0 + 150 * g0 + 29 * b0) >> 8;
-        int r, g, b;
-        if (s->preset == 4) r = g = b = s->red[lum];
-        else if (s->preset == 8) {
+    int preset = s->preset;
+    int grain_amp = s->grain_amp;
+    unsigned rng = s->rng;
+    const unsigned char *red = s->red;
+    const unsigned char *green = s->green;
+    const unsigned char *blue = s->blue;
+    int slot = color_slot(preset);
+    unsigned char *end = pixels + count * 3u;
+    int bell_scaled[256];
+    if (grain_amp) for (int bi = 0; bi < 256; ++bi) bell_scaled[bi] = grain_amp * film_grain_bell[bi];
+
+    if (preset == 4) {
+        for (unsigned char *p = pixels; p < end; p += 3) {
+            int lum = (77 * p[0] + 150 * p[1] + 29 * p[2]) >> 8;
+            int v = red[lum];
+            if (grain_amp) v += (int)grain_step_scaled(&rng, bell_scaled, lum);
+            unsigned char c = clamp(v);
+            p[0] = c; p[1] = c; p[2] = c;
+        }
+    } else if (preset == 8) {
+        for (unsigned char *p = pixels; p < end; p += 3) {
+            int r0 = p[0], g0 = p[1], b0 = p[2];
+            int lum = (77 * r0 + 150 * g0 + 29 * b0) >> 8;
             int alum = clamp((79 * r0 + 97 * g0 + 80 * b0) >> 8);
-            r = g = b = s->red[alum];
-        } else if (m) {
-            int zr = clamp((m[0] * r0 + m[1] * g0 + m[2] * b0 + m[9] + 128) >> 8);
-            int zg = clamp((m[3] * r0 + m[4] * g0 + m[5] * b0 + m[10] + 128) >> 8);
-            int zb = clamp((m[6] * r0 + m[7] * g0 + m[8] * b0 + m[11] + 128) >> 8);
-            r = s->red[zr]; g = s->green[zg]; b = s->blue[zb];
+            int v = red[alum];
+            if (grain_amp) v += (int)grain_step_scaled(&rng, bell_scaled, lum);
+            unsigned char c = clamp(v);
+            p[0] = c; p[1] = c; p[2] = c;
+        }
+    } else if (slot >= 0) {
+        const int *m = cube_matrix[slot];
+        int m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3], m4 = m[4], m5 = m[5];
+        int m6 = m[6], m7 = m[7], m8 = m[8], m9 = m[9] + 128, m10 = m[10] + 128, m11 = m[11] + 128;
+        if (grain_amp) {
+            for (unsigned char *p = pixels; p < end; p += 3) {
+                int r0 = p[0], g0 = p[1], b0 = p[2];
+                int lum = (77 * r0 + 150 * g0 + 29 * b0) >> 8;
+                int zr = clamp((m0 * r0 + m1 * g0 + m2 * b0 + m9) >> 8);
+                int zg = clamp((m3 * r0 + m4 * g0 + m5 * b0 + m10) >> 8);
+                int zb = clamp((m6 * r0 + m7 * g0 + m8 * b0 + m11) >> 8);
+                int noise = (int)grain_step_scaled(&rng, bell_scaled, lum);
+                p[0] = clamp(red[zr] + noise);
+                p[1] = clamp(green[zg] + noise);
+                p[2] = clamp(blue[zb] + noise);
+            }
         } else {
-            r = s->red[r0]; g = s->green[g0]; b = s->blue[b0];
-            if (s->preset == 2) {
-                int l2 = (77 * r + 150 * g + 29 * b) >> 8;
-                r = l2 + (((r - l2) * 307) >> 8);
-                g = l2 + (((g - l2) * 307) >> 8);
-                b = l2 + (((b - l2) * 307) >> 8);
-            } else if (s->preset == 1 && lum > 195) r += ((lum - 195) * 160) >> 8;
+            for (unsigned char *p = pixels; p < end; p += 3) {
+                int r0 = p[0], g0 = p[1], b0 = p[2];
+                int zr = clamp((m0 * r0 + m1 * g0 + m2 * b0 + m9) >> 8);
+                int zg = clamp((m3 * r0 + m4 * g0 + m5 * b0 + m10) >> 8);
+                int zb = clamp((m6 * r0 + m7 * g0 + m8 * b0 + m11) >> 8);
+                p[0] = red[zr]; p[1] = green[zg]; p[2] = blue[zb];
+            }
         }
-        if (s->grain_amp) {
-            unsigned x = s->rng;
-            x ^= x << 13; x ^= x >> 17; x ^= x << 5; s->rng = x;
-            int rnd = (int)(x & 255u) - 128;
-            int noise = (rnd * s->grain_amp * film_grain_bell[lum]) >> 15;
-            r += noise; g += noise; b += noise;
+    } else if (preset == 2) {
+        for (unsigned char *p = pixels; p < end; p += 3) {
+            int r0 = p[0], g0 = p[1], b0 = p[2];
+            int lum = (77 * r0 + 150 * g0 + 29 * b0) >> 8;
+            int r = red[r0], g = green[g0], b = blue[b0];
+            int l2 = (77 * r + 150 * g + 29 * b) >> 8;
+            r = l2 + (((r - l2) * 307) >> 8);
+            g = l2 + (((g - l2) * 307) >> 8);
+            b = l2 + (((b - l2) * 307) >> 8);
+            if (grain_amp) {
+                int noise = (int)grain_step_scaled(&rng, bell_scaled, lum);
+                r += noise; g += noise; b += noise;
+            }
+            p[0] = clamp(r); p[1] = clamp(g); p[2] = clamp(b);
         }
-        p[0] = clamp(r); p[1] = clamp(g); p[2] = clamp(b);
+    } else if (preset == 1) {
+        for (unsigned char *p = pixels; p < end; p += 3) {
+            int r0 = p[0], g0 = p[1], b0 = p[2];
+            int lum = (77 * r0 + 150 * g0 + 29 * b0) >> 8;
+            int r = red[r0], g = green[g0], b = blue[b0];
+            if (lum > 195) r += ((lum - 195) * 160) >> 8;
+            if (grain_amp) {
+                int noise = (int)grain_step_scaled(&rng, bell_scaled, lum);
+                r += noise; g += noise; b += noise;
+            }
+            p[0] = clamp(r); p[1] = clamp(g); p[2] = clamp(b);
+        }
+    } else {
+        if (grain_amp) {
+            for (unsigned char *p = pixels; p < end; p += 3) {
+                int r0 = p[0], g0 = p[1], b0 = p[2];
+                int lum = (77 * r0 + 150 * g0 + 29 * b0) >> 8;
+                int noise = (int)grain_step_scaled(&rng, bell_scaled, lum);
+                p[0] = clamp(red[r0] + noise);
+                p[1] = clamp(green[g0] + noise);
+                p[2] = clamp(blue[b0] + noise);
+            }
+        } else {
+            for (unsigned char *p = pixels; p < end; p += 3) {
+                p[0] = red[p[0]]; p[1] = green[p[1]]; p[2] = blue[p[2]];
+            }
+        }
     }
+    s->rng = rng;
 }
 
 void film_mask_sample(unsigned char *mask, int width, int height, int first_y,
                       const unsigned char *pixels, int rows) {
-    int gw = width / 4, gh = height / 4;
-    for (int y = 0; y < rows; ++y) {
-        int image_y = first_y + y;
-        if (image_y % 4 || image_y / 4 >= gh) continue;
+    int gw = width >> 2, gh = height >> 2;
+    int y = (first_y & 3) ? (4 - (first_y & 3)) : 0;
+    for (; y < rows; y += 4) {
+        int gy = (first_y + y) >> 2;
+        if (gy >= gh) break;
         const unsigned char *row = pixels + (unsigned long)y * (unsigned)width * 3u;
+        unsigned char *dst = mask + (unsigned long)gy * (unsigned)gw;
         for (int x = 0; x < gw; ++x) {
             const unsigned char *p = row + (unsigned)x * 12u;
             int lum = (77 * p[0] + 150 * p[1] + 29 * p[2]) >> 8;
-            mask[(unsigned long)(image_y / 4) * (unsigned)gw + (unsigned)x] =
-                (unsigned char)(lum > 195 ? (lum - 195) * 4 : 0);
+            dst[x] = (unsigned char)(lum > 195 ? (lum - 195) * 4 : 0);
         }
     }
 }
 
 void film_mask_blur(unsigned char *mask, unsigned char *tmp, int gw, int gh) {
+    static const unsigned blur_recip[8] = {
+        0u, 65536u, 32768u, 21846u, 16384u, 13108u, 10923u, 9363u
+    };
     for (int pass = 0; pass < 2; ++pass) {
-        for (int y = 0; y < gh; ++y) for (int x = 0; x < gw; ++x) {
-            int sum = 0, count = 0;
-            int x0 = x < 3 ? 0 : x - 3;
-            int x1 = x + 3 >= gw ? gw - 1 : x + 3;
-            for (int k = x0; k <= x1; ++k) { sum += mask[y * gw + k]; ++count; }
-            tmp[y * gw + x] = (unsigned char)(sum / count);
+        for (int y = 0; y < gh; ++y) {
+            const unsigned char *mrow = mask + y * gw;
+            unsigned char *trow = tmp + y * gw;
+            if (gw >= 8) {
+                int s = mrow[0] + mrow[1] + mrow[2] + mrow[3];
+                trow[0] = (unsigned char)((unsigned)(s * 16384) >> 16);
+                s += mrow[4];
+                trow[1] = (unsigned char)((unsigned)(s * 13108) >> 16);
+                s += mrow[5];
+                trow[2] = (unsigned char)((unsigned)(s * 10923) >> 16);
+                s += mrow[6];
+                trow[3] = (unsigned char)((unsigned)(s * 9363) >> 16);
+                for (int x = 4; x < gw - 3; ++x) {
+                    s += mrow[x + 3] - mrow[x - 4];
+                    trow[x] = (unsigned char)((unsigned)(s * 9363) >> 16);
+                }
+                s -= mrow[gw - 7];
+                trow[gw - 3] = (unsigned char)((unsigned)(s * 10923) >> 16);
+                s -= mrow[gw - 6];
+                trow[gw - 2] = (unsigned char)((unsigned)(s * 13108) >> 16);
+                s -= mrow[gw - 5];
+                trow[gw - 1] = (unsigned char)((unsigned)(s * 16384) >> 16);
+            } else {
+                for (int x = 0; x < gw; ++x) {
+                    int x0 = x < 3 ? 0 : x - 3;
+                    int x1 = x + 3 >= gw ? gw - 1 : x + 3;
+                    int sum = 0;
+                    for (int k = x0; k <= x1; ++k) sum += mrow[k];
+                    trow[x] = (unsigned char)((unsigned)(sum * (int)blur_recip[x1 - x0 + 1]) >> 16);
+                }
+            }
         }
         for (int y = 0; y < gh; ++y) {
             int y0 = y < 3 ? 0 : y - 3;
             int y1 = y + 3 >= gh ? gh - 1 : y + 3;
-            int count = y1 - y0 + 1;
+            unsigned recip = blur_recip[y1 - y0 + 1];
+            unsigned char *mrow = mask + y * gw;
             for (int x = 0; x < gw; ++x) {
                 int sum = 0;
                 for (int k = y0; k <= y1; ++k) sum += tmp[k * gw + x];
-                mask[y * gw + x] = (unsigned char)(sum / count);
+                mrow[x] = (unsigned char)((unsigned)(sum * (int)recip) >> 16);
             }
         }
     }
@@ -190,19 +291,30 @@ void film_mask_blur(unsigned char *mask, unsigned char *tmp, int gw, int gh) {
 void film_halo_apply(unsigned char *pixels, int width, int rows, int first_y,
                      const unsigned char *mask, int gw, int gh, int preset) {
     int strength = preset == 1 ? 150 : 95;
+    int rem = width - (gw << 2);
     for (int y = 0; y < rows; ++y) {
-        int gy = (first_y + y) / 4;
+        int gy = (first_y + y) >> 2;
         if (gy >= gh) gy = gh - 1;
-        unsigned char *row = pixels + (unsigned long)y * (unsigned)width * 3u;
+        unsigned char *p = pixels + (unsigned long)y * (unsigned)width * 3u;
         const unsigned char *mrow = mask + gy * gw;
-        for (int x = 0; x < width; ++x) {
-            int gx = x / 4;
-            if (gx >= gw) gx = gw - 1;
+        for (int gx = 0; gx < gw; ++gx) {
             int glow = mrow[gx];
             if (glow > 2) {
                 int dr = (glow * strength) >> 7, dg = (dr * 90) >> 8;
-                unsigned char *p = row + (unsigned)x * 3u;
                 p[0] = clamp(p[0] + dr); p[1] = clamp(p[1] + dg);
+                p[3] = clamp(p[3] + dr); p[4] = clamp(p[4] + dg);
+                p[6] = clamp(p[6] + dr); p[7] = clamp(p[7] + dg);
+                p[9] = clamp(p[9] + dr); p[10] = clamp(p[10] + dg);
+            }
+            p += 12;
+        }
+        if (rem > 0) {
+            int glow = mrow[gw - 1];
+            if (glow > 2) {
+                int dr = (glow * strength) >> 7, dg = (dr * 90) >> 8;
+                for (int r = 0; r < rem; ++r, p += 3) {
+                    p[0] = clamp(p[0] + dr); p[1] = clamp(p[1] + dg);
+                }
             }
         }
     }

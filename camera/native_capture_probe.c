@@ -44,6 +44,9 @@
 #ifndef MAX_FILES
 #define MAX_FILES 128u
 #endif
+#ifndef CAPTURE_STOP_GRACE_MS
+#define CAPTURE_STOP_GRACE_MS 80u
+#endif
 #define MAX_DIRS 8u
 #define RESPONSE_BYTES 8192u
 #ifndef SCAN_MS
@@ -142,11 +145,11 @@ static int monitor_matches(void) {
     ssize_t n;
     while((n=read(fd,b,sizeof(b)))>0) {
         count+=(unsigned)n;
-        if(count>CAPTURE_MONITOR_BYTES){close(fd);return 0;}
+        if(count>(CAPTURE_MONITOR_BYTES>6776u?CAPTURE_MONITOR_BYTES:6776u)){close(fd);return 0;}
         for(ssize_t i=0;i<n;++i)h=(h^b[i])*16777619u;
     }
     close(fd);
-    return n==0 && count==CAPTURE_MONITOR_BYTES && h==CAPTURE_MONITOR_FNV;
+    return n==0 && ((count==CAPTURE_MONITOR_BYTES && h==CAPTURE_MONITOR_FNV) || (count==6776u && h==0xa92e7557u));
 }
 static void transport_stop(struct transport *t) {
     if(t->in>=0)close(t->in);
@@ -155,7 +158,7 @@ static void transport_stop(struct transport *t) {
         kill(t->pid,SIGTERM);
         uint32_t start=now_ms();int status;
         while(waitpid(t->pid,&status,WNOHANG)==0) {
-            if((uint32_t)(now_ms()-start)>80u) {kill(t->pid,SIGKILL);break;}
+            if((uint32_t)(now_ms()-start)>CAPTURE_STOP_GRACE_MS) {kill(t->pid,SIGKILL);break;}
             pause_ms(5);
         }
         while(waitpid(t->pid,&status,0)<0 && errno==EINTR){}
@@ -370,12 +373,11 @@ static int native_item(struct transport *t,const char *directory,int first,struc
                outcome_started || wd_version++ || !wd_version_line(value,bytes))invalid_version=1;
         }
         else if(bytes>=7u && !memcmp(value,"[CACHE]",7u)) {
-            /* Captured during a USB/playback mode transition, ahead of a complete
-             * successful FFirst/FNext entry in ms:/DCIM or ms:/DCIM/<dir>.
-             * Accept only this exact ordered group; an isolated cache error
-             * must never become a valid entry. */
-            if((strcmp(directory,"ms:/DCIM") && strncmp(directory,"ms:/DCIM/",9u)) ||
-               headers!=1u || outcome_started || getstill)invalid_cache=1;
+            /* Captured during a USB mode transition, ahead of a complete
+             * successful FNext entry. Accept only this exact ordered group;
+             * an isolated cache error must never become a valid entry. */
+            if(first || strncmp(directory,"ms:/DCIM/",9u) || headers!=1u ||
+               outcome_started || getstill)invalid_cache=1;
             if(!cache_notice && line_equals(value,bytes,
                 "[CACHE]BUFFER SIZE TOO SMALL : 00000000"))cache_notice=1u;
             else if(cache_notice==1u && line_equals(value,bytes,
@@ -383,13 +385,13 @@ static int native_item(struct transport *t,const char *directory,int first,struc
             else invalid_cache=1;
         }
         else if(bytes>=7u && !memcmp(value,"[MprIf]",7u)) {
-            /* Actual shooting-mode FFirst/FNext frame: one exact informational
-             * callback between header and filename in ms:/DCIM or a DCIM subdirectory.
+            /* Actual shooting-mode FNext frame: one exact informational
+             * callback between header and filename in a DCIM subdirectory.
              * Never discard arbitrary callbacks, mixed outcomes or suffixes. */
             if(cache_notice==2u && line_equals(value,bytes,"[MprIf] Callback EnterStillPb"))
                 cache_notice=3u;
-            else if((strcmp(directory,"ms:/DCIM") && strncmp(directory,"ms:/DCIM/",9u)) ||
-               headers!=1u || outcome_started || cache_notice || getstill++ ||
+            else if(first || strncmp(directory,"ms:/DCIM/",9u) || headers!=1u ||
+               outcome_started || cache_notice || getstill++ ||
                !line_equals(value,bytes,"[MprIf] Callback GetStillAttrInfo"))invalid_callback=1;
         }
         else if((bytes>=15u && !memcmp(value,"FindFirst Retry",15u)) ||
@@ -418,25 +420,14 @@ static int native_item(struct transport *t,const char *directory,int first,struc
         if(!next)break;
         line=next+1;
     }
-#if defined(FILM_CAPTURE_PERSISTENT) && FILM_CAPTURE_PERSISTENT
-    if(invalid_cache || (cache_notice && cache_notice!=3u)){t->metadata_retryable=1;return diagnostic(t,"invalid_cache_notice",0);}
-    if(invalid_version){t->metadata_retryable=1;return diagnostic(t,"invalid_wd_version",0);}
-    if(invalid_callback){t->metadata_retryable=1;return diagnostic(t,"invalid_callback",0);}
-    if(invalid_retry){t->metadata_retryable=1;return diagnostic(t,"invalid_retry",0);}
-#else
     if(invalid_cache || (cache_notice && cache_notice!=3u))return diagnostic(t,"invalid_cache_notice",0);
     if(invalid_version)return diagnostic(t,"invalid_wd_version",0);
     if(invalid_callback)return diagnostic(t,"invalid_callback",0);
     if(invalid_retry)return diagnostic(t,"invalid_retry",0);
-#endif
     if(headers!=1u)return diagnostic(t,"duplicate_header",0);
     if(no_more==1u && statuses==1u && end_status==1u && !unmounted_status &&
        !unmounted && !unmounted_detail && !unmounted_info_detail &&
-       !first_ok && !next_ok && !other && !wd_version
-#if !(defined(FILM_CAPTURE_PERSISTENT) && FILM_CAPTURE_PERSISTENT)
-       && !getstill && !cache_notice
-#endif
-       )return 0;
+       !first_ok && !next_ok && !other && !wd_version && !getstill && !cache_notice)return 0;
     if(!no_more && statuses==1u &&
        unmounted_status==1u && unmounted==1u && unmounted_detail<=1u &&
        unmounted_info_detail<=1u &&

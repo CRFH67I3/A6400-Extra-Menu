@@ -78,6 +78,7 @@ long syscall(long n, ...) {
     }
     return 0;
 }
+static void *model_get_key_inst(void) { return ui.keys; }
 void model_init(void) {
     memset(&ui,0,sizeof(ui));
     memset(&ui_theme,0,sizeof(ui_theme));
@@ -85,7 +86,7 @@ void model_init(void) {
     struct film_settings initial={0,0,2,1};
     const struct film_native_view_ops ops={visibility,draw,settings};
     film_native_view_init(&ui.view,&ops,0,&initial);
-    ui.system=UI_SYSTEM;ui.keys=(void *)0x59150;*KEY_INSTANCE_SLOT=ui.keys;
+    ui.system=ui_sys_stub;ui.keys=(void *)0x59150;get_key_instance_fn=model_get_key_inst;
     ui.tid=380;ui.running=ui.attached=1;
     ui.layer=menu_marker;ui.ticker=ui.ticker_layer=ticker_marker;
     ui.key=model_key;ui.mouse_position=model_position;ui.mouse_state=model_state;
@@ -115,22 +116,10 @@ const char *model_toast_text(void) { return model_toast_label; }
                 (inc / name).write_text(content, encoding='utf-8')
             for name in ('film_menu.h', 'film_native_view.h', 'ui_trial_trace.h'):
                 (inc / name).write_text((ROOT / 'camera' / name).read_text(encoding='utf-8'), encoding='utf-8')
-            (d / 'stubs.h').write_text(
-                'static unsigned char ui_sys_stub[4096];\n'
-                'static void *key_slot_stub;\n'
-                'static unsigned char trace_stub[4096];\n',
-                encoding='utf-8',
-            )
             src = (ROOT / 'camera/native_film_ui_trial3.c').read_text(encoding='utf-8')
-            src = src.replace('#define UI_SYSTEM ((void *)0x956f0)', '')
-            src = src.replace('#define KEY_INSTANCE_SLOT ((void *volatile *)0x0713dad0u)', '')
-            src = src.replace('#define TRACE ((volatile struct ui_trial_trace *)0x07143970u)', '')
             body = model_c.replace('#include "native_film_ui_trial3.c"', src)
             preamble = (
-                '#include "stubs.h"\n'
-                '#define UI_SYSTEM ((void *)ui_sys_stub)\n'
-                '#define KEY_INSTANCE_SLOT ((void *volatile *)&key_slot_stub)\n'
-                '#define TRACE ((volatile struct ui_trial_trace *)trace_stub)\n'
+                'static unsigned char ui_sys_stub[4096];\n'
                 '#define _Static_assert(cond, msg)\n'
             )
             (d / 'model.c').write_text(preamble + body, encoding='utf-8')

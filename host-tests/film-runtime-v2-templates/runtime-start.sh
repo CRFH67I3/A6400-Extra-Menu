@@ -6,8 +6,10 @@ export PATH=/usr/bin:/bin:/sbin:/usr/sbin
 BB=/bin/busybox
 RAM=/tmp_bt
 MOUNTS=/proc/mounts
-COMM=/proc/149/comm
-MAPS=/proc/149/maps
+IM_PID=
+COMM=
+MAPS=
+STATUS=
 LOCK=$RAM/a6400-film-runtime.lock
 REQUEST=$RAM/a6400-ui-load.req
 GUARD=$RAM/a6400-ui-load-guard.elf
@@ -30,11 +32,34 @@ no_sd_mount() {
 }
 hash_is() {
     test -f "$1" && test ! -L "$1" || return 1
-    hash_line=$("$BB" sha256sum "$1") || return 1
-    test "${hash_line%% *}" = "$2"
+    if hash_line=$("$BB" sha256sum "$1" 2>/dev/null); then
+        test "${hash_line%% *}" = "$2"
+        return $?
+    fi
+    hash_line=$(/usr/bin/openssl dgst -sha256 "$1" 2>/dev/null) || return 1
+    test "${hash_line##* }" = "$2"
 }
 gate() { ! disabled && no_sd_mount; }
+find_im_pid() {
+    IM_PID=
+    set +f
+    for p in /proc/[0-9]*/comm; do
+        test -r "$p" || continue
+        IFS= read -r c < "$p" || continue
+        if test "$c" = "im.elf"; then
+            p=${p#/proc/}
+            IM_PID=${p%/comm}
+            break
+        fi
+    done
+    set -f
+    test -n "$IM_PID" || return 1
+    COMM=/proc/$IM_PID/comm
+    MAPS=/proc/$IM_PID/maps
+    STATUS=/proc/$IM_PID/status
+}
 ready() {
+    find_im_pid || return 1
     test -r "$COMM" && test -r "$MAPS" || return 1
     IFS= read -r comm < "$COMM" || return 1
     test "$comm" = im.elf &&
@@ -95,18 +120,28 @@ done
 # The daemon owns O_EXCL creation; preserve prior evidence before loading the UI.
 test ! -e "$RUNTIME_LOG" && test ! -L "$RUNTIME_LOG" || fail existing_runtime_log
 threads_of() {
-    test -r /proc/149/status || { echo fixture; return 0; }
+    test -n "$STATUS" && test -r "$STATUS" || { echo fixture; return 0; }
     while IFS= read -r line; do
         case "$line" in
             Threads:*) set -- $line; echo "${2:-0}"; return 0;;
         esac
-    done < /proc/149/status
+    done < "$STATUS"
     echo 0
 }
 wait_count=0
 while ! ready; do
     gate || fail waiting_gate
-    test "$wait_count" -lt 30 || fail im_not_ready
+    if test "$wait_count" -ge 120; then
+        set +f
+        for p in /proc/[0-9]*/comm; do
+            test -r "$p" && IFS= read -r c < "$p" && echo "DIAG_COMM $p=$c"
+        done
+        set -f
+        fail im_not_ready
+    fi
+    if test "$((wait_count % 10))" = 0; then
+        echo "FILM_WAIT_IM elapsed=${wait_count}s"
+    fi
     "$BB" sleep 1
     wait_count=$((wait_count+1))
 done
@@ -131,7 +166,7 @@ if test "$prev_threads" != fixture; then
 fi
 gate || fail pre_install_gate
 "$BB" mkdir "$LOCK" || fail existing_runtime
-printf 'phase=guard_check\npid=%s\npackage=@@PACKAGE_ID@@\n' "$$" > "$LOCK/manifest" || fail manifest
+{ echo "phase=guard_check"; echo "pid=$$"; echo "package=@@PACKAGE_ID@@"; } > "$LOCK/manifest" || fail manifest
 guard_step check 0 @@CHECK_SHA@@
 guard_step install 1 @@INSTALL_SHA@@
 # The one-shot loader still waits for a natural touch release. Unloaded UI is
@@ -150,6 +185,6 @@ else
     fail initial_settings_not_off
 fi
 gate && ready || fail pre_daemon_gate
-printf 'phase=daemon\npid=%s\npackage=@@PACKAGE_ID@@\ninitial_enabled=0\n' "$$" > "$LOCK/manifest" || fail manifest
+{ echo "phase=daemon"; echo "pid=$$"; echo "package=@@PACKAGE_ID@@"; echo "initial_enabled=0"; } > "$LOCK/manifest" || fail manifest
 echo FILM_RUNTIME_READY initial_enabled=0
 exec "$DAEMON" watch

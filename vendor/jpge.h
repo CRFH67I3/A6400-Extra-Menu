@@ -12,6 +12,7 @@ namespace jpge
 	typedef unsigned short uint16;
 	typedef unsigned int   uint32;
 	typedef unsigned int   uint;
+	typedef unsigned long long uint64;
 
 	// JPEG chroma subsampling factors. Y_ONLY (grayscale images) and H2V2 (color images) are the most common.
 	enum subsampling_t { Y_ONLY = 0, H1V1 = 1, H2V1 = 2, H2V2 = 3 };
@@ -117,13 +118,14 @@ namespace jpge
 		sample_array_t m_sample_array[64];
 		int16 m_coefficient_array[64];
 		int32 m_quantization_tables[2][64];
+		uint32 m_quant_recip[2][64];
 		uint m_huff_codes[4][256];
 		uint8 m_huff_code_sizes[4][256];
 		uint8 m_huff_bits[4][17];
 		uint8 m_huff_val[4][256];
 		uint32 m_huff_count[4][256];
 		int m_last_dc_val[3];
-		enum { JPGE_OUT_BUF_SIZE = 2048 };
+		enum { JPGE_OUT_BUF_SIZE = 16384 };
 		uint8 m_out_buf[JPGE_OUT_BUF_SIZE];
 		uint8* m_pOut_buf;
 		uint m_out_buf_left;

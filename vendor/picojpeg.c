@@ -158,6 +158,8 @@ typedef struct HuffTableT
    uint16 mMinCode[16];
    uint16 mMaxCode[16];
    uint8 mValPtr[16];
+   uint8 mLookLen[256];
+   uint8 mLookSym[256];
 } HuffTable;
 
 // DC - 192
@@ -279,7 +281,7 @@ static PJPG_INLINE uint8 getOctet(uint8 FFCheck)
    return c;
 }
 //------------------------------------------------------------------------------
-static uint16 getBits(uint8 numBits, uint8 FFCheck)
+static inline uint16 getBits(uint8 numBits, uint8 FFCheck)
 {
    uint8 origBits = numBits;
    uint16 ret = gBitBuf;
@@ -321,12 +323,12 @@ static PJPG_INLINE uint16 getBits1(uint8 numBits)
    return getBits(numBits, 0);
 }
 //------------------------------------------------------------------------------
-static PJPG_INLINE uint16 getBits2(uint8 numBits)
+static inline uint16 getBits2(uint8 numBits)
 {
    return getBits(numBits, 1);
 }
 //------------------------------------------------------------------------------
-static PJPG_INLINE uint8 getBit(void)
+static inline uint8 getBit(void)
 {
    uint8 ret = 0;
    if (gBitBuf & 0x8000) 
@@ -345,49 +347,49 @@ static PJPG_INLINE uint8 getBit(void)
    return ret;
 }
 //------------------------------------------------------------------------------
-static uint16 getExtendTest(uint8 i)
+static const uint16 gExtendTest[16] =
 {
-   switch (i)
-   {
-      case 0: return 0;
-      case 1: return 0x0001;
-      case 2: return 0x0002;
-      case 3: return 0x0004;
-      case 4: return 0x0008;
-      case 5: return 0x0010; 
-      case 6: return 0x0020;
-      case 7: return 0x0040;
-      case 8:  return 0x0080;
-      case 9:  return 0x0100;
-      case 10: return 0x0200;
-      case 11: return 0x0400;
-      case 12: return 0x0800;
-      case 13: return 0x1000;
-      case 14: return 0x2000; 
-      case 15: return 0x4000;
-      default: return 0;
-   }      
-}
-//------------------------------------------------------------------------------
-static int16 getExtendOffset(uint8 i)
-{ 
-   return i <= 15 ? (int16)(1 - (1 << i)) : 0;
+   0, 0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0020, 0x0040,
+   0x0080, 0x0100, 0x0200, 0x0400, 0x0800, 0x1000, 0x2000, 0x4000
+};
+static const int16 gExtendOffset[16] =
+{
+   0, -1, -3, -7, -15, -31, -63, -127,
+   -255, -511, -1023, -2047, -4095, -8191, -16383, -32767
 };
 //------------------------------------------------------------------------------
-static PJPG_INLINE int16 huffExtend(uint16 x, uint8 s)
+static inline int16 huffExtend(uint16 x, uint8 s)
 {
-   return ((x < getExtendTest(s)) ? ((int16)x + getExtendOffset(s)) : (int16)x);
+   return ((s < 16U) && (x < gExtendTest[s])) ? (int16)((int16)x + gExtendOffset[s]) : (int16)x;
 }
 //------------------------------------------------------------------------------
-static PJPG_INLINE uint8 huffDecode(const HuffTable* pHuffTable, const uint8* pHuffVal)
+static inline uint8 huffDecode(const HuffTable* pHuffTable, const uint8* pHuffVal)
 {
-   uint8 i = 0;
-   uint8 j;
-   uint16 code = getBit();
+   uint8 peek = (uint8)(gBitBuf >> 8);
+   uint8 l = pHuffTable->mLookLen[peek];
+   if (l)
+   {
+      if (gBitsLeft >= l)
+      {
+         gBitsLeft = (uint8)(gBitsLeft - l);
+         gBitBuf <<= l;
+      }
+      else
+      {
+         uint8 rem = (uint8)(l - gBitsLeft);
+         gBitBuf <<= gBitsLeft;
+         gBitBuf |= getOctet(1);
+         gBitBuf <<= rem;
+         gBitsLeft = (uint8)(8 - rem);
+      }
+      return pHuffTable->mLookSym[peek];
+   }
 
-   // This func only reads a bit at a time, which on modern CPU's is not terribly efficient.
-   // But on microcontrollers without strong integer shifting support this seems like a 
-   // more reasonable approach.
+   uint8 i = 8;
+   uint8 j;
+   getBits2(8);
+   uint16 code = (uint16)(((uint16)peek << 1) | getBit());
+
    for ( ; ; )
    {
       uint16 maxCode;
@@ -410,13 +412,20 @@ static PJPG_INLINE uint8 huffDecode(const HuffTable* pHuffTable, const uint8* pH
    return pHuffVal[j];
 }
 //------------------------------------------------------------------------------
-static void huffCreate(const uint8* pBits, HuffTable* pHuffTable)
+static void huffCreate(const uint8* pBits, HuffTable* pHuffTable, const uint8* pHuffVal)
 {
    uint8 i = 0;
    uint8 j = 0;
 
    uint16 code = 0;
-      
+   uint16 idx;
+
+   for (idx = 0; idx < 256; idx++)
+   {
+      pHuffTable->mLookLen[idx] = 0;
+      pHuffTable->mLookSym[idx] = 0;
+   }
+
    for ( ; ; )
    {
       uint8 num = pBits[i];
@@ -432,6 +441,29 @@ static void huffCreate(const uint8* pBits, HuffTable* pHuffTable)
          pHuffTable->mMinCode[i] = code;
          pHuffTable->mMaxCode[i] = code + num - 1;
          pHuffTable->mValPtr[i] = j;
+
+         if (i < 8)
+         {
+            uint8 k;
+            uint8 len = (uint8)(i + 1);
+            uint8 shift = (uint8)(7 - i);
+            uint16 rep = (uint16)(1U << shift);
+            for (k = 0; k < num; k++)
+            {
+               uint16 c = (uint16)(code + k);
+               if (c < (uint16)(1U << len))
+               {
+                  uint16 base = (uint16)(c << shift);
+                  uint8 sym = pHuffVal[j + k];
+                  uint16 r;
+                  for (r = 0; r < rep; r++)
+                  {
+                     pHuffTable->mLookLen[base + r] = len;
+                     pHuffTable->mLookSym[base + r] = sym;
+                  }
+               }
+            }
+         }
          
          j = (uint8)(j + num);
          
@@ -529,7 +561,7 @@ static uint8 readDHTMarker(void)
 
       left = (uint16)(left - totalRead);
 
-      huffCreate(bits, pHuffTable);
+      huffCreate(bits, pHuffTable, pHuffVal);
    }
       
    return 0;
@@ -1352,17 +1384,86 @@ static void idctRows(void)
    }      
 }
 
-static void idctCols(void)
+//----------------------------------------------------------------------------
+// 1/2-scale IDCT helpers (gReduce == 2): 2x2 pair averaging in transform domain
+static void idctRowsReduce2(void)
 {
    uint8 i;
-      
    int16* pSrc = gCoeffBuf;
-   
+
    for (i = 0; i < 8; i++)
+   {
+      if ((pSrc[1] | pSrc[2] | pSrc[3] | pSrc[4] | pSrc[5] | pSrc[6] | pSrc[7]) == 0)
+      {
+         int16 src0 = *pSrc;
+         *(pSrc+1) = src0;
+         *(pSrc+2) = src0;
+         *(pSrc+3) = src0;
+      }
+      else
+      {
+         int16 src4 = *(pSrc+5);
+         int16 src7 = *(pSrc+3);
+         int16 x4  = src4 - src7;
+         int16 x7  = src4 + src7;
+
+         int16 src5 = *(pSrc+1);
+         int16 src6 = *(pSrc+7);
+         int16 x5  = src5 + src6;
+         int16 x6  = src5 - src6;
+
+         int16 tmp1 = imul_b5(x4 - x6);
+         int16 stg26 = imul_b4(x6) - tmp1;
+         int16 x24 = tmp1 - imul_b2(x4);
+
+         int16 x15 = x5 - x7;
+         int16 x17 = x5 + x7;
+
+         int16 tmp2 = stg26 - x17;
+         int16 tmp3 = imul_b1_b3(x15) - tmp2;
+         int16 x44 = tmp3 + x24;
+
+         int16 src0 = *(pSrc+0);
+         int16 src1 = *(pSrc+4);
+         int16 x30 = src0 + src1;
+         int16 x31 = src0 - src1;
+
+         int16 src2 = *(pSrc+2);
+         int16 src3 = *(pSrc+6);
+         int16 x12 = src2 - src3;
+         int16 x13 = src2 + src3;
+
+         int16 x32 = imul_b1_b3(x12) - x13;
+
+         int16 x40 = x30 + x13;
+         int16 x43 = x30 - x13;
+         int16 x41 = x31 + x32;
+         int16 x42 = x31 - x32;
+
+         long sum_e0 = (long)x40 + (long)x41;
+         long sum_o0 = (long)x17 + (long)tmp2;
+         long sum_e1 = (long)x42 + (long)x43;
+         long sum_o1 = (long)tmp3 - (long)x44;
+
+         *(pSrc+0) = (int16)((sum_e0 + sum_o0 + 1L) >> 1);
+         *(pSrc+1) = (int16)((sum_e1 + sum_o1 + 1L) >> 1);
+         *(pSrc+2) = (int16)((sum_e1 - sum_o1 + 1L) >> 1);
+         *(pSrc+3) = (int16)((sum_e0 - sum_o0 + 1L) >> 1);
+      }
+
+      pSrc += 8;
+   }
+}
+
+static void idctColsN(uint8 numCols)
+{
+   uint8 i;
+   int16* pSrc = gCoeffBuf;
+
+   for (i = 0; i < numCols; i++)
    {
       if ((pSrc[1*8] | pSrc[2*8] | pSrc[3*8] | pSrc[4*8] | pSrc[5*8] | pSrc[6*8] | pSrc[7*8]) == 0)
       {
-         // Short circuit the 1D IDCT if only the DC component is non-zero
          uint8 c = clamp(PJPG_DESCALE(*pSrc) + 128);
          *(pSrc+0*8) = c;
          *(pSrc+1*8) = c;
@@ -1387,7 +1488,6 @@ static void idctCols(void)
 
          int16 tmp1 = imul_b5(x4 - x6);
          int16 stg26 = imul_b4(x6) - tmp1;
-
          int16 x24 = tmp1 - imul_b2(x4);
 
          int16 x15 = x5 - x7;
@@ -1414,7 +1514,6 @@ static void idctCols(void)
          int16 x41 = x31 + x32;
          int16 x42 = x31 - x32;
 
-         // descale, convert to unsigned and clamp to 8-bit
          *(pSrc+0*8) = clamp(PJPG_DESCALE(x40 + x17)  + 128);
          *(pSrc+1*8) = clamp(PJPG_DESCALE(x41 + tmp2) + 128);
          *(pSrc+2*8) = clamp(PJPG_DESCALE(x42 + tmp3) + 128);
@@ -1425,8 +1524,83 @@ static void idctCols(void)
          *(pSrc+7*8) = clamp(PJPG_DESCALE(x40 - x17)  + 128);
       }
 
-      pSrc++;      
-   }      
+      pSrc++;
+   }
+}
+
+static void idctColsReduce2(uint8 numCols)
+{
+   uint8 i;
+   int16* pSrc = gCoeffBuf;
+
+   for (i = 0; i < numCols; i++)
+   {
+      if ((pSrc[1*8] | pSrc[2*8] | pSrc[3*8] | pSrc[4*8] | pSrc[5*8] | pSrc[6*8] | pSrc[7*8]) == 0)
+      {
+         uint8 c = clamp(PJPG_DESCALE(*pSrc) + 128);
+         *(pSrc+0*8) = c;
+         *(pSrc+1*8) = c;
+         *(pSrc+2*8) = c;
+         *(pSrc+3*8) = c;
+      }
+      else
+      {
+         int16 src4 = *(pSrc+5*8);
+         int16 src7 = *(pSrc+3*8);
+         int16 x4  = src4 - src7;
+         int16 x7  = src4 + src7;
+
+         int16 src5 = *(pSrc+1*8);
+         int16 src6 = *(pSrc+7*8);
+         int16 x5  = src5 + src6;
+         int16 x6  = src5 - src6;
+
+         int16 tmp1 = imul_b5(x4 - x6);
+         int16 stg26 = imul_b4(x6) - tmp1;
+         int16 x24 = tmp1 - imul_b2(x4);
+
+         int16 x15 = x5 - x7;
+         int16 x17 = x5 + x7;
+
+         int16 tmp2 = stg26 - x17;
+         int16 tmp3 = imul_b1_b3(x15) - tmp2;
+         int16 x44 = tmp3 + x24;
+
+         int16 src0 = *(pSrc+0*8);
+         int16 src1 = *(pSrc+4*8);
+         int16 x30 = src0 + src1;
+         int16 x31 = src0 - src1;
+
+         int16 src2 = *(pSrc+2*8);
+         int16 src3 = *(pSrc+6*8);
+         int16 x12 = src2 - src3;
+         int16 x13 = src2 + src3;
+
+         int16 x32 = imul_b1_b3(x12) - x13;
+
+         int16 x40 = x30 + x13;
+         int16 x43 = x30 - x13;
+         int16 x41 = x31 + x32;
+         int16 x42 = x31 - x32;
+
+         long sum_e0 = (long)x40 + (long)x41;
+         long sum_o0 = (long)x17 + (long)tmp2;
+         long sum_e1 = (long)x42 + (long)x43;
+         long sum_o1 = (long)tmp3 - (long)x44;
+
+         *(pSrc+0*8) = clamp((int16)(((sum_e0 + sum_o0 + 128L) >> 8) + 128L));
+         *(pSrc+1*8) = clamp((int16)(((sum_e1 + sum_o1 + 128L) >> 8) + 128L));
+         *(pSrc+2*8) = clamp((int16)(((sum_e1 - sum_o1 + 128L) >> 8) + 128L));
+         *(pSrc+3*8) = clamp((int16)(((sum_e0 - sum_o0 + 128L) >> 8) + 128L));
+      }
+
+      pSrc++;
+   }
+}
+
+static void idctCols(void)
+{
+   idctColsN(8);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -1890,6 +2064,150 @@ static void transformBlock(uint8 mcuBlock)
    }      
 }
 //------------------------------------------------------------------------------
+static void copyYRect(uint8 rows, uint8 cols, uint8 dstOfs, uint8 dstStride)
+{
+   uint8 x, y;
+   int16* pSrc = gCoeffBuf;
+   uint8* pRDst = gMCUBufR + dstOfs;
+   uint8* pGDst = gMCUBufG + dstOfs;
+   uint8* pBDst = gMCUBufB + dstOfs;
+   for (y = 0; y < rows; y++)
+   {
+      for (x = 0; x < cols; x++)
+      {
+         uint8 c = (uint8)pSrc[x];
+         pRDst[x] = c;
+         pGDst[x] = c;
+         pBDst[x] = c;
+      }
+      pSrc += 8;
+      pRDst += dstStride;
+      pGDst += dstStride;
+      pBDst += dstStride;
+   }
+}
+
+static void convertCbRect(uint8 rows, uint8 cols, uint8 dstOfs, uint8 dstStride)
+{
+   uint8 x, y;
+   int16* pSrc = gCoeffBuf;
+   uint8* pDstG = gMCUBufG + dstOfs;
+   uint8* pDstB = gMCUBufB + dstOfs;
+   for (y = 0; y < rows; y++)
+   {
+      for (x = 0; x < cols; x++)
+      {
+         uint8 cb = (uint8)pSrc[x];
+         int16 cbG = ((cb * 88U) >> 8U) - 44U;
+         int16 cbB = (cb + ((cb * 198U) >> 8U)) - 227U;
+         pDstG[x] = subAndClamp(pDstG[x], cbG);
+         pDstB[x] = addAndClamp(pDstB[x], cbB);
+      }
+      pSrc += 8;
+      pDstG += dstStride;
+      pDstB += dstStride;
+   }
+}
+
+static void convertCrRect(uint8 rows, uint8 cols, uint8 dstOfs, uint8 dstStride)
+{
+   uint8 x, y;
+   int16* pSrc = gCoeffBuf;
+   uint8* pDstR = gMCUBufR + dstOfs;
+   uint8* pDstG = gMCUBufG + dstOfs;
+   for (y = 0; y < rows; y++)
+   {
+      for (x = 0; x < cols; x++)
+      {
+         uint8 cr = (uint8)pSrc[x];
+         int16 crR = (cr + ((cr * 103U) >> 8U)) - 179;
+         int16 crG = ((cr * 183U) >> 8U) - 91;
+         pDstR[x] = addAndClamp(pDstR[x], crR);
+         pDstG[x] = subAndClamp(pDstG[x], crG);
+      }
+      pSrc += 8;
+      pDstR += dstStride;
+      pDstG += dstStride;
+   }
+}
+
+static void transformBlockReduce2(uint8 mcuBlock)
+{
+   switch (gScanType)
+   {
+      case PJPG_GRAYSCALE:
+      {
+         idctRowsReduce2();
+         idctColsReduce2(4);
+         copyYRect(4, 4, 0, 4);
+         break;
+      }
+      case PJPG_YH1V1:
+      {
+         idctRowsReduce2();
+         idctColsReduce2(4);
+         switch (mcuBlock)
+         {
+            case 0: copyYRect(4, 4, 0, 4); break;
+            case 1: convertCbRect(4, 4, 0, 4); break;
+            case 2: convertCrRect(4, 4, 0, 4); break;
+         }
+         break;
+      }
+      case PJPG_YH1V2:
+      {
+         idctRowsReduce2();
+         if (mcuBlock < 2)
+         {
+            idctColsReduce2(4);
+            copyYRect(4, 4, (mcuBlock == 0) ? 0 : 16, 4);
+         }
+         else
+         {
+            idctColsN(4);
+            if (mcuBlock == 2) convertCbRect(8, 4, 0, 4);
+            else convertCrRect(8, 4, 0, 4);
+         }
+         break;
+      }
+      case PJPG_YH2V1:
+      {
+         if (mcuBlock < 2)
+         {
+            idctRowsReduce2();
+            idctColsReduce2(4);
+            copyYRect(4, 4, (mcuBlock == 0) ? 0 : 4, 8);
+         }
+         else
+         {
+            idctRows();
+            idctColsReduce2(8);
+            if (mcuBlock == 2) convertCbRect(4, 8, 0, 8);
+            else convertCrRect(4, 8, 0, 8);
+         }
+         break;
+      }
+      case PJPG_YH2V2:
+      {
+         if (mcuBlock < 4)
+         {
+            static const uint8 ofs[4] = { 0, 4, 32, 36 };
+            idctRowsReduce2();
+            idctColsReduce2(4);
+            copyYRect(4, 4, ofs[mcuBlock], 8);
+         }
+         else
+         {
+            idctRows();
+            idctCols();
+            if (mcuBlock == 4) convertCb(0);
+            else convertCr(0);
+         }
+         break;
+      }
+   }
+}
+//------------------------------------------------------------------------------
 static void transformBlockReduce(uint8 mcuBlock)
 {
    uint8 c = clamp(PJPG_DESCALE(gCoeffBuf[0]) + 128);
@@ -2140,7 +2458,7 @@ static uint8 decodeNextMCU(void)
 
       compACTab = gCompACTab[componentID];
 
-      if (gReduce)
+      if (gReduce == 1)
       {
          // Decode, but throw out the AC coefficients in reduce mode.
          for (k = 1; k < 64; k++)
@@ -2182,6 +2500,9 @@ static uint8 decodeNextMCU(void)
       }
       else
       {
+         for (k = 1; k < 64; k++)
+            gCoeffBuf[k] = 0;
+
          // Decode and dequantize AC coefficients
          for (k = 1; k < 64; k++)
          {
@@ -2206,11 +2527,7 @@ static uint8 decodeNextMCU(void)
                   if ((k + r) > 63)
                      return PJPG_DECODE_ERROR;
 
-                  while (r)
-                  {
-                     gCoeffBuf[ZAG[k++]] = 0;
-                     r--;
-                  }
+                  k = (uint8)(k + r);
                }
 
                ac = huffExtend(extraBits, s);
@@ -2224,20 +2541,17 @@ static uint8 decodeNextMCU(void)
                   if ((k + 16) > 64)
                      return PJPG_DECODE_ERROR;
                   
-                  for (r = 16; r > 0; r--)
-                     gCoeffBuf[ZAG[k++]] = 0;
-                  
-                  k--; // - 1 because the loop counter is k
+                  k = (uint8)(k + 15);
                }
                else
                   break;
             }
          }
-         
-         while (k < 64)
-            gCoeffBuf[ZAG[k++]] = 0;
 
-         transformBlock(mcuBlock); 
+         if (gReduce == 2)
+            transformBlockReduce2(mcuBlock);
+         else
+            transformBlock(mcuBlock);
       }
    }
          

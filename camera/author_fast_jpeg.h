@@ -76,16 +76,31 @@ static int author_preview(int fd,unsigned *offset,unsigned *length) {
     return best_length?1:0;
 }
 
-struct author_input {int fd,failed;unsigned left;};
+struct author_input {
+    int fd,failed;
+    unsigned left,pos,end;
+    unsigned char buf[16384];
+};
 static unsigned char author_read(unsigned char *buffer,unsigned char capacity,
                                  unsigned char *count,void *context) {
     author_input *input=(author_input *)context;
-    unsigned wanted=input->left<capacity?input->left:capacity;
-    long amount=wanted?sys_read(input->fd,buffer,wanted):0;
-    if (amount<0 || (unsigned long)amount>wanted) {
-        input->failed=1; *count=0; return PJPG_STREAM_READ_ERROR;
+    if (input->pos==input->end) {
+        unsigned chunk=input->left<(unsigned)sizeof(input->buf)?input->left:(unsigned)sizeof(input->buf);
+        long amount=chunk?sys_read(input->fd,input->buf,chunk):0;
+        if (amount<0 || (unsigned long)amount>chunk) {
+            input->failed=1; *count=0; return PJPG_STREAM_READ_ERROR;
+        }
+        input->left-=(unsigned)amount;
+        input->pos=0;
+        input->end=(unsigned)amount;
     }
-    input->left-=(unsigned)amount; *count=(unsigned char)amount;
+    unsigned avail=input->end-input->pos;
+    unsigned n=avail<capacity?avail:capacity;
+    if (n) {
+        memcpy(buffer,input->buf+input->pos,n);
+        input->pos+=n;
+    }
+    *count=(unsigned char)n;
     return 0;
 }
 
@@ -132,8 +147,9 @@ static inline int author_fast_memory_ok(const char *text,unsigned size,unsigned 
     }
     if (seen!=15u || values[0]+values[1]+values[2]<values[3]) return 0;
     *available=values[0]+values[1]+values[2]-values[3];
+    unsigned out_reserve=(rgb_bytes>8u*1024u*1024u)?(6u*1024u*1024u):MAX_OUTPUT_BYTES;
     *required=(rgb_bytes+strip_bytes+mask_bytes+MAX_HEAP_BLOCK+
-               MAX_OUTPUT_BYTES+8u*1024u*1024u+1023u)/1024u;
+               out_reserve+8u*1024u*1024u+1023u)/1024u;
     return *available>=*required;
 }
 
@@ -158,7 +174,7 @@ static int author_memory_ready(unsigned rgb_bytes,unsigned strip_bytes,unsigned 
 
 static int author_decode(int fd,unsigned offset,unsigned length,int fallback,author_image *image) {
     if (!length || sys_lseek(fd,(long)offset,0)!=(long)offset) return 4;
-    author_input input={fd,0,length}; pjpeg_image_info_t info={};
+    author_input input; input.fd=fd; input.failed=0; input.left=length; input.pos=0; input.end=0; pjpeg_image_info_t info={};
     unsigned status=pjpeg_decode_init(&info,author_read,&input,0);
     if (status || input.failed || info.m_width<1 || info.m_height<1 ||
         (unsigned)info.m_width>MAX_IMAGE_DIMENSION ||
@@ -167,33 +183,60 @@ static int author_decode(int fd,unsigned offset,unsigned length,int fallback,aut
         info.m_MCUHeight<1 || info.m_MCUHeight>16 ||
         (info.m_comps!=1 && info.m_comps!=3)) return 4;
     int scale=fallback && info.m_width>2400?2:1;
+    if (scale==2) {
+        if (sys_lseek(fd,(long)offset,0)!=(long)offset) return 4;
+        input.fd=fd; input.failed=0; input.left=length; input.pos=0; input.end=0;
+        memset(&info,0,sizeof(info));
+        status=pjpeg_decode_init(&info,author_read,&input,2);
+        if (status || input.failed || info.m_MCUWidth<2 || info.m_MCUHeight<2) return 4;
+    }
     int width=info.m_width/scale,height=info.m_height/scale;
     if (width<1 || height<1 ||
         (unsigned long)width*(unsigned long)height>AUTHOR_RGB_BYTES/3u) return 5;
     image->bytes=(unsigned)width*(unsigned)height*3u;
-    unsigned strip_bytes=(unsigned)info.m_width*3u*(unsigned)info.m_MCUHeight;
+    unsigned strip_bytes=(scale==2)?0u:(unsigned)info.m_width*3u*(unsigned)info.m_MCUHeight;
     unsigned mask_bytes=(unsigned)(width/4)*(unsigned)(height/4)*2u;
     if (!author_memory_ready(image->bytes,strip_bytes,mask_bytes)) return 5;
     image->pixels=(unsigned char *)xalloc(image->bytes);
     if (!image->pixels) return 5;
-    workspace work;
-    work.strip_size=(size_t)info.m_width*3u*(unsigned)info.m_MCUHeight;
-    work.strip=(unsigned char *)xalloc(work.strip_size);
-    if (!work.strip) {image->clear();return 5;}
-    unsigned pitch=(unsigned)info.m_width*3u;
-    for (int row=0;row<info.m_MCUSPerCol;++row) {
-        if (fill_strip(&info,work.strip) || input.failed) {image->clear();return 8;}
-        int first_y=row*info.m_MCUHeight;
-        int rows=info.m_height-first_y<info.m_MCUHeight?info.m_height-first_y:info.m_MCUHeight;
-        if (scale==1) {
+    if (scale==1) {
+        workspace work;
+        work.strip_size=(size_t)info.m_width*3u*(unsigned)info.m_MCUHeight;
+        work.strip=(unsigned char *)xalloc(work.strip_size);
+        if (!work.strip) {image->clear();return 5;}
+        unsigned pitch=(unsigned)info.m_width*3u;
+        for (int row=0;row<info.m_MCUSPerCol;++row) {
+            if (fill_strip(&info,work.strip) || input.failed) {image->clear();return 8;}
+            int first_y=row*info.m_MCUHeight;
+            int rows=info.m_height-first_y<info.m_MCUHeight?info.m_height-first_y:info.m_MCUHeight;
             memcpy(image->pixels+(unsigned long)first_y*pitch,work.strip,(size_t)rows*pitch);
-        } else {
-            for (int y=0;y+1<rows;y+=2) {
-                unsigned char *out=image->pixels+(unsigned long)((first_y+y)/2)*(unsigned)width*3u;
-                const unsigned char *a=work.strip+(unsigned)y*pitch,*b=a+pitch;
-                for (int x=0;x<width;++x) for (unsigned c=0;c<3;++c) {
-                    unsigned at=(unsigned)x*6u+c;
-                    out[(unsigned)x*3u+c]=(unsigned char)((a[at]+a[at+3]+b[at]+b[at+3]+2)>>2);
+        }
+    } else {
+        int rmw=info.m_MCUWidth>>1, rmh=info.m_MCUHeight>>1;
+        for (int row=0;row<info.m_MCUSPerCol;++row) {
+            int dst_y=row*rmh;
+            int rows=height-dst_y<rmh?height-dst_y:rmh;
+            for (int mcu_x=0;mcu_x<info.m_MCUSPerRow;++mcu_x) {
+                if (pjpeg_decode_mcu() || input.failed) {image->clear();return 8;}
+                int dst_x=mcu_x*rmw;
+                if (dst_x>=width || rows<=0) continue;
+                int cols=width-dst_x<rmw?width-dst_x:rmw;
+                for (int y=0;y<rows;++y) {
+                    unsigned char *out=image->pixels+((unsigned long)(dst_y+y)*(unsigned)width+(unsigned)dst_x)*3u;
+                    unsigned src_row=(unsigned)y*(unsigned)rmw;
+                    if (info.m_comps==1) {
+                        for (int x=0;x<cols;++x) {
+                            unsigned char v=info.m_pMCUBufR[src_row+(unsigned)x];
+                            out[x*3]=v; out[x*3+1]=v; out[x*3+2]=v;
+                        }
+                    } else {
+                        for (int x=0;x<cols;++x) {
+                            unsigned idx=src_row+(unsigned)x;
+                            out[x*3]=info.m_pMCUBufR[idx];
+                            out[x*3+1]=info.m_pMCUBufG[idx];
+                            out[x*3+2]=info.m_pMCUBufB[idx];
+                        }
+                    }
                 }
             }
         }
@@ -249,19 +292,39 @@ static void author_metadata_size(unsigned char *metadata,unsigned size,unsigned 
 }
 
 static int render_author_fast(int fd,const char *path,int preset,int grain,int halo,
-                              unsigned char *metadata,unsigned metadata_size) {
+                              unsigned char *metadata,unsigned metadata_size,int hires=0) {
     unsigned begin=film_clock_ms(),offset=0,length=0;
-    int found=author_preview(fd,&offset,&length);
-    if (found<0) return 4;
-    unsigned selected=film_clock_ms(),attempts=1;
+    int found=0;
+    unsigned selected=0,attempts=1;
     author_image image;
-    int result=found?author_decode(fd,offset,length,0,&image):4;
-    if (result) {
-        if (found) ++attempts;
+    int result=4;
+    if (hires) {
         long size=sys_lseek(fd,0,2);
-        if (size<4 || (unsigned long)size>MAX_INPUT_BYTES) return 4;
-        result=author_decode(fd,0,(unsigned)size,1,&image);
-        found=0;offset=0;length=(unsigned)size;
+        if (size>=4 && (unsigned long)size<=MAX_INPUT_BYTES) {
+            selected=film_clock_ms();
+            result=author_decode(fd,0,(unsigned)size,1,&image);
+            length=(unsigned)size;
+        }
+        if (result) {
+            printf("FILM_HIRES_FALLBACK result=%d\n",result);
+            ++attempts;
+            found=author_preview(fd,&offset,&length);
+            if (found<0) return 4;
+            selected=film_clock_ms();
+            result=found?author_decode(fd,offset,length,0,&image):4;
+        }
+    } else {
+        found=author_preview(fd,&offset,&length);
+        if (found<0) return 4;
+        selected=film_clock_ms();
+        result=found?author_decode(fd,offset,length,0,&image):4;
+        if (result) {
+            if (found) ++attempts;
+            long size=sys_lseek(fd,0,2);
+            if (size<4 || (unsigned long)size>MAX_INPUT_BYTES) return 4;
+            result=author_decode(fd,0,(unsigned)size,1,&image);
+            found=0;offset=0;length=(unsigned)size;
+        }
     }
     if (result) {printf("FILM_ERROR author_decode=%d\n",result);return result;}
     unsigned decoded=film_clock_ms();

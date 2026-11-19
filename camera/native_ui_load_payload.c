@@ -1,11 +1,9 @@
-/* Exact-version one-shot loader, called AFTER a natural native release.
- * State and trampoline match the reviewed research release-trace contract.
- * No remote arbitrary-thread call and no persistent application-code patch.
+/* Position-independent one-shot loader, called AFTER a natural native release.
+ * Runtime addresses (STATE, expected_system, dlopen, dlsym, resume) are
+ * patched into cfg[0..4] at offset +4 by native_ui_load_guard.
  */
 typedef unsigned int u32;
 typedef unsigned char u8;
-#define STATE 0x07143920u
-#define SYSTEM 0x000956f0u
 #ifndef A6400_UI_MODULE_PATH
 #define A6400_UI_MODULE_PATH "/tmp_bt/a6400-ui-native.so"
 #endif
@@ -30,14 +28,15 @@ static u32 current_tid(void)
     return r0;
 }
 
-u32 ui_release_loader(void *system,void *message)
+u32 ui_release_loader(void *system,void *message,const u32 *cfg)
 {
-    volatile struct trace *s=(volatile struct trace *)STATE;
+    volatile struct trace *s=(volatile struct trace *)(cfg[0]);
     if(s->magic!=0x4d544c47 || s->version!=1)
         return mt_original_release(system,message);
     __sync_fetch_and_add(&s->inflight,1);
     u32 mouse=4,before=0,tag=0;
-    if((u32)system==SYSTEM && message) {
+    u32 exp_sys=cfg[1];
+    if(system && (!exp_sys || (u32)system==exp_sys) && message) {
         mouse=((const u8 *)message)[20];
         tag=*(const u32 *)((const u8 *)message+16);
         if(mouse<4) before=*(const u32 *)((const u8 *)system+mouse*20+0x4a8);
@@ -50,8 +49,8 @@ u32 ui_release_loader(void *system,void *message)
         const u8 *p=(const u8 *)system+mouse*20;
         e->after_xy=*(const u32 *)(p+0x4a8);
         e->raw_xy=*(const u32 *)(p+0x4ac);e->buttons=*(const u32 *)(p+0x4b0);
-        open_fn load=(open_fn)0x04028bb1u;
-        symbol_fn symbol=(symbol_fn)0x04028c49u;
+        open_fn load=(open_fn)(cfg[2]);
+        symbol_fn symbol=(symbol_fn)(cfg[3]);
         void *module=load(A6400_UI_MODULE_PATH,2);
         e->module_handle=(u32)module;
         if(!module) s->error=2;

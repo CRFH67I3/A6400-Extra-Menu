@@ -131,7 +131,7 @@ namespace jpge {
 	// Forward DCT - DCT derived from jfdctint.
 	enum { CONST_BITS = 13, ROW_BITS = 2 };
 #define DCT_DESCALE(x, n) (((x) + (((int32)1) << ((n) - 1))) >> (n))
-#define DCT_MUL(var, c) (static_cast<int16>(var) * static_cast<int32>(c))
+#define DCT_MUL(var, c) ((var) * static_cast<int32>(c))
 #define DCT1D(s0, s1, s2, s3, s4, s5, s6, s7) \
   int32 t0 = s0 + s7, t7 = s0 - s7, t1 = s1 + s6, t6 = s1 - s6, t2 = s2 + s5, t5 = s2 - s5, t3 = s3 + s4, t4 = s3 - s4; \
   int32 t10 = t0 + t3, t13 = t0 - t3, t11 = t1 + t2, t12 = t1 - t2; \
@@ -527,6 +527,12 @@ namespace jpge {
 			compute_quant_table(m_quantization_tables[0], s_alt_quant);
 			memcpy(m_quantization_tables[1], m_quantization_tables[0], sizeof(m_quantization_tables[1]));
 		}
+		for (int t = 0; t < 2; t++)
+			for (int i = 0; i < 64; i++)
+			{
+				uint32 qi = static_cast<uint32>(m_quantization_tables[t][i]);
+				m_quant_recip[t][i] = (0x80000000u + qi - 1u) / qi;
+			}
 
 		m_out_buf_left = JPGE_OUT_BUF_SIZE;
 		m_pOut_buf = m_out_buf;
@@ -607,30 +613,27 @@ namespace jpge {
 
 	void jpeg_encoder::load_quantized_coefficients(int component_num)
 	{
-		int32* q = m_quantization_tables[component_num > 0];
+		const int table = component_num > 0;
+		const int32* q = m_quantization_tables[table];
+		const uint32* r = m_quant_recip[table];
 		int16* pDst = m_coefficient_array;
 		for (int i = 0; i < 64; i++)
 		{
 			sample_array_t j = m_sample_array[s_zag[i]];
-			if (j < 0)
-			{
-				if ((j = -j + (*q >> 1)) < *q)
-					*pDst++ = 0;
-				else
-					*pDst++ = static_cast<int16>(-(j / *q));
-			}
+			int32 qi = q[i];
+			uint32 aj = static_cast<uint32>(j < 0 ? -j : j);
+			uint32 adj = aj + static_cast<uint32>(qi >> 1);
+			if (adj < static_cast<uint32>(qi))
+				*pDst++ = 0;
 			else
 			{
-				if ((j = j + (*q >> 1)) < *q)
-					*pDst++ = 0;
-				else
-					*pDst++ = static_cast<int16>((j / *q));
+				int32 v = static_cast<int32>((static_cast<uint64>(adj) * r[i]) >> 31);
+				*pDst++ = static_cast<int16>(j < 0 ? -v : v);
 			}
-			q++;
 		}
 	}
 
-	void jpeg_encoder::flush_output_buffer()
+	__attribute__((noinline)) void jpeg_encoder::flush_output_buffer()
 	{
 		if (m_out_buf_left != JPGE_OUT_BUF_SIZE)
 			m_all_stream_writes_succeeded = m_all_stream_writes_succeeded && m_pStream->put_buf(m_out_buf, JPGE_OUT_BUF_SIZE - m_out_buf_left);
@@ -638,7 +641,7 @@ namespace jpge {
 		m_out_buf_left = JPGE_OUT_BUF_SIZE;
 	}
 
-	void jpeg_encoder::put_bits(uint bits, uint len)
+	inline void jpeg_encoder::put_bits(uint bits, uint len)
 	{
 		m_bit_buffer |= ((uint32)bits << (24 - (m_bits_in += len)));
 		while (m_bits_in >= 8)
@@ -663,11 +666,15 @@ namespace jpge {
 		m_last_dc_val[component_num] = src[0];
 		if (temp1 < 0) temp1 = -temp1;
 
+#if defined(__GNUC__) || defined(__clang__)
+		nbits = temp1 ? (32 - __builtin_clz(static_cast<uint32>(temp1))) : 0;
+#else
 		nbits = 0;
 		while (temp1)
 		{
 			nbits++; temp1 >>= 1;
 		}
+#endif
 
 		dc_count[nbits]++;
 		for (run_len = 0, i = 1; i < 64; i++)
@@ -682,8 +689,12 @@ namespace jpge {
 					run_len -= 16;
 				}
 				if (temp1 < 0) temp1 = -temp1;
+#if defined(__GNUC__) || defined(__clang__)
+				nbits = 32 - __builtin_clz(static_cast<uint32>(temp1));
+#else
 				nbits = 1;
 				while (temp1 >>= 1) nbits++;
+#endif
 				ac_count[(run_len << 4) + nbits]++;
 				run_len = 0;
 			}
@@ -717,11 +728,15 @@ namespace jpge {
 			temp1 = -temp1; temp2--;
 		}
 
+#if defined(__GNUC__) || defined(__clang__)
+		nbits = temp1 ? (32 - __builtin_clz(static_cast<uint32>(temp1))) : 0;
+#else
 		nbits = 0;
 		while (temp1)
 		{
 			nbits++; temp1 >>= 1;
 		}
+#endif
 
 		put_bits(codes[0][nbits], code_sizes[0][nbits]);
 		if (nbits) put_bits(temp2 & ((1 << nbits) - 1), nbits);
@@ -742,9 +757,13 @@ namespace jpge {
 					temp1 = -temp1;
 					temp2--;
 				}
+#if defined(__GNUC__) || defined(__clang__)
+				nbits = 32 - __builtin_clz(static_cast<uint32>(temp1));
+#else
 				nbits = 1;
 				while (temp1 >>= 1)
 					nbits++;
+#endif
 				j = (run_len << 4) + nbits;
 				put_bits(codes[1][j], code_sizes[1][j]);
 				put_bits(temp2 & ((1 << nbits) - 1), nbits);

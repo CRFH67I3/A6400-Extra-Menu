@@ -72,6 +72,7 @@
 | CPU 硬體實測（`/proc/cpuinfo`） | **`ARMv7 Cortex-A5`（`0xc05`）**，`Features: vfpv3 vfpv3d16 tls vfpv4` — **實機無 NEON SIMD** |
 | Host Benchmark（位元正確性驗證） | 預設 `grain=2 halation=1` 下，`1.7MP`（`bb3936f2...`）與 `6MP`（`708edf69...`）輸出與 V3.5 Fast **100% SHA-256 一致** |
 | 連拍寫卡競態安全保護（`stage=source_size`） | 實拍 `A6409841` 時遇到最後 `64 KiB` 延遲寫入（`8,388,608 != 8,454,144`），安全中止且無損原片與記憶卡，下一張自動恢復 |
+| **開機未觸發說明** | 須保持相機 **`Bluetooth 功能 = 開`**（`飛航模式 = 關`） | 相機主程式 `im.elf` 由 `ssboot.bin` 快照喚醒而不跑 `ld.so.preload`；須依賴藍牙 `startBTCore.sh → bsa_server` 掛載 `/tmp_bt` `tmpfs` 並觸發掛勾（詳見 [開發與架構細節](docs/開發與架構細節.md)） |
 | 即時取景套色、影片 LUT、任意 `.cube` 匯入 | 本專案不提供 |
 
 ---

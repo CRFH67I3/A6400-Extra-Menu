@@ -19,7 +19,8 @@
 > **本專案仍在持續開發與演進。** 主要文件使用繁體中文，採 **PolyForm Noncommercial 1.0.0**（非商業用途之原始碼公開授權，正式條款見 [LICENSE](LICENSE)，中文重點見 [授權說明](docs/授權說明.md)）。已驗證的功能、硬體限制（含 Cortex-A5 無 NEON 實測確認）與操作邊界請參閱 [功能狀態與限制](docs/功能狀態.md) 與 [開發與架構細節](docs/開發與架構細節.md)。
 
 > ### 📘 快速入口：從 GitHub 原始碼完整建置／部署 V3.9 SSLF ＋ 開發細節
-> - **[從原始碼建置、部署與操作規範（docs/部署與操作規範.md）](docs/部署與操作規範.md)** — 收錄從源碼交叉編譯、全自動 PMCA 寫入（自動偵測並修補全新機身開機掛勾 `/etc/a6400-autoexec.so`）、`--rollback` / `--diag` 一鍵救援、**SD 卡 `/A6400/CHARO.PCM` 自訂音效**、**日常使用限制（最新資料夾 1,024 張上限／15.94 MiB／exFAT 與 FAT32 皆可用／`/A6400/TEST/`）**。
+> - **[從原始碼建置、部署與操作規範（docs/部署與操作規範.md）](docs/部署與操作規範.md)** — 收錄從源碼交叉編譯、全自動 PMCA 寫入（自動偵測並修補全新機身開機掛勾 `/etc/a6400-autoexec.so`）、`--rollback` / `--diag` 一鍵救援、**SD 卡 `/A6400/CHARO.PCM` 自訂音效**、**日常使用限制（最新資料夾 1,024 張上限／15.94 MiB／exFAT 與 FAT32 皆可用／`/A6400/TEST/`）**，以及 **[第六節完整實戰排雷手冊](docs/部署與操作規範.md#六完整實戰排雷手冊部署過程中所有常見異常與解決對策)**。
+> - **[更新日誌（CHANGELOG.md）](CHANGELOG.md)** — 完整記錄 V0 → V3.9 SSLF 的版本演進、效能數據與實機修復項目。
 > - **[開發與架構細節（docs/開發與架構細節.md）](docs/開發與架構細節.md)** — 完整記錄 V3.1 → V3.9 SSLF 演進脈絡、硬體 `/proc/cpuinfo`（無 NEON）、解碼/編碼/Shell 各階段拆解、`1120-byte` UI 快照 ABI 與 `manifest.json` 欄位說明。
 > - **📦 [前往 GitHub Releases 下載預編譯包](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/latest)**
 
@@ -67,19 +68,22 @@
 
 ---
 
-## 實機與主機端實測進度（截至 2026-11-19）
+## 實機與主機端實測進度（截至 2026-11-20）
 
 | 項目 | 實測狀態與數據 |
 | --- | --- |
-| MENU＋放大鏡召喚、觸控關閉、重複開關 | 已於多代實機驗證（V3.5.1 Fast SP 維持 `20 秒` 閒置自動隱藏與無限重複召喚） |
+| MENU＋放大鏡召喚、觸控關閉、重複開關 | 已於多代實機驗證（維持 `20 秒` 閒置自動隱藏與無限重複召喚；需先輕觸一次螢幕） |
+| **V3.9 SSLF 實機冷開機與實拍轉檔** | **已於實機驗收（`package=7ec416fa937fab67`）**：冷開機自動掛勾 `pid=149`（`/tmp/a6400-hook-err.log` 無錯誤）、三組 24 kHz Sony SDS 音效 `MS_BIND` 成功；`A6409868.JPG`（`portra_400 grain=2 halation=1` `1.7MP`）實測 `decode_ms=1166`、`film_ms=496`、`encode_ms=1147`、**`RAM_JOB_TIMING total_ms=6690`**（`result=0`、`target_verified=1`）；冷開機插線跑 `--diag` 免 `/disable_hook` 即一次切入 `054C:0336` |
 | **1.7MP / 6MP 畫質切換 ＋ 膠片細節（顆粒 0–3／光暈 開關）** | **已於實機冷開機實拍驗證**（切換 `grain=0 halation=0` 後，`MENU_JOB` 與 `RAM_JOB_RENDER_START` 即時套用） |
-| **`1.7MP 極速` 冷開機單張總耗時（`RAM_JOB_TIMING`）** | **`5,650 ms` / `5,950 ms`**（V3.5.1 Fast SP 實拍 `A6409839`、`A6409840`；`WAITING → JOB_DONE` 約 `6.36~6.60 s`） |
-| **`6MP 高清` 冷開機單張總耗時（`RAM_JOB_TIMING`）** | **`17,490 ms`**（V3.5.1 Fast SP 實拍 `A6409842`；V3.5 Fast 為 `20,960 ms`、V3.4 為 `33,410 ms`） |
+| **`1.7MP 極速` 冷開機單張總耗時（`RAM_JOB_TIMING`）** | **V3.5.1 Fast SP**（`0/0`）：`5,650 ms` / `5,950 ms`；**V3.9 SSLF**（`portra_400 2/1`）：**`6,690 ms`** |
+| **`6MP 高清` 冷開機單張總耗時（`RAM_JOB_TIMING`）** | **`17,490 ms`**（V3.5.1 Fast SP 實拍 `A6409842`；V3.5 Fast 為 `20,960 ms`、V3.4 為 `33,410 ms`；V3.9 主機基準 6MP `decode_ms` 再降至 `138 ms`） |
 | CPU 硬體實測（`/proc/cpuinfo`） | **`ARMv7 Cortex-A5`（`0xc05`）**，`Features: vfpv3 vfpv3d16 tls vfpv4` — **實機無 NEON SIMD** |
 | Host Benchmark（位元正確性驗證） | 預設 `grain=2 halation=1` 下，`1.7MP`（`bb3936f2...`）與 `6MP`（`708edf69...`）輸出與 V3.5 Fast **100% SHA-256 一致** |
 | 連拍寫卡競態安全保護（`stage=source_size`） | 實拍 `A6409841` 時遇到最後 `64 KiB` 延遲寫入（`8,388,608 != 8,454,144`），安全中止且無損原片與記憶卡，下一張自動恢復 |
 | **V3.9 SSLF 開機自動掛載 `/tmp_bt`** | V3.9 起已不再強制依賴開啟藍牙；若系統尚未掛載 `/tmp_bt`，開機掛勾 `/etc/a6400-autoexec.so` 與 `bootstrap-local.sh` 會自動掛載 `size=2048k tmpfs`（失敗則記錄於 `/tmp/a6400-hook-err.log`），並仍以安全模式等待 `im.elf` 喚醒（歷史 V3.5.1 與之前版本須保持 `Bluetooth 功能 = 開`） |
 | 即時取景套色、影片 LUT、任意 `.cube` 匯入 | 本專案不提供 |
+
+> **部署前先讀排雷清單**：[`docs/部署與操作規範.md` 第六節「完整實戰排雷手冊」](docs/部署與操作規範.md#六完整實戰排雷手冊部署過程中所有常見異常與解決對策) 完整整理 Windows Zadig `054C:0CA8`/`054C:0336` 雙裝置 `libusb-win32`、`USBTimeoutError` 與 `/disable_hook`、`--install-hook`、`/etc` 與 `/tmp` 共享 `/dev/nflasha10` Inode 防誤刪、空間清理、拔電池冷開機與 `--diag` 排障。
 
 ---
 

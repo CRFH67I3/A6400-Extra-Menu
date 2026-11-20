@@ -52,6 +52,28 @@ static struct film_log capture_log;
 #ifndef FILM_CAPTURE_PROC_INTERRUPTS
 #define FILM_CAPTURE_PROC_INTERRUPTS "/proc/interrupts"
 #endif
+#ifndef CAPTURE_BASELINE_INTERVAL_MS
+#define CAPTURE_BASELINE_INTERVAL_MS CAPTURE_INTERVAL_MS
+#endif
+#ifndef FILM_CAPTURE_NATIVE_COMMAND
+#define FILM_CAPTURE_NATIVE_COMMAND "/tmp_bt/a6400-film-native-command.elf"
+#endif
+#ifndef FILM_CAPTURE_CHARO_PCM
+#define FILM_CAPTURE_CHARO_PCM "/tmp_bt/a6400-charo-shutter.pcm"
+#endif
+#ifndef FILM_CAPTURE_CUSTOM_CHARO_PCM
+#define FILM_CAPTURE_CUSTOM_CHARO_PCM "/tmp_bt/a6400-custom-charo.pcm"
+#endif
+#ifndef FILM_CAPTURE_CUSTOM_CHECKED
+#define FILM_CAPTURE_CUSTOM_CHECKED "/tmp_bt/a6400-custom-charo.checked"
+#endif
+#ifndef FILM_CAPTURE_CUSTOM_ACTIVE
+#define FILM_CAPTURE_CUSTOM_ACTIVE "/tmp_bt/a6400-custom-charo.active"
+#endif
+#ifndef FILM_CAPTURE_DISABLE_CHARO
+#define FILM_CAPTURE_DISABLE_CHARO "/tmp/disable_charo"
+#endif
+#define FILM_CHARO_PCM_BYTES 29760u
 #define JOB_LOG_BYTES 65536u
 #define METADATA_FAILURE_LIMIT 3u
 
@@ -240,6 +262,42 @@ static int live_settings(char *out,unsigned capacity) {
         return settings_unavailable("job_noncanonical",0,pid,status,done,began,out,used);
     out[used-1u]=0;return 0;
 }
+static int line_starts_with(const char *line,size_t len,const char *prefix) {
+    size_t pl=strlen(prefix);
+    return len>=pl && !memcmp(line,prefix,pl);
+}
+static int line_has_token(const char *line,size_t len,const char *needle) {
+    size_t nl=strlen(needle);
+    if(nl>len)return 0;
+    for(size_t i=0;i+nl<=len;++i)
+        if(!memcmp(line+i,needle,nl))return 1;
+    return 0;
+}
+/* Pre-write read ring_overflows that cleanly recover via RAM_JOB_READ_RETRY must
+ * not halt the persistent daemon, while any unretried, post-target, or explicit
+ * RAM_JOB_RETAINED marker fails closed. */
+static int scan_job_retained(const char *log) {
+    int read_uncertain=0;
+    for(const char *p=log;*p;) {
+        const char *nl=strchr(p,'\n');
+        size_t len=nl?(size_t)(nl-p):strlen(p);
+        if(len && p[len-1u]=='\r')--len;
+        if(line_starts_with(p,len,"RAM_JOB_RETAINED "))return 1;
+        if(read_uncertain) {
+            if(line_starts_with(p,len,"RAM_JOB_READ_RETRY ")) {
+                read_uncertain=0;
+            } else if(!line_starts_with(p,len,"NATIVE_REPLY_TAIL_HEX ")) {
+                return 1;
+            }
+        } else if(line_has_token(p,len,"uncertain=1")) {
+            if(line_starts_with(p,len,"NATIVE_FAIL operation=read "))read_uncertain=1;
+            else return 1;
+        }
+        if(!nl)break;
+        p=nl+1;
+    }
+    return read_uncertain;
+}
 static int read_job_receipt(const struct queued *q,int *retained,int status) {
     int fd=open(FILM_CAPTURE_JOB_LOG,O_RDONLY|O_NOFOLLOW|O_NONBLOCK);if(fd<0)return -1;
     unsigned used=0;ssize_t n;
@@ -248,7 +306,7 @@ static int read_job_receipt(const struct queued *q,int *retained,int status) {
         if(used==JOB_LOG_BYTES){close(fd);return -1;}
     }
     close(fd);if(n<0)return -1;job_log[used]=0;
-    *retained=strstr(job_log,"RAM_JOB_RETAINED ")!=NULL || strstr(job_log,"uncertain=1")!=NULL;
+    *retained=scan_job_retained(job_log);
     /* Preserve a bounded diagnostic before the next job reuses its log. Hex
      * prevents child output from injecting records or terminal controls. */
     unsigned first=used>512u?used-512u:0u;char tail[1025];
@@ -279,9 +337,8 @@ static int read_job_receipt(const struct queued *q,int *retained,int status) {
 }
 /* Start the script only after its PID and candidate have been recorded. The
  * child waits on a one-byte gate, so a failed receipt write cannot start I/O. */
-static void push_ui_toast(uint32_t kind,uint32_t duration_ms,const char *text) {
 #ifdef FILM_DAEMON_TOAST_RVA
-    if(!text)return;
+static int open_ui_region(uint32_t rva,size_t bytes,int rw,uint32_t *out_addr) {
     DIR *dir=opendir("/proc");
     struct dirent *entry;
     pid_t im_pid=-1;
@@ -300,30 +357,40 @@ static void push_ui_toast(uint32_t kind,uint32_t duration_ms,const char *text) {
         }
         closedir(dir);
     }
-    if(im_pid<=0)return;
+    if(im_pid<=0)return -1;
     char maps_path[64],mem_path[64],line[512];
     snprintf(maps_path,sizeof(maps_path),"/proc/%ld/maps",(long)im_pid);
     snprintf(mem_path,sizeof(mem_path),"/proc/%ld/mem",(long)im_pid);
     FILE *mf=fopen(maps_path,"r");
-    if(!mf)return;
-    struct { uint32_t magic,seq,kind,duration_ms; char text[64]; } toast;
-    uint32_t ui_base=0, toast_addr=0;
+    if(!mf)return -1;
+    uint32_t target_addr=0;
     unsigned img_cnt=0, st_cnt=0;
     while(fgets(line,sizeof(line),mf)) {
         unsigned lo=0,hi=0,off=0;char perms[5]={0};int at=0;
         if(sscanf(line,"%x-%x %4s %x %*s %*s %n",&lo,&hi,perms,&off,&at)!=4 || at<=0 || lo>=hi)continue;
         size_t nl=strcspn(line+at,"\r\n");
         if(!off && !strcmp(perms,"r-xp") && strlen(FILM_DAEMON_UI_MODULE)==nl && !memcmp(line+at,FILM_DAEMON_UI_MODULE,nl)) {
-            ui_base=lo; toast_addr=lo+FILM_DAEMON_TOAST_RVA; ++img_cnt;
+            target_addr=lo+rva; ++img_cnt;
         }
-        if(img_cnt==1 && !strcmp(perms,"rw-p") && toast_addr>=lo && toast_addr+sizeof(toast)<=hi) {
+        if(img_cnt==1 && !strcmp(perms,"rw-p") && target_addr>=lo && target_addr+bytes<=hi) {
             ++st_cnt;
         }
     }
     fclose(mf);
-    if(img_cnt!=1 || st_cnt!=1){printf("FILM_TOAST_MAP img=%u st=%u\n",img_cnt,st_cnt);return;}
-    int fd=open(mem_path,O_RDWR);
-    if(fd<0){printf("FILM_TOAST_OPEN errno=%d\n",errno);return;}
+    if(img_cnt!=1 || st_cnt!=1)return -1;
+    int fd=open(mem_path,rw?O_RDWR:O_RDONLY);
+    if(fd<0)return -1;
+    *out_addr=target_addr;
+    return fd;
+}
+#endif
+static void push_ui_toast(uint32_t kind,uint32_t duration_ms,const char *text) {
+#ifdef FILM_DAEMON_TOAST_RVA
+    if(!text)return;
+    struct { uint32_t magic,seq,kind,duration_ms; char text[64]; } toast;
+    uint32_t toast_addr=0;
+    int fd=open_ui_region(FILM_DAEMON_TOAST_RVA,sizeof(toast),1,&toast_addr);
+    if(fd<0)return;
     ssize_t pr=pread(fd,&toast,sizeof(toast),toast_addr);
     if(pr==sizeof(toast) && toast.magic==0x54534f54u) {
         toast.kind=kind;
@@ -341,10 +408,32 @@ static void push_ui_toast(uint32_t kind,uint32_t duration_ms,const char *text) {
         printf("FILM_TOAST_SKIP addr=%08x pr=%d magic=%08x errno=%d\n",
                (unsigned)toast_addr,(int)pr,(unsigned)(pr==sizeof(toast)?toast.magic:0),errno);
     }
-    (void)ui_base;
     close(fd);
 #else
     (void)kind;(void)duration_ms;(void)text;
+#endif
+}
+static void push_ui_status(unsigned active_jobs) {
+#if defined(FILM_DAEMON_TOAST_RVA) && defined(FILM_DAEMON_STATUS_RVA)
+    struct { uint32_t magic,seq,applied,scanned,max_files,custom_charo,active_jobs; } st;
+    uint32_t addr=0;
+    int fd=open_ui_region(FILM_DAEMON_STATUS_RVA,sizeof(st),1,&addr);
+    if(fd<0)return;
+    ssize_t pr=pread(fd,&st,sizeof(st),addr);
+    if(pr==sizeof(st) && st.magic==0x53544156u) {
+        st.applied=applied_jobs;
+        st.scanned=queue_count;
+        st.max_files=MAX_FILES;
+        st.custom_charo=(access(FILM_CAPTURE_CUSTOM_ACTIVE,F_OK)==0)?1u:0u;
+        st.active_jobs=active_jobs;
+        st.seq+=1u;
+        const char *sp=(const char *)&st;
+        (void)pwrite(fd,sp+8u,sizeof(st)-8u,addr+8u);
+        (void)pwrite(fd,sp+4u,4u,addr+4u);
+    }
+    close(fd);
+#else
+    (void)active_jobs;
 #endif
 }
 static void toast_preset_name(const char *settings,char *out,size_t cap) {
@@ -357,37 +446,10 @@ static void toast_preset_name(const char *settings,char *out,size_t cap) {
 }
 static int read_ui_hires(void) {
 #if defined(FILM_DAEMON_TOAST_RVA) && defined(FILM_DAEMON_HIRES_RVA)
-    pid_t im_pid=-1;
-    DIR *dir=opendir("/proc");
-    if(!dir)return 0;
-    struct dirent *entry;
-    while((entry=readdir(dir))) {
-        char *end=0;long id=strtol(entry->d_name,&end,10);
-        if(!*entry->d_name || *end || id<=0)continue;
-        char fp[64],comm[32];snprintf(fp,sizeof(fp),"/proc/%ld/comm",id);
-        FILE *cf=fopen(fp,"r");
-        if(cf){if(fgets(comm,sizeof(comm),cf) && !strcmp(comm,"im.elf\n"))im_pid=(pid_t)id;fclose(cf);}
-        if(im_pid>0)break;
-    }
-    closedir(dir);
-    if(im_pid<=0)return 0;
-    char mp[64],line[256];snprintf(mp,sizeof(mp),"/proc/%ld/maps",(long)im_pid);
-    FILE *mf=fopen(mp,"r");if(!mf)return 0;
-    uint32_t ui_base=0;
-    while(fgets(line,sizeof(line),mf)) {
-        uint32_t lo=0,hi=0,off=0;char perm[8]="";int pos=0;
-        if(sscanf(line,"%x-%x %7s %x %*s %*s %n",&lo,&hi,perm,&off,&pos)>=4 && pos>0) {
-            size_t len=strcspn(line+pos,"\r\n");
-            if(len==strlen(FILM_DAEMON_UI_MODULE) && !memcmp(line+pos,FILM_DAEMON_UI_MODULE,len) && !off) {
-                ui_base=lo;break;
-            }
-        }
-    }
-    fclose(mf);
-    if(!ui_base)return 0;
-    char memp[64];snprintf(memp,sizeof(memp),"/proc/%ld/mem",(long)im_pid);
-    int fd=open(memp,O_RDONLY);if(fd<0)return 0;
-    uint32_t val=0;ssize_t pr=pread(fd,&val,4,(off_t)(ui_base+FILM_DAEMON_HIRES_RVA));
+    uint32_t addr=0;
+    int fd=open_ui_region(FILM_DAEMON_HIRES_RVA,4u,0,&addr);
+    if(fd<0)return 0;
+    uint32_t val=0;ssize_t pr=pread(fd,&val,4,(off_t)addr);
     close(fd);
     return (pr==4 && val==1u)?1:0;
 #else
@@ -645,6 +707,84 @@ static void metadata_resumed(unsigned *failures,const char *stage) {
                         stage,*failures,(unsigned)now_ms());
     *failures=0;
 }
+static int run_sound_cmd(const char *sd_path) {
+    pid_t pid=fork();
+    if(pid<0)return -1;
+    if(pid==0) {
+        int devnull=open("/dev/null",O_RDWR);
+        if(devnull>=0){dup2(devnull,0);dup2(devnull,1);dup2(devnull,2);if(devnull>2)close(devnull);}
+        char *const argv[]={(char *)FILM_CAPTURE_NATIVE_COMMAND,(char *)"sound",(char *)sd_path,NULL};
+        execv(FILM_CAPTURE_NATIVE_COMMAND,argv);
+        _exit(127);
+    }
+    int status=0;uint32_t began=now_ms();
+    for(;;) {
+        pid_t got=waitpid(pid,&status,WNOHANG);
+        if(got==pid)return WIFEXITED(status)?WEXITSTATUS(status):-1;
+        if(got<0){if(errno==EINTR)continue;return -1;}
+        if((uint32_t)(now_ms()-began)>=FILM_CAPTURE_CLI_TIMEOUT_MS) {
+            kill(pid,SIGKILL);
+            waitpid(pid,&status,0);
+            return -1;
+        }
+        pause_ms(10);
+    }
+}
+static void sync_custom_charo(struct transport *t) {
+    if(access(FILM_CAPTURE_CHARO_PCM,F_OK)!=0 ||
+       access(FILM_CAPTURE_DISABLE_CHARO,F_OK)==0 ||
+       access(FILM_CAPTURE_CUSTOM_CHECKED,F_OK)==0 ||
+       access(FILM_CAPTURE_NATIVE_COMMAND,X_OK)!=0)return;
+    int cfd=open(FILM_CAPTURE_CUSTOM_CHECKED,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW,0644);
+    if(cfd<0)return;
+    close(cfd);
+    /* Reap MPR before running mwf_monio IFSYS command. */
+    transport_stop(t);
+    static const char *const candidates[]={"A:/A6400/CHARO.PCM","A:/A6400/SHUTTER.PCM"};
+    const char *loaded_path=NULL;
+    for(unsigned i=0;i<sizeof(candidates)/sizeof(candidates[0]);++i) {
+        if(!absent_file(FILM_CAPTURE_CUSTOM_CHARO_PCM))break;
+        int rc=run_sound_cmd(candidates[i]);
+        if(rc==0){loaded_path=candidates[i];break;}
+        if(rc!=14){printf("FILM_CUSTOM_CHARO_CMD_FAIL path=%s rc=%d\n",candidates[i],rc);break;}
+    }
+    if(!loaded_path){unlink(FILM_CAPTURE_CUSTOM_CHARO_PCM);return;}
+    static unsigned char pcm[FILM_CHARO_PCM_BYTES];
+    int sfd=open(FILM_CAPTURE_CUSTOM_CHARO_PCM,O_RDONLY|O_NOFOLLOW);
+    if(sfd<0){unlink(FILM_CAPTURE_CUSTOM_CHARO_PCM);return;}
+    unsigned total=0;ssize_t n;
+    while(total<FILM_CHARO_PCM_BYTES && (n=read(sfd,pcm+total,FILM_CHARO_PCM_BYTES-total))>0)
+        total+=(unsigned)n;
+    unsigned char extra=0;
+    ssize_t tail=n<0?-1:read(sfd,&extra,1);
+    close(sfd);
+    unlink(FILM_CAPTURE_CUSTOM_CHARO_PCM);
+    if(n<0 || tail!=0 || total==0u) {
+        printf("FILM_CUSTOM_CHARO_SKIP path=%s reason=invalid_size bytes=%u tail=%d\n",
+               loaded_path,total,(int)tail);
+        return;
+    }
+    if(total<FILM_CHARO_PCM_BYTES)memset(pcm+total,0,FILM_CHARO_PCM_BYTES-total);
+    /* Write in-place (no unlink/O_TRUNC) so MS_BIND stays attached to same inode. */
+    int dfd=open(FILM_CAPTURE_CHARO_PCM,O_WRONLY|O_NOFOLLOW);
+    if(dfd<0){printf("FILM_CUSTOM_CHARO_OPEN_FAIL errno=%d\n",errno);return;}
+    unsigned wrote=0;
+    while(wrote<FILM_CHARO_PCM_BYTES) {
+        ssize_t w=write(dfd,pcm+wrote,FILM_CHARO_PCM_BYTES-wrote);
+        if(w<0 && errno==EINTR)continue;
+        if(w<=0)break;
+        wrote+=(unsigned)w;
+    }
+    close(dfd);
+    if(wrote==FILM_CHARO_PCM_BYTES) {
+        int afd=open(FILM_CAPTURE_CUSTOM_ACTIVE,O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW,0644);
+        if(afd>=0)close(afd);
+        printf("FILM_CUSTOM_CHARO_OK source=%s in_bytes=%u out_bytes=%u\n",
+               loaded_path,total,wrote);
+    } else {
+        printf("FILM_CUSTOM_CHARO_WRITE_FAIL wrote=%u\n",wrote);
+    }
+}
 
 int main(int argc,char **argv) {
     if(argc!=2 || strcmp(argv[1],"watch"))return 2;
@@ -687,7 +827,7 @@ int main(int argc,char **argv) {
                (uint32_t)(now_ms()-baseline_started)>=FILM_CAPTURE_BASELINE_TIMEOUT_MS)break;
             phase="baseline_metadata_wait";
             if(save_manifest()){reason="manifest";goto done;}
-            pause_interruptible(CAPTURE_INTERVAL_MS,start,0);continue;
+            pause_interruptible(CAPTURE_BASELINE_INTERVAL_MS,start,0);continue;
         }
         if(baseline!=-2)break;
         /* A complete native reply explicitly reported unmounted media. No
@@ -700,7 +840,7 @@ int main(int argc,char **argv) {
         if(save_manifest()){reason="manifest";goto done;}
         printf("FILM_CAPTURE_BASELINE_MEDIA_WAIT elapsed_ms=%u limit_ms=%u\n",
                (unsigned)(now_ms()-baseline_started),FILM_CAPTURE_BASELINE_TIMEOUT_MS);
-        pause_interruptible(CAPTURE_INTERVAL_MS,start,0);
+        pause_interruptible(CAPTURE_BASELINE_INTERVAL_MS,start,0);
     }
     if(baseline) {
         result=21;retain_lock=1;reason="baseline_unconfirmed";goto done;
@@ -714,6 +854,8 @@ int main(int argc,char **argv) {
     queue_count=current.count;phase="waiting";
     if(save_manifest()){reason="manifest";goto done;}
     printf("FILM_CAPTURE_BASELINE count=%u\n",queue_count);
+    sync_custom_charo(&transport);
+    push_ui_status(0u);
 #if CAPTURE_WAIT_MS > 0u
     uint32_t waiting=now_ms();
     while(!daemon_signal && !stop_requested() &&
@@ -750,8 +892,16 @@ int main(int argc,char **argv) {
             latest_dcim_dir[0]=0;early_toast_sent=0;
             reset_candidate_stability();post_trigger_follow=0;
             phase="media_unavailable";
+#if FILM_CAPTURE_PERSISTENT
+            /* Release mpr_monio while SD media is unmounted (e.g. USB Mass Storage). */
+            transport_stop(&transport);
+#endif
             if(save_manifest()){reason="manifest";break;}
-            pause_interruptible(CAPTURE_INTERVAL_MS,start,1);continue;
+#ifdef FILM_CAPTURE_MEDIA_UNAVAILABLE_PAUSE_MS
+            pause_interruptible(FILM_CAPTURE_MEDIA_UNAVAILABLE_PAUSE_MS,start,1);continue;
+#else
+            pause_interruptible(FILM_CAPTURE_PERSISTENT?2000u:CAPTURE_INTERVAL_MS,start,1);continue;
+#endif
         }
         if(scan==-1 && transport.metadata_retryable) {
             latest_dcim_dir[0]=0;early_toast_sent=0;
@@ -854,14 +1004,17 @@ int main(int argc,char **argv) {
                 printf("FILM_CAPTURE_DISPATCH path=%s target=%s %s hires=%d q=%u/%u uptime_ms=%u\n",
                        q->entry.path,q->target,settings,hires,bpos,btot,(unsigned)now_ms());
                 push_toast_status(1u,hires?45000u:15000u,settings,NULL,bpos,btot,hires);
+                push_ui_status(active?active:1u);
                 early_toast_sent=0;
                 unsigned prev_applied=applied_jobs;
                 if(run_job(q,settings,hires)) {
                     push_ui_toast(3u,3000u,"處理失敗 (未確認)");
+                    push_ui_status(0u);
                     result=21;retain_lock=1;reason="job_uncertain";break;
                 }
                 push_toast_status(applied_jobs>prev_applied?2u:3u,
                                   applied_jobs>prev_applied?3500u:3000u,settings,q->target,bpos,btot,hires);
+                push_ui_status(count_active_queue());
                 if(applied_jobs>prev_applied)++batch_done;
                 if(count_active_queue()==0u)batch_done=0;
                 /* Recheck promptly in case another shutter press arrived during render. */

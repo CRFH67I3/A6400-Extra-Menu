@@ -145,6 +145,7 @@ class FilmNativeCommandTests(unittest.TestCase):
             f'#define FILM_NATIVE_MONITOR "{self.monitor}"\n'
             f'#define FILM_NATIVE_INPUT "{self.base}/input.jpg"\n'
             f'#define FILM_NATIVE_OUTPUT "{self.base}/output.jpg"\n'
+            f'#define FILM_NATIVE_SOUND_INPUT "{self.base}/custom-charo.pcm"\n'
             f'#define FILM_NATIVE_MONITOR_BYTES {self.monitor.stat().st_size}u\n'
             f'#define FILM_NATIVE_MONITOR_FNV 0x{fnv(self.monitor.read_bytes()):08x}u\n'
             '#define FILM_NATIVE_STARTUP_MS 200u\n'
@@ -637,6 +638,24 @@ class FilmNativeCommandTests(unittest.TestCase):
         result = self.run_native('commit', TARGET, fault='commit_flush_missing')
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn('reason=flush_success_missing', result.stdout)
+        self.assert_child_reaped()
+
+    def test_sound_operation_reads_allowlisted_pcm_without_touching_photo_input(self):
+        ok = self.run_native('sound', 'A:/A6400/CHARO.PCM')
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+        self.assertIn('NATIVE_RETURN operation=sound reason=fresh_prompt', ok.stdout)
+        cmds = (self.base / 'commands.log').read_text().splitlines()
+        self.assertEqual(cmds, [f'IFSYS cp A:/A6400/CHARO.PCM {self.base}/custom-charo.pcm'])
+        self.assertFalse((self.base / 'input.jpg').exists())
+
+        absent = self.run_native('sound', 'A:/A6400/SHUTTER.PCM', fault='read_unavailable')
+        self.assertEqual(absent.returncode, 14, absent.stdout)
+        self.assertIn('reason=source_unavailable', absent.stdout)
+        self.assertIn('uncertain=0', absent.stdout)
+
+        bad = self.run_native('sound', 'A:/A6400/EVIL.PCM')
+        self.assertEqual(bad.returncode, 2, bad.stdout)
+        self.assertIn('reason=operation_or_path', bad.stdout)
         self.assert_child_reaped()
 
 

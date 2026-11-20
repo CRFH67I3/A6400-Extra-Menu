@@ -5,6 +5,7 @@
 // Also integrated and tested changes from Chris Phoenix <cphoenix@gmail.com>.
 //------------------------------------------------------------------------------
 #include "picojpeg.h"
+#include <stdint.h>
 //------------------------------------------------------------------------------
 // Set to 1 if right shifts on signed ints are always unsigned (logical) shifts
 // When 1, arithmetic right shifts will be emulated by using a logical shift
@@ -13,9 +14,17 @@
 
 // Define PJPG_INLINE to "inline" if your C compiler supports explicit inlining
 #define PJPG_INLINE
+#ifdef __GNUC__
+#define PJPG_NOINLINE __attribute__((noinline))
+#define PJPG_FAST_INLINE inline __attribute__((always_inline))
+#else
+#define PJPG_NOINLINE
+#define PJPG_FAST_INLINE inline
+#endif
 //------------------------------------------------------------------------------
 typedef unsigned char   uint8;
 typedef unsigned short  uint16;
+typedef unsigned int    uint32;
 typedef signed char     int8;
 typedef signed short    int16;
 //------------------------------------------------------------------------------
@@ -138,13 +147,20 @@ static const int8 ZAG[] =
    53, 60, 61, 54, 47, 55, 62, 63,
 };
 //------------------------------------------------------------------------------
-// 128 bytes
-static int16 gCoeffBuf[8*8];
+// 128 bytes (4-byte aligned union for fast clear without aliasing UB)
+static union {
+   int16 c[8*8];
+   uint32 w[32];
+} gCoeffUnion;
+#define gCoeffBuf (gCoeffUnion.c)
 
-// 8*8*4 bytes * 3 = 768
-static uint8 gMCUBufR[256];
-static uint8 gMCUBufG[256];
-static uint8 gMCUBufB[256];
+// 8*8*4 bytes * 3 = 768 (4-byte aligned unions for fast 4-pixel DC block fills)
+static union { uint8 b[256]; uint32 w[64]; } gMCUBufRU;
+static union { uint8 b[256]; uint32 w[64]; } gMCUBufGU;
+static union { uint8 b[256]; uint32 w[64]; } gMCUBufBU;
+#define gMCUBufR (gMCUBufRU.b)
+#define gMCUBufG (gMCUBufGU.b)
+#define gMCUBufB (gMCUBufBU.b)
 
 // 256 bytes
 static int16 gQuant0[8*8];
@@ -158,8 +174,7 @@ typedef struct HuffTableT
    uint16 mMinCode[16];
    uint16 mMaxCode[16];
    uint8 mValPtr[16];
-   uint8 mLookLen[256];
-   uint8 mLookSym[256];
+   uint16 mLook[256];
 } HuffTable;
 
 // DC - 192
@@ -186,7 +201,7 @@ static uint8 gInBuf[PJPG_MAX_IN_BUF_SIZE];
 static uint8 gInBufOfs;
 static uint8 gInBufLeft;
 
-static uint16 gBitBuf;
+static uint32 gBitBuf;
 static uint8 gBitsLeft;
 //------------------------------------------------------------------------------
 static uint16 gImageXSize;
@@ -281,113 +296,83 @@ static PJPG_INLINE uint8 getOctet(uint8 FFCheck)
    return c;
 }
 //------------------------------------------------------------------------------
-static inline uint16 getBits(uint8 numBits, uint8 FFCheck)
+static PJPG_NOINLINE void fillBits(uint8 minBits, uint8 FFCheck)
 {
-   uint8 origBits = numBits;
-   uint16 ret = gBitBuf;
-   
-   if (numBits > 8)
+   if (FFCheck)
    {
-      numBits -= 8;
-      
-      gBitBuf <<= gBitsLeft;
-      
-      gBitBuf |= getOctet(FFCheck);
-      
-      gBitBuf <<= (8 - gBitsLeft);
-      
-      ret = (ret & 0xFF00) | (gBitBuf >> 8);
+      while (gBitsLeft < minBits && gInBufLeft >= 2)
+      {
+         uint8 c = gInBuf[gInBufOfs++];
+         gInBufLeft--;
+         if (c == 0xFF)
+         {
+            uint8 n = gInBuf[gInBufOfs++];
+            gInBufLeft--;
+            if (n)
+            {
+               stuffChar(n);
+               stuffChar(0xFF);
+               break;
+            }
+         }
+         gBitBuf |= (uint32)c << (24 - gBitsLeft);
+         gBitsLeft += 8;
+      }
    }
-      
-   if (gBitsLeft < numBits)
+   while (gBitsLeft < minBits)
    {
-      gBitBuf <<= gBitsLeft;
-      
-      gBitBuf |= getOctet(FFCheck);
-      
-      gBitBuf <<= (numBits - gBitsLeft);
-                        
-      gBitsLeft = 8 - (numBits - gBitsLeft);
+      gBitBuf |= (uint32)getOctet(FFCheck) << (24 - gBitsLeft);
+      gBitsLeft += 8;
    }
-   else
-   {
-      gBitsLeft = (uint8)(gBitsLeft - numBits);
-      gBitBuf <<= numBits;
-   }
-   
-   return ret >> (16 - origBits);
 }
 //------------------------------------------------------------------------------
-static PJPG_INLINE uint16 getBits1(uint8 numBits)
+static PJPG_NOINLINE uint16 getBits(uint8 numBits, uint8 FFCheck)
+{
+   if (gBitsLeft < numBits)
+      fillBits(FFCheck ? 24 : numBits, FFCheck);
+   uint16 ret = (uint16)(gBitBuf >> (32 - numBits));
+   gBitBuf <<= numBits;
+   gBitsLeft = (uint8)(gBitsLeft - numBits);
+   return ret;
+}
+//------------------------------------------------------------------------------
+static uint16 getBits1(uint8 numBits)
 {
    return getBits(numBits, 0);
 }
 //------------------------------------------------------------------------------
-static inline uint16 getBits2(uint8 numBits)
+static PJPG_FAST_INLINE uint16 getBits2(uint8 numBits)
 {
-   return getBits(numBits, 1);
-}
-//------------------------------------------------------------------------------
-static inline uint8 getBit(void)
-{
-   uint8 ret = 0;
-   if (gBitBuf & 0x8000) 
-      ret = 1;
-   
-   if (!gBitsLeft)
-   {
-      gBitBuf |= getOctet(1);
-
-      gBitsLeft += 8;
-   }
-   
-   gBitsLeft--;
-   gBitBuf <<= 1;
-   
+   if (gBitsLeft < numBits)
+      fillBits(24, 1);
+   uint16 ret = (uint16)(gBitBuf >> (32 - numBits));
+   gBitBuf <<= numBits;
+   gBitsLeft = (uint8)(gBitsLeft - numBits);
    return ret;
 }
 //------------------------------------------------------------------------------
-static const uint16 gExtendTest[16] =
+static PJPG_NOINLINE uint8 getBit(void)
 {
-   0, 0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0020, 0x0040,
-   0x0080, 0x0100, 0x0200, 0x0400, 0x0800, 0x1000, 0x2000, 0x4000
-};
-static const int16 gExtendOffset[16] =
-{
-   0, -1, -3, -7, -15, -31, -63, -127,
-   -255, -511, -1023, -2047, -4095, -8191, -16383, -32767
-};
-//------------------------------------------------------------------------------
-static inline int16 huffExtend(uint16 x, uint8 s)
-{
-   return ((s < 16U) && (x < gExtendTest[s])) ? (int16)((int16)x + gExtendOffset[s]) : (int16)x;
+   if (!gBitsLeft)
+      fillBits(24, 1);
+   uint8 ret = (uint8)(gBitBuf >> 31);
+   gBitBuf <<= 1;
+   gBitsLeft--;
+   return ret;
 }
 //------------------------------------------------------------------------------
-static inline uint8 huffDecode(const HuffTable* pHuffTable, const uint8* pHuffVal)
+static PJPG_FAST_INLINE int16 huffExtend(uint16 x, uint8 s)
 {
-   uint8 peek = (uint8)(gBitBuf >> 8);
-   uint8 l = pHuffTable->mLookLen[peek];
-   if (l)
-   {
-      if (gBitsLeft >= l)
-      {
-         gBitsLeft = (uint8)(gBitsLeft - l);
-         gBitBuf <<= l;
-      }
-      else
-      {
-         uint8 rem = (uint8)(l - gBitsLeft);
-         gBitBuf <<= gBitsLeft;
-         gBitBuf |= getOctet(1);
-         gBitBuf <<= rem;
-         gBitsLeft = (uint8)(8 - rem);
-      }
-      return pHuffTable->mLookSym[peek];
-   }
-
+   int32_t m = (int32_t)x;
+   return (s && s < 16U && m < (1 << (s - 1))) ? (int16)(m + (1 - (1 << s))) : (int16)m;
+}
+//------------------------------------------------------------------------------
+static PJPG_NOINLINE uint8 huffDecodeSlow(const HuffTable* pHuffTable, const uint8* pHuffVal, uint8 peek)
+{
    uint8 i = 8;
    uint8 j;
-   getBits2(8);
+   gBitBuf <<= 8;
+   gBitsLeft = (uint8)(gBitsLeft - 8);
    uint16 code = (uint16)(((uint16)peek << 1) | getBit());
 
    for ( ; ; )
@@ -411,6 +396,21 @@ static inline uint8 huffDecode(const HuffTable* pHuffTable, const uint8* pHuffVa
 
    return pHuffVal[j];
 }
+static inline uint8 huffDecode(const HuffTable* pHuffTable, const uint8* pHuffVal)
+{
+   if (gBitsLeft < 8)
+      fillBits(24, 1);
+   uint8 peek = (uint8)(gBitBuf >> 24);
+   uint16 entry = pHuffTable->mLook[peek];
+   if (entry)
+   {
+      uint8 l = (uint8)(entry >> 8);
+      gBitBuf <<= l;
+      gBitsLeft = (uint8)(gBitsLeft - l);
+      return (uint8)(entry & 0xFF);
+   }
+   return huffDecodeSlow(pHuffTable, pHuffVal, peek);
+}
 //------------------------------------------------------------------------------
 static void huffCreate(const uint8* pBits, HuffTable* pHuffTable, const uint8* pHuffVal)
 {
@@ -422,8 +422,7 @@ static void huffCreate(const uint8* pBits, HuffTable* pHuffTable, const uint8* p
 
    for (idx = 0; idx < 256; idx++)
    {
-      pHuffTable->mLookLen[idx] = 0;
-      pHuffTable->mLookSym[idx] = 0;
+      pHuffTable->mLook[idx] = 0;
    }
 
    for ( ; ; )
@@ -458,8 +457,7 @@ static void huffCreate(const uint8* pBits, HuffTable* pHuffTable, const uint8* p
                   uint16 r;
                   for (r = 0; r < rep; r++)
                   {
-                     pHuffTable->mLookLen[base + r] = len;
-                     pHuffTable->mLookSym[base + r] = sym;
+                     pHuffTable->mLook[base + r] = (uint16)(((uint16)len << 8) | sym);
                   }
                }
             }
@@ -883,7 +881,9 @@ static uint8 locateSOIMarker(void)
    /* Check the next character after marker: if it's not 0xFF, it can't
    be the start of the next marker, so the file is bad */
 
-   thischar = (uint8)((gBitBuf >> 8) & 0xFF);
+   if (gBitsLeft < 8)
+      fillBits(8, 0);
+   thischar = (uint8)(gBitBuf >> 24);
 
    if (thischar != 0xFF)
       return PJPG_NOT_JPEG;
@@ -970,10 +970,7 @@ static uint8 init(void)
    gInBufOfs = 0;
    gInBufLeft = 0;
    gBitBuf = 0;
-   gBitsLeft = 8;
-
-   getBits1(8);
-   getBits1(8);
+   gBitsLeft = 0;
 
    return 0;
 }
@@ -982,16 +979,14 @@ static uint8 init(void)
 // into the bit buffer during initial marker scanning.
 static void fixInBuffer(void)
 {
-   /* In case any 0xFF's where pulled into the buffer during marker scanning */
-
-   if (gBitsLeft > 0)  
-      stuffChar((uint8)gBitBuf);
-   
-   stuffChar((uint8)(gBitBuf >> 8));
-   
-   gBitsLeft = 8;
-   getBits2(8);
-   getBits2(8);
+   /* Throw back any buffered unread whole bytes pulled during marker scanning. */
+   while (gBitsLeft >= 8)
+   {
+      stuffChar((uint8)(gBitBuf >> (32 - gBitsLeft)));
+      gBitsLeft = (uint8)(gBitsLeft - 8);
+   }
+   gBitBuf = 0;
+   gBitsLeft = 0;
 }
 //------------------------------------------------------------------------------
 // Restart interval processing.
@@ -1031,9 +1026,8 @@ static uint8 processRestart(void)
 
    // Get the bit buffer going again
 
-   gBitsLeft = 8;
-   getBits2(8);
-   getBits2(8);
+   gBitBuf = 0;
+   gBitsLeft = 0;
    
    return 0;
 }
@@ -1045,10 +1039,9 @@ static uint8 findEOI(void)
    uint8 c;
    uint8 status;
 
-   // Prime the bit buffer
-   gBitsLeft = 8;
-   getBits1(8);
-   getBits1(8);
+   // Reset the bit buffer
+   gBitBuf = 0;
+   gBitsLeft = 0;
 
    // The next marker _should_ be EOI
    status = processMarkers(&c);
@@ -2131,6 +2124,42 @@ static void convertCrRect(uint8 rows, uint8 cols, uint8 dstOfs, uint8 dstStride)
    }
 }
 
+static int transformBlockReduce2DC(uint8 mcuBlock, uint8 c)
+{
+   if (gScanType == PJPG_YH2V1)
+   {
+      if (mcuBlock < 2)
+      {
+         uint32 c4 = (uint32)c * 0x01010101u;
+         uint8 w = (mcuBlock == 0) ? 0 : 1;
+         for (uint8 y = 0; y < 4; y++, w += 2)
+         {
+            gMCUBufRU.w[w] = c4;
+            gMCUBufGU.w[w] = c4;
+            gMCUBufBU.w[w] = c4;
+         }
+         return 1;
+      }
+   }
+   else if (gScanType == PJPG_YH2V2)
+   {
+      if (mcuBlock < 4)
+      {
+         static const uint8 yWordOfs[4] = { 0, 1, 8, 9 };
+         uint32 c4 = (uint32)c * 0x01010101u;
+         uint8 w = yWordOfs[mcuBlock];
+         for (uint8 y = 0; y < 4; y++, w += 2)
+         {
+            gMCUBufRU.w[w] = c4;
+            gMCUBufGU.w[w] = c4;
+            gMCUBufBU.w[w] = c4;
+         }
+         return 1;
+      }
+   }
+   return 0;
+}
+
 static void transformBlockReduce2(uint8 mcuBlock)
 {
    switch (gScanType)
@@ -2500,52 +2529,92 @@ static uint8 decodeNextMCU(void)
       }
       else
       {
-         for (k = 1; k < 64; k++)
-            gCoeffBuf[k] = 0;
+         const HuffTable* pACTab = compACTab ? &gHuffTab3 : &gHuffTab2;
+         const uint8* pACVal = compACTab ? gHuffVal3 : gHuffVal2;
+         uint32 bb = gBitBuf;
+         uint8 bl = gBitsLeft;
+         int cleared = 0;
+         int dcOnly = 0;
 
-         // Decode and dequantize AC coefficients
+         // Decode and dequantize AC coefficients with register-cached bitbuffer
          for (k = 1; k < 64; k++)
          {
-            uint16 extraBits;
+            uint16 extraBits = 0;
+            if (bl < 8)
+            {
+               gBitBuf = bb; gBitsLeft = bl;
+               fillBits(24, 1);
+               bb = gBitBuf; bl = gBitsLeft;
+            }
+            uint16 entry = pACTab->mLook[(uint8)(bb >> 24)];
+            if (entry)
+            {
+               uint8 l = (uint8)(entry >> 8);
+               bb <<= l; bl = (uint8)(bl - l);
+               s = (uint8)(entry & 0xFF);
+            }
+            else
+            {
+               gBitBuf = bb; gBitsLeft = bl;
+               s = huffDecodeSlow(pACTab, pACVal, (uint8)(bb >> 24));
+               bb = gBitBuf; bl = gBitsLeft;
+            }
+            if (!s)
+            {
+               if (!cleared) dcOnly = 1;
+               break;
+            }
+            if (!cleared)
+            {
+               gCoeffBuf[1] = 0;
+               for (uint8 zi = 1; zi < 32; zi++) gCoeffUnion.w[zi] = 0;
+               cleared = 1;
+            }
 
-            s = huffDecode(compACTab ? &gHuffTab3 : &gHuffTab2, compACTab ? gHuffVal3 : gHuffVal2);
-
-            extraBits = 0;
             numExtraBits = s & 0xF;
             if (numExtraBits)
-               extraBits = getBits2(numExtraBits);
+            {
+               if (bl < numExtraBits)
+               {
+                  gBitBuf = bb; gBitsLeft = bl;
+                  fillBits(24, 1);
+                  bb = gBitBuf; bl = gBitsLeft;
+               }
+               extraBits = (uint16)(bb >> (32 - numExtraBits));
+               bb <<= numExtraBits; bl = (uint8)(bl - numExtraBits);
+            }
 
             r = s >> 4;
             s &= 15;
 
             if (s)
             {
-               int16 ac;
-
                if (r)
                {
-                  if ((k + r) > 63)
-                     return PJPG_DECODE_ERROR;
-
+                  if ((k + r) > 63) { gBitBuf = bb; gBitsLeft = bl; return PJPG_DECODE_ERROR; }
                   k = (uint8)(k + r);
                }
-
-               ac = huffExtend(extraBits, s);
-               
-               gCoeffBuf[ZAG[k]] = ac * pQ[k]; 
+               gCoeffBuf[ZAG[k]] = huffExtend(extraBits, s) * pQ[k];
             }
             else
             {
                if (r == 15)
                {
-                  if ((k + 16) > 64)
-                     return PJPG_DECODE_ERROR;
-                  
+                  if ((k + 16) > 64) { gBitBuf = bb; gBitsLeft = bl; return PJPG_DECODE_ERROR; }
                   k = (uint8)(k + 15);
                }
                else
                   break;
             }
+         }
+         gBitBuf = bb; gBitsLeft = bl;
+
+         if (dcOnly)
+         {
+            if (gReduce == 2 && transformBlockReduce2DC(mcuBlock, clamp(PJPG_DESCALE(gCoeffBuf[0]) + 128)))
+               continue;
+            gCoeffBuf[1] = 0;
+            for (uint8 zi = 1; zi < 32; zi++) gCoeffUnion.w[zi] = 0;
          }
 
          if (gReduce == 2)

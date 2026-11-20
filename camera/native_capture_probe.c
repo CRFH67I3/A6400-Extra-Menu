@@ -337,6 +337,21 @@ static int wd_version_line(const char *line,size_t bytes) {
 /* 1=entry,0=normal end,-1=untrustworthy/incomplete reply,-2=a complete,
  * explicit unmounted-media outcome. The caller must discard the whole partial
  * inventory and start a new root FFirst; never resume an invalidated cursor. */
+static int benign_async_debug(const char *s,size_t n) {
+    /* Older or AVCHD-populated cards may interleave non-error [AVIMMGR] or
+     * [MprCnv] trace lines inside directory scans. Never treat errors or the
+     * explicit DEVICE Unmounted status line as benign. */
+    if(line_equals(s,n,"[AVIMMGR][MS1]GetDeviceInfo : ER_SEQUENCE  DEVICE Unmounted"))return 0;
+    int match=(n>=9u && !memcmp(s,"[AVIMMGR]",9u)) || (n>=8u && !memcmp(s,"[MprCnv]",8u));
+    if(!match)return 0;
+    static const char *const bad[]={"ERROR","ER_","FAIL","Fail","Unmounted"};
+    for(unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);++i) {
+        size_t bl=strlen(bad[i]);
+        for(size_t pos=0;pos+bl<=n;++pos)
+            if(!memcmp(s+pos,bad[i],bl))return 0;
+    }
+    return 1;
+}
 static int native_item(struct transport *t,const char *directory,int first,struct item *item) {
     t->metadata_retryable=0;
     char cmd[128],response[RESPONSE_BYTES];const char *verb=first?"FFirst":"FNext";
@@ -401,6 +416,8 @@ static int native_item(struct transport *t,const char *directory,int first,struc
              * Validate it before any success/end/unmounted early return. */
             if(!first || !line_equals(value,bytes,"FindFirst Retry.") ||
                retries++ || outcome_started)invalid_retry=1;
+        } else if(headers==1u && benign_async_debug(value,bytes)) {
+            /* Skip benign asynchronous [AVIMMGR]/[MprCnv] trace lines safely. */
         } else {
             outcome_started=1;
             if(line_equals(value,bytes,"No more Files."))++no_more;
@@ -450,6 +467,7 @@ static int native_item(struct transport *t,const char *directory,int first,struc
            !strcmp(line,"[CACHE]ERROR(C1000002h)") ||
            !strcmp(line,"[MprIf] Callback EnterStillPb")))continue;
         if(!strcmp(line,"FindFirst Retry."))continue; /* Already position/verb/count validated. */
+        if(header && benign_async_debug(line,strlen(line)))continue;
         if(!item->name[0]) {
             if(!component(line))return diagnostic(t,"invalid_name",0);
             strcpy(item->name,line);continue;

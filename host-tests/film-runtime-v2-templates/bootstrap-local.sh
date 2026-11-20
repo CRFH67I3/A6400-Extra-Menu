@@ -11,11 +11,27 @@ STAGE=$RAM/a6400-film-boot-stage
 LOCK=$RAM/a6400-film-local-boot.lock
 BOOTLOG=$RAM/a6400-film-boot.log
 BUNDLE_BYTES=@@BUNDLE_BYTES@@
+test -d "$RAM" && test ! -L "$RAM" || exit 1
 test ! -e "$BOOTLOG" && test ! -L "$BOOTLOG" || exit 1
-set -C
-exec > "$BOOTLOG" 2>&1 || exit 1
-set +C
-echo "FILM_LOCAL_BOOT_BEGIN package=@@PACKAGE_ID@@ pid=$$"
+if ! ( set -C; : > "$BOOTLOG" ) 2>/dev/null; then
+    test -r /proc/mounts || exit 1
+    _ram_mounted=0
+    _msrc=""
+    _mtgt=""
+    _mrest=""
+    while read -r _msrc _mtgt _mrest; do
+        if test "${_mtgt:-}" = "$RAM"; then
+            _ram_mounted=1
+            break
+        fi
+    done < /proc/mounts
+    test "$_ram_mounted" = 0 || exit 1
+    "$BB" mount -t tmpfs -o size=2048k tmpfs "$RAM" || exit 1
+    test ! -e "$BOOTLOG" && test ! -L "$BOOTLOG" || exit 1
+    ( set -C; : > "$BOOTLOG" ) 2>/dev/null || exit 1
+fi
+exec >> "$BOOTLOG" 2>&1 || exit 1
+echo "FILM_LOCAL_BOOT_BEGIN package=@@PACKAGE_ID@@ pid=$$ version=V3.9-SSLF"
 fail() { echo "FILM_LOCAL_BOOT_FAIL stage=$1"; exit 1; }
 hash_is() {
     test -f "$1" && test ! -L "$1" || return 1

@@ -24,7 +24,7 @@ APPROVED_IMAGES = {
 FORBIDDEN_SUFFIXES = {
     '.elf', '.so', '.dylib', '.o', '.a', '.bin', '.dump', '.req',
     '.tar', '.gz', '.zip', '.img', '.dat', '.log', '.sock', '.pem', '.key',
-    '.jpg', '.jpeg', '.png', '.mp3', '.wma', '.cube', '.pyc',
+    '.jpg', '.jpeg', '.png', '.mp3', '.wma', '.pcm', '.cube', '.pyc',
 }
 PATTERNS = [
     (re.compile(rb'/(?:Users|home)/[^\s/]+/'), '私人絕對路徑'),

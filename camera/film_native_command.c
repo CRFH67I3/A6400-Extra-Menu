@@ -31,6 +31,9 @@
 #ifndef FILM_NATIVE_STARTUP_MAX_MS
 #define FILM_NATIVE_STARTUP_MAX_MS 3000u
 #endif
+#ifndef FILM_NATIVE_SOUND_INPUT
+#define FILM_NATIVE_SOUND_INPUT "/tmp_bt/a6400-custom-charo.pcm"
+#endif
 static char film_native_proc_comm[64], film_native_proc_maps[64], film_native_proc_mem[64];
 __attribute__((unused)) static void film_native_init_proc_paths(void) {
     if (a6400_im_proc_path(film_native_proc_comm, sizeof(film_native_proc_comm), "comm") ||
@@ -90,6 +93,9 @@ static int output_path(const char *p) {
     if(strlen(p)!=26 || memcmp(p,"A:/A6400/TEST/F",15) || strcmp(p+22,".JPG"))return 0;
     for(unsigned i=15;i<22;++i)if(p[i]<'0'||p[i]>'9')return 0;
     return 1;
+}
+static int sound_path(const char *p) {
+    return !strcmp(p,"A:/A6400/CHARO.PCM") || !strcmp(p,"A:/A6400/SHUTTER.PCM");
 }
 static int monitor_matches(void) {
     unsigned char block[1024];uint32_t hash=2166136261u,total=0;
@@ -182,11 +188,12 @@ static int native_error(const char *text) {
 /* The native copy command does not truncate its Linux destination. A previous
  * or partial input, including a symlink/FIFO/directory, forbids an absence probe.
  * No stat-family ABI is needed with the original camera libc. */
-static int input_absent(void) {
-    int fd=open(FILM_NATIVE_INPUT,O_RDONLY|O_NOFOLLOW|O_NONBLOCK);
+static int path_absent(const char *path) {
+    int fd=open(path,O_RDONLY|O_NOFOLLOW|O_NONBLOCK);
     if(fd>=0){close(fd);return 0;}
     return errno==ENOENT;
 }
+static int input_absent(void) { return path_absent(FILM_NATIVE_INPUT); }
 /* An absent result records only this command's source-open failure. It is not
  * proof of ENOENT, atomic exclusive creation, or a reservation of the SD path.
  * Fail closed on any additional diagnostic instead of ignoring another error. */
@@ -322,7 +329,9 @@ static int exchange(struct transport *t,const char *command,const char *operatio
                  * Only this exact fresh source-open failure, with no RAM input,
                  * permits waiting for native media readiness. Never infer this
                  * from another error, a partial copy, readback, or an SD write. */
-                if(read_source && input_absent() && absent_reply(read_source,command))
+                if(read_source &&
+                   path_absent(!strcmp(operation,"sound")?FILM_NATIVE_SOUND_INPUT:FILM_NATIVE_INPUT) &&
+                   absent_reply(read_source,command))
                     return report(14,0,"source_unavailable",operation,used);
                 if(native_error(response))return report(1,0,"native_error",operation,used);
                 if(flushing && !strstr(response,"Fsys_Flush OK"))
@@ -412,24 +421,27 @@ int main(int argc,char **argv) {
     if(argc!=3)return report(2,0,"arguments","none",0);
     const char *operation=argv[1],*raw_path=argv[2];
 #endif
-    int is_stage=0,is_read=0,is_write=0,is_flush=0,is_absent=0,is_readback=0,is_commit=0;
+    int is_stage=0,is_read=0,is_sound=0,is_write=0,is_flush=0,is_absent=0,is_readback=0,is_commit=0;
 #ifdef FILM_NATIVE_BOOT_STAGE_PATH
     is_stage=!strcmp(operation,"stage");
 #endif
     is_read=!strcmp(operation,"read") && capture_path(raw_path);
+    is_sound=!strcmp(operation,"sound") && sound_path(raw_path);
     is_readback=!strcmp(operation,"readback") && output_path(raw_path);
     is_absent=!strcmp(operation,"absent") && output_path(raw_path);
     is_write=!strcmp(operation,"write") && output_path(raw_path);
     is_flush=!strcmp(operation,"flush") && output_path(raw_path);
     is_commit=!strcmp(operation,"commit") && output_path(raw_path);
-    if(!(is_stage || is_read || is_readback || is_absent || is_write || is_flush || is_commit))
+    if(!(is_stage || is_read || is_sound || is_readback || is_absent || is_write || is_flush || is_commit))
         return report(2,0,"operation_or_path","none",0);
     if((is_stage || is_absent || is_commit) && !input_absent())
+        return report(1,0,"input_not_absent",operation,0);
+    if(is_sound && !path_absent(FILM_NATIVE_SOUND_INPUT))
         return report(1,0,"input_not_absent",operation,0);
     if(!monitor_matches())return report(3,0,"monitor_pin",operation,0);
     char drv=mmca_drive_letter();
     if(!drv) {
-        if(is_stage || (is_read && input_absent()))
+        if(is_stage || (is_read && input_absent()) || (is_sound && path_absent(FILM_NATIVE_SOUND_INPUT)))
             return report(14,0,"source_unavailable",operation,0);
         return report(6,0,"before_send",operation,0);
     }
@@ -442,6 +454,7 @@ int main(int argc,char **argv) {
     int flushing=is_flush,n=-1;
     if(is_write)n=snprintf(command,sizeof(command),"IFSYS cp %s %s",FILM_NATIVE_OUTPUT,path);
     else if(is_flush)n=snprintf(command,sizeof(command),"IFSYS flush %s",path);
+    else if(is_sound)n=snprintf(command,sizeof(command),"IFSYS cp %s %s",path,FILM_NATIVE_SOUND_INPUT);
     else n=snprintf(command,sizeof(command),"IFSYS cp %s %s",path,FILM_NATIVE_INPUT);
     if(n<1 || (unsigned)n>=sizeof(command))return report(2,0,"operation_or_path","none",0);
     if(is_commit) {
@@ -471,7 +484,7 @@ int main(int argc,char **argv) {
         if(!result)result=exchange(&t,cmd_flush,operation,1,NULL,NULL,1);
     } else {
         result=exchange(&t,command,operation,flushing,absence_path,
-                        (!strcmp(operation,"read") || !strcmp(operation,"stage"))?path:NULL,1);
+                        (!strcmp(operation,"read") || !strcmp(operation,"stage") || is_sound)?path:NULL,1);
     }
     /* Killing the monitor client does not cancel or prove termination of a
      * Sony in-process operation; uncertain=1 remains authoritative for caller. */

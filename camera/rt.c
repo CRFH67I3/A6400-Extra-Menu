@@ -122,6 +122,16 @@ void *memmove(void *d, const void *s, size_t n)
 void *memset(void *d, int c, size_t n)
 {
     u8 *dd = d;
+    if ((((unsigned long)dd) & 3u) == 0 && n >= 4u) {
+        u32 v = (u8)c;
+        v |= v << 8;
+        v |= v << 16;
+        u32 *dw = (u32 *)dd;
+        for (size_t w = n >> 2; w; w--)
+            *dw++ = v;
+        dd = (u8 *)dw;
+        n &= 3u;
+    }
     while (n--)
         *dd++ = (u8)c;
     return d;

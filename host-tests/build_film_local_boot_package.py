@@ -23,11 +23,15 @@ def build(spec_path, out):
     if charo_dir_env:
         cdir = Path(charo_dir_env).resolve()
         charo_specs = [
-            ('a6400-charo-bind.elf', None, 0o755),
-            ('a6400-charo-shutter.pcm', 29760, 0o644),
+            ('a6400-charo-bind.elf', None, 0o755, True),
+            ('a6400-charo-shutter.pcm', 29760, 0o644, True),
+            ('a6400-charo-connect.pcm', 24768, 0o644, False),
+            ('a6400-charo-push.pcm', 18560, 0o644, False),
         ]
-        for fname, exp_len, fmode in charo_specs:
+        for fname, exp_len, fmode, required in charo_specs:
             fpath = cdir / fname
+            if not required and not fpath.exists():
+                continue
             base.require(fpath.is_file() and not fpath.is_symlink(), f'charo asset missing: {fpath}')
             fdata = fpath.read_bytes()
             if exp_len is not None:
@@ -84,6 +88,7 @@ def build(spec_path, out):
         'capture_persistent': True, 'natural_touch_release_required': True,
         'photo_sd_io_outside_service_validated': False,
         'module_pins': pins, 'capture_pins': capture_pins, 'template_pins': template_pins,
+        'template_pins_note': 'SHA-256 digests of raw templates before @@VAR@@ substitution and charo snippet injection; see files[] for deployed hashes.',
         'extra_persistent_files': [
             {'local_path': f'persistent/{n}', 'camera_path': f'/tmp/{n}', 'bytes': len(d), 'sha256': s, 'mode': f'{m:o}'}
             for n, d, s, m in charo_loaded

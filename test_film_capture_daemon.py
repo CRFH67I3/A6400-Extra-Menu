@@ -61,6 +61,13 @@ with (root/'jobs').open('a') as f:f.write(json.dumps(record)+'\n')
 time.sleep(float(os.environ.get('FILM_CAPTURE_JOB_DELAY','.12')))
 if fault=='uncertain':
  print('RAM_JOB_RETAINED phase=native_read result=21',flush=True);sys.exit(21)
+if fault=='retried_read_uncertain':
+ print('NATIVE_FAIL operation=read reason=ring_overflow response_bytes=10 uncertain=1',flush=True)
+ print('NATIVE_REPLY_TAIL_HEX 4d57463e',flush=True)
+ print('RAM_JOB_READ_RETRY attempt=1 rc=21',flush=True)
+if fault=='write_uncertain_with_fake_retry':
+ print('NATIVE_FAIL operation=write reason=ring_overflow response_bytes=10 uncertain=1',flush=True)
+ print('RAM_JOB_READ_RETRY attempt=1 rc=21',flush=True)
 if fault=='retained':
  print('RAM_JOB_RETAINED phase=cleanup result=1',flush=True);sys.exit(1)
 (root/'job.lock').rmdir()
@@ -782,6 +789,109 @@ class FilmCaptureDaemonTests(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn('FILM_CAPTURE_FAST latest=0 proc=1 ', out)
         self.assertEqual([job['source'] for job in self.jobs()], ['A:/DCIM/10061115/A6400002.JPG'], out)
+
+    def test_retried_prewrite_read_uncertain_does_not_halt_daemon_while_write_uncertain_does(self):
+        rc, out = self.run_daemon(
+            events=[(.03, lambda _: self.new())],
+            fault='retried_read_uncertain',
+        )
+        self.assertEqual(rc, 0, out)
+        self.assertIn('retained=0', out)
+        self.assertIn('applied=1 off=0 failed=0 retained=0', out)
+
+        for stale in ('manifest', 'inflight', 'job.log', 'runtime.log'):
+            (self.base / stale).unlink(missing_ok=True)
+        rc2, out2 = self.run_daemon(
+            events=[(.03, lambda _: self.new(number=3))],
+            fault='write_uncertain_with_fake_retry',
+        )
+        self.assertEqual(rc2, 21, out2)
+        self.assertIn('reason=job_uncertain', out2)
+        self.assertTrue((self.base / 'capture.lock').exists())
+
+    def test_sync_custom_charo_pads_in_place_and_rejects_oversize(self):
+        charo_pcm = self.base / 'charo-shutter.pcm'
+        custom_pcm = self.base / 'custom-charo.pcm'
+        checked = self.base / 'custom-charo.checked'
+        active = self.base / 'custom-charo.active'
+        native_cmd = self.base / 'native-sound-cmd'
+        native_cmd.write_text(
+            '#!/bin/sh\n'
+            'if [ "$1" = "sound" ] && [ "$2" = "A:/A6400/CHARO.PCM" ]; then\n'
+            f'  cp "{self.base}/sd-pcm.bin" "{custom_pcm}"\n'
+            '  exit 0\n'
+            'fi\n'
+            'exit 14\n'
+        )
+        native_cmd.chmod(0o700)
+        self.build_daemon(extra_build=(
+            f'#define FILM_CAPTURE_NATIVE_COMMAND "{native_cmd}"',
+            f'#define FILM_CAPTURE_CHARO_PCM "{charo_pcm}"',
+            f'#define FILM_CAPTURE_CUSTOM_CHARO_PCM "{custom_pcm}"',
+            f'#define FILM_CAPTURE_CUSTOM_CHECKED "{checked}"',
+            f'#define FILM_CAPTURE_CUSTOM_ACTIVE "{active}"',
+            f'#define FILM_CAPTURE_DISABLE_CHARO "{self.base}/disable_charo"',
+        ))
+        charo_pcm.write_bytes(b'\x11' * 29760)
+        orig_ino = charo_pcm.stat().st_ino
+        (self.base / 'sd-pcm.bin').write_bytes(b'\x5a' * 1000)
+        rc, out = self.run_daemon()
+        self.assertEqual(rc, 0, out)
+        self.assertIn('FILM_CUSTOM_CHARO_OK source=A:/A6400/CHARO.PCM in_bytes=1000 out_bytes=29760', out)
+        self.assertEqual(charo_pcm.stat().st_ino, orig_ino)
+        self.assertEqual(charo_pcm.read_bytes(), (b'\x5a' * 1000) + (b'\x00' * 28760))
+        self.assertTrue(active.is_file())
+        self.assertFalse(custom_pcm.exists())
+
+        # Oversize file (>29760 B) must be skipped safely without modifying bound PCM
+        for stale in ('manifest', 'inflight', 'job.log', 'runtime.log'):
+            (self.base / stale).unlink(missing_ok=True)
+        checked.unlink()
+        active.unlink()
+        charo_pcm.write_bytes(b'\x22' * 29760)
+        (self.base / 'sd-pcm.bin').write_bytes(b'\x7b' * 29761)
+        rc_over, out_over = self.run_daemon()
+        self.assertEqual(rc_over, 0, out_over)
+        self.assertIn('FILM_CUSTOM_CHARO_SKIP path=A:/A6400/CHARO.PCM reason=invalid_size', out_over)
+        self.assertEqual(charo_pcm.read_bytes(), b'\x22' * 29760)
+        self.assertFalse(active.exists())
+
+    def test_persistent_media_unavailable_stops_transport_and_recovers(self):
+        (self.base / 'recorded-unmounted').write_bytes(SYNTHETIC_FNEXT_UNMOUNTED)
+        self.build_daemon(extra_build=(
+            '#undef FILM_CAPTURE_PERSISTENT',
+            '#define FILM_CAPTURE_PERSISTENT 1',
+            '#define FILM_CAPTURE_MEDIA_UNAVAILABLE_PAUSE_MS 40u',
+        ))
+        first_pid = []
+
+        def lose_media(_):
+            first_pid.append(int((self.base / 'monitor.pid').read_text()))
+            (self.base / 'midscan-unmounted').write_text('sub_next')
+            self.new()
+
+        def restore_when_stopped():
+            pid = first_pid[0]
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(.01)
+            else:
+                self.fail('persistent daemon left monitor running during media_unavailable')
+            time.sleep(.12)  # Longer than stability gate.
+            (self.base / 'midscan-unmounted').unlink()
+
+        rc, out = self.run_daemon(events=[
+            (.04, lose_media),
+            (.06, self.after_record('manifest', 'phase=media_unavailable', restore_when_stopped)),
+            (.08, self.after_record('manifest', 'state=applied source=A:/DCIM/10061115/A6400002.JPG ', lambda: (self.base / 'stop').write_text('stop'))),
+        ])
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([job['source'] for job in self.jobs()], ['A:/DCIM/10061115/A6400002.JPG'], out)
+        self.assertNotEqual(int((self.base / 'monitor.pid').read_text()), first_pid[0])
 
 
 if __name__ == '__main__':

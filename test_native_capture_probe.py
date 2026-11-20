@@ -115,6 +115,12 @@ for command in sys.stdin:
  if fault=='getstill_live' and verb=='FNext' and directory!='ms:/DCIM/*' and index+1<len(items) and not (root/'getstill-live-used').exists():
   (root/'getstill-live-used').write_text('1')
   print('[MprIf] Callback GetStillAttrInfo')
+ if fault=='benign_avimmgr_mprcnv':
+  print('[AVIMMGR][MS1] MediaCheck complete\n[MprCnv] Exchg_LocalTime skip')
+ if fault=='bad_avimmgr_error':
+  print('[AVIMMGR][MS1] ERROR read timeout')
+ if fault=='bad_mprcnv_fail':
+  print('[MprCnv] FAIL invalid metadata')
  if fault=='cache_playback_live' and verb=='FNext' and directory!='ms:/DCIM/*' and index+1<len(items) and not (root/'cache-playback-live-used').exists():
   (root/'cache-playback-live-used').write_text('1')
   print('[CACHE]BUFFER SIZE TOO SMALL : 00000000\n[CACHE]ERROR(C1000002h)\n[MprIf] Callback EnterStillPb')
@@ -1011,5 +1017,14 @@ int main(void) {
         self.assertIn('stale_stop',out)
         self.assertFalse((self.base/'monitor.pid').exists())
         self.assertEqual((self.base/'stop').read_text(),'previous run')
+
+    def test_benign_avimmgr_and_mprcnv_traces_are_tolerated_while_errors_fail_closed(self):
+        rc,out=self.run_probe(fault='benign_avimmgr_mprcnv')
+        self.assertEqual(rc,0,out)
+        self.assertIn('CAPTURE_EXISTING path=ms:/DCIM/10061115/A6400001.JPG ',out)
+        for bad_fault in ('bad_avimmgr_error','bad_mprcnv_fail'):
+            rc_bad,out_bad=self.run_probe(fault=bad_fault)
+            self.assertNotEqual(rc_bad,0,out_bad)
+            self.assertNotIn('CAPTURE_EXISTING',out_bad)
 
 if __name__=='__main__':unittest.main()

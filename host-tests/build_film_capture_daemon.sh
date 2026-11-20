@@ -64,20 +64,24 @@ if ui_dir:
     tm = sorted(set(re.findall(r'^\s*\d+:\s+([0-9a-f]+)\s+\d+\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+a6400_ui_toast_v1$', syms, re.M)))
     assert len(tm) == 1, f'expected unique a6400_ui_toast_v1 symbol, got {tm}'
     hm = sorted(set(re.findall(r'^\s*\d+:\s+([0-9a-f]+)\s+\d+\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+a6400_ui_hires_v1$', syms, re.M)))
+    sm = sorted(set(re.findall(r'^\s*\d+:\s+([0-9a-f]+)\s+\d+\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+a6400_ui_status_v1$', syms, re.M)))
     text += [
         '#define FILM_DAEMON_UI_MODULE "/tmp_bt/a6400-film-ui-v3-persist.so"\n',
         f'#define FILM_DAEMON_TOAST_RVA 0x{int(tm[0], 16):x}u\n',
     ]
     if len(hm) == 1:
         text += [f'#define FILM_DAEMON_HIRES_RVA 0x{int(hm[0], 16):x}u\n']
+    if len(sm) == 1:
+        text += [f'#define FILM_DAEMON_STATUS_RVA 0x{int(sm[0], 16):x}u\n']
 if persistent=='1':
     text += ['#define MAX_FILES 1024u\n',
              '#define CAPTURE_STOP_GRACE_MS 500u\n',
-             '#define CAPTURE_WAIT_MS 0u\n',
+             '#define CAPTURE_WAIT_MS 4000u\n',
+             '#define CAPTURE_BASELINE_INTERVAL_MS 750u\n',
              '#define CAPTURE_STARTUP_MS 300u\n',
              '#define CAPTURE_QUIET_MS 80u\n',
              '#define CAPTURE_INTERVAL_MS 100u\n',
-             '#define CAPTURE_STABLE_MS 500u\n',
+             '#define CAPTURE_STABLE_MS 800u\n',
              '#define SCAN_MS 45000u\n',
              '#define FILM_CAPTURE_LATEST_DIR_ONLY 1\n',
              '#define FILM_CAPTURE_PROC_TRIGGER 1\n',

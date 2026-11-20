@@ -1,5 +1,5 @@
 #!/bin/sh
-# One-click build for A6400 V3 CLite (10-film edition) from source.
+# One-click build for A6400 V3.9 SSLF (Sony Super LUT FILM, 10-film edition) from source.
 # Requires: arm-linux-gnueabihf-gcc/g++, python3, and user-pulled camera inputs.
 set -eu
 
@@ -44,17 +44,22 @@ chmod 755 "$OUT/a6400-film-job.elf"
 make -C "$ROOT/camera" -f Makefile.film JOB=1 clean >/dev/null 2>&1 || true
 
 CHARO_ENABLE=0
+CHARO_MULTI=0
 CHARO_DIR=""
 if [ -f "$ROOT/assets/a6400-charo-shutter.pcm" ]; then
     CHARO_ENABLE=1
     CHARO_DIR="$OUT/charo-assets"
+    if [ -f "$ROOT/assets/a6400-charo-connect.pcm" ] && [ -f "$ROOT/assets/a6400-charo-push.pcm" ]; then
+        CHARO_MULTI=1
+    fi
 fi
 
-echo "[2/9] Building persistent V3.5.1 Fast SP UI (charo=$CHARO_ENABLE)..."
+echo "[2/9] Building persistent V3.9 SSLF UI (charo=$CHARO_ENABLE multi=$CHARO_MULTI)..."
 rm -rf "$OUT/ui"
 A6400_TRIAL_MS=0 \
 A6400_DISPLAY_MS=20000 \
 A6400_CHARO_SHUTTER="$CHARO_ENABLE" \
+A6400_CHARO_MULTI="$CHARO_MULTI" \
 UI_MODULE_PATH=/tmp_bt/a6400-film-ui-v3-persist.so \
     sh "$ROOT/host-tests/build_ui_trial3.sh" "$OUT/ui" "$LIBS"
 
@@ -63,6 +68,11 @@ if [ "$CHARO_ENABLE" = 1 ]; then
     mkdir -p "$OUT/charo-assets"
     cp "$ROOT/assets/a6400-charo-shutter.pcm" "$OUT/charo-assets/a6400-charo-shutter.pcm"
     chmod 644 "$OUT/charo-assets/a6400-charo-shutter.pcm"
+    if [ "$CHARO_MULTI" = 1 ]; then
+        cp "$ROOT/assets/a6400-charo-connect.pcm" "$OUT/charo-assets/a6400-charo-connect.pcm"
+        cp "$ROOT/assets/a6400-charo-push.pcm" "$OUT/charo-assets/a6400-charo-push.pcm"
+        chmod 644 "$OUT/charo-assets/a6400-charo-connect.pcm" "$OUT/charo-assets/a6400-charo-push.pcm"
+    fi
     arm-linux-gnueabihf-gcc -Os -mcpu=cortex-a5 -mfpu=vfpv3-d16 -mfloat-abi=hard \
         -ffreestanding -fno-builtin -fno-stack-protector -ffunction-sections -fdata-sections \
         -fno-pie -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -Wall -Wextra -Werror -std=c11 \

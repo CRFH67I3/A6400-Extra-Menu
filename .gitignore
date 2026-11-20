@@ -8,6 +8,7 @@
 credentials*
 private/
 local-inputs/
+assets/
 
 # Sony 二進位、韌體、dump、套件與照片
 *.elf
@@ -16,6 +17,7 @@ local-inputs/
 *.o
 *.a
 *.bin
+*.pcm
 *.dump
 *.req
 *.tar

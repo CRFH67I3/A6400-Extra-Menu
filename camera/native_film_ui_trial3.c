@@ -76,12 +76,35 @@ typedef void (*font_fn)(void *,uint32_t);
 typedef void (*beep_play_fn)(void *,int);
 #define A6400_CHARO_SHUTTER_KEY 0xa7
 #define A6400_CHARO_SOUND_ID 0x34
+#define A6400_CHARO_CONNECT_SOUND_ID 0x33
+#define A6400_CHARO_PUSH_SOUND_ID 0x35
 #ifndef A6400_CHARO_DELAY_MS
 #define A6400_CHARO_DELAY_MS 0u
 #endif
 #ifndef A6400_CHARO_COOLDOWN_MS
 #define A6400_CHARO_COOLDOWN_MS 450u
 #endif
+static int charo_sound_id(int mode) {
+#if defined(A6400_CHARO_MULTI) && A6400_CHARO_MULTI
+    if(mode==1)return A6400_CHARO_CONNECT_SOUND_ID;
+    if(mode==2)return A6400_CHARO_SOUND_ID;
+    if(mode==3)return A6400_CHARO_PUSH_SOUND_ID;
+    return 0;
+#else
+    return mode?A6400_CHARO_SOUND_ID:0;
+#endif
+}
+static const char *charo_mode_label(int mode,int custom) {
+#if defined(A6400_CHARO_MULTI) && A6400_CHARO_MULTI
+    if(mode==1)return "快門聲: 日文 Charo";
+    if(mode==2)return custom?"快門聲: SD自訂":"快門聲: Bling Bling";
+    if(mode==3)return "快門聲: iPhone 快門";
+    return "快門聲: 關閉";
+#else
+    if(!mode)return "快門聲: 關閉";
+    return custom?"快門聲: Charo (SD自訂)":"快門聲: Charo (開啟)";
+#endif
+}
 #endif
 
 static struct a6400_ui_state {
@@ -146,6 +169,18 @@ struct a6400_ui_toast_v1 {
 __attribute__((visibility("default")))
 volatile struct a6400_ui_toast_v1 a6400_ui_toast_v1 = { 0x54534f54u, 0u, 0u, 0u, "" };
 
+struct a6400_ui_status_v1 {
+    uint32_t magic;       /* 0x53544156u 'STAV' */
+    uint32_t seq;
+    uint32_t applied;
+    uint32_t scanned;
+    uint32_t max_files;
+    uint32_t custom_charo;
+    uint32_t active_jobs;
+};
+__attribute__((visibility("default")))
+volatile struct a6400_ui_status_v1 a6400_ui_status_v1 = { 0x53544156u, 0u, 0u, 0u, 1024u, 0u, 0u };
+
 static struct {
     void *bg, *accent, *label;
     uint32_t seq, until_ms;
@@ -157,6 +192,7 @@ static struct {
 static struct {
     void *card_border, *card_panel, *header_accent, *header_divider, *page_btn;
     void *row_accents[6];
+    uint32_t status_seq;
 #ifdef A6400_CHARO_SHUTTER
     beep_play_fn beep_play;
     int shutter_sound_enabled;
@@ -299,8 +335,22 @@ static void draw(void *unused,const struct film_menu *menu) {
     const unsigned char accent_orange[4]={234,140,42,255};
     const unsigned char accent_gold[4]={212,162,58,220};
     const unsigned char accent_muted[4]={68,76,90,200};
-    snprintf(ui.texts[0],sizeof(ui.texts[0]),"A6400 3.5.1 SP | %s",
-             menu->settings.enabled?"開啟":"關閉");
+    if(a6400_ui_status_v1.magic==0x53544156u && a6400_ui_status_v1.seq>0u) {
+        ui_theme.status_seq=a6400_ui_status_v1.seq;
+        unsigned qmax=a6400_ui_status_v1.max_files?(unsigned)a6400_ui_status_v1.max_files:1024u;
+        if(a6400_ui_status_v1.active_jobs>0u) {
+            snprintf(ui.texts[0],sizeof(ui.texts[0]),"V3.9 SSLF | %s | 轉檔:%u 已轉:%u",
+                     menu->settings.enabled?"開啟":"關閉",
+                     (unsigned)a6400_ui_status_v1.active_jobs,(unsigned)a6400_ui_status_v1.applied);
+        } else {
+            snprintf(ui.texts[0],sizeof(ui.texts[0]),"V3.9 SSLF | %s | 已轉:%u (%u/%u)",
+                     menu->settings.enabled?"開啟":"關閉",
+                     (unsigned)a6400_ui_status_v1.applied,(unsigned)a6400_ui_status_v1.scanned,qmax);
+        }
+    } else {
+        snprintf(ui.texts[0],sizeof(ui.texts[0]),"A6400 V3.9 SSLF | %s",
+                 menu->settings.enabled?"開啟":"關閉");
+    }
     ui.set_text(ui.labels[0],ui.texts[0]);
     for(unsigned row=0;row<6;row++) {
         int x=0,y=0,w=0,h=0;
@@ -308,8 +358,9 @@ static void draw(void *unused,const struct film_menu *menu) {
         if(used<=0){ui.texts[row+1][0]=0;w=h=0;}
 #ifdef A6400_CHARO_SHUTTER
         else if(menu->page==FILM_MENU_HOME && row==3) {
+            int custom=(a6400_ui_status_v1.magic==0x53544156u && a6400_ui_status_v1.custom_charo);
             snprintf(ui.texts[row+1],sizeof(ui.texts[0]),"%s",
-                     ui_theme.shutter_sound_enabled?"快門聲: Charo (開啟)":"快門聲: 關閉");
+                     charo_mode_label(ui_theme.shutter_sound_enabled,custom));
         }
 #endif
         record("ROW_PANEL_GEOMETRY",row,used);
@@ -357,6 +408,15 @@ static void draw(void *unused,const struct film_menu *menu) {
                      menu->selected==7?pill_pressed:(a6400_ui_hires_v1?row_active:pill_plain));
         snprintf(ui.texts[7],sizeof(ui.texts[0]),"%s",
                  a6400_ui_hires_v1?"畫質: 6MP 高清":"畫質: 1.7MP 極速");
+        place(ui.labels[7],1,92,392,232,30);
+    } else if(menu->page==FILM_MENU_DETAILS) {
+        place(ui_theme.page_btn,0,76,386,264,42);
+        ui.set_color(ui_theme.page_btn,pill_plain);
+        unsigned qmax=(a6400_ui_status_v1.magic==0x53544156u && a6400_ui_status_v1.max_files)
+                      ?(unsigned)a6400_ui_status_v1.max_files:1024u;
+        unsigned qcur=a6400_ui_status_v1.magic==0x53544156u?(unsigned)a6400_ui_status_v1.scanned:0u;
+        snprintf(ui.texts[7],sizeof(ui.texts[0]),"佇列:%u/%u | %s",
+                 qcur,qmax,a6400_ui_hires_v1?"6MP":"1.7MP");
         place(ui.labels[7],1,92,392,232,30);
     } else {
         place(ui_theme.page_btn,0,0,0,0,0);
@@ -558,21 +618,26 @@ static void animate(void *self) {
     }
 #ifdef A6400_CHARO_SHUTTER
     if(change&FILM_MENU_SOUND_TOGGLED) {
+#if defined(A6400_CHARO_MULTI) && A6400_CHARO_MULTI
+        ui_theme.shutter_sound_enabled=(ui_theme.shutter_sound_enabled+1)&3;
+#else
         ui_theme.shutter_sound_enabled^=1;
+#endif
         if(!ui_theme.shutter_sound_enabled)ui_theme.shutter_pending=0;
         draw(0,&ui.view.menu);
         record("CHARO_SOUND_TOGGLE",ui_theme.shutter_sound_enabled,0);
-        if(ui_theme.shutter_sound_enabled && ui_theme.beep_play) {
+        int preview_id=charo_sound_id(ui_theme.shutter_sound_enabled);
+        if(preview_id && ui_theme.beep_play) {
             ui_theme.last_shutter_beep_ms=now;
-            ui_theme.beep_play(ui.background,A6400_CHARO_SOUND_ID);
-            record("CHARO_MENU_BEEP_PREVIEW",A6400_CHARO_SOUND_ID,(int)now);
+            ui_theme.beep_play(ui.background,preview_id);
+            record("CHARO_MENU_BEEP_PREVIEW",preview_id,(int)now);
         }
     }
     int shutter_down=ui.key(ui.keys,A6400_CHARO_SHUTTER_KEY,0);
     if(shutter_down==1 && ui_theme.last_shutter_key==0 && ui_theme.shutter_sound_enabled) {
         ui_theme.shutter_pending=1;
         ui_theme.shutter_arm_ms=now;
-        record("CHARO_SHUTTER_ARMED",A6400_CHARO_SOUND_ID,(int)now);
+        record("CHARO_SHUTTER_ARMED",charo_sound_id(ui_theme.shutter_sound_enabled),(int)now);
     }
     ui_theme.last_shutter_key=(shutter_down==1)?1:0;
     if(ui_theme.shutter_pending &&
@@ -583,14 +648,20 @@ static void animate(void *self) {
 #endif
        ) {
         ui_theme.shutter_pending=0;
-        if(!ui_theme.last_shutter_beep_ms ||
-           (uint32_t)(now-ui_theme.last_shutter_beep_ms)>=A6400_CHARO_COOLDOWN_MS) {
+        int active_id=charo_sound_id(ui_theme.shutter_sound_enabled);
+        if(active_id &&
+           (!ui_theme.last_shutter_beep_ms ||
+            (uint32_t)(now-ui_theme.last_shutter_beep_ms)>=A6400_CHARO_COOLDOWN_MS)) {
             ui_theme.last_shutter_beep_ms=now;
-            ui_theme.beep_play(ui.background,A6400_CHARO_SOUND_ID);
-            record("CHARO_SHUTTER_BEEP",A6400_CHARO_SOUND_ID,(int)now);
+            ui_theme.beep_play(ui.background,active_id);
+            record("CHARO_SHUTTER_BEEP",active_id,(int)now);
         }
     }
 #endif
+    if(ui.view.menu.visible && a6400_ui_status_v1.magic==0x53544156u &&
+       a6400_ui_status_v1.seq!=ui_theme.status_seq) {
+        draw(0,&ui.view.menu);
+    }
     if(ui.ticks%300u==0)record("FILM_ALIVE",(int)ui.ticks,ui.view.menu.visible);
 }
 static void *make(int label) {
@@ -691,9 +762,9 @@ int a6400_ui_attach_v1(void *system,unsigned tid) {
     ui_theme.shutter_pending=0;
     ui_theme.shutter_arm_ms=0;
     ui_theme.last_shutter_beep_ms=0;
-    strcpy(ui.texts[0],"A6400 3.5.1 SP | 關閉");
+    strcpy(ui.texts[0],"A6400 V3.9 SSLF | 關閉");
 #else
-    strcpy(ui.texts[0],"A6400 V3 CLite  |  關閉");
+    strcpy(ui.texts[0],"A6400 V3.9 SSLF | 關閉");
 #endif
 #ifdef A6400_UI_SETTINGS_DIAGNOSTIC
     strcpy(ui.texts[7],"MENU + 放大鏡 | RAM");

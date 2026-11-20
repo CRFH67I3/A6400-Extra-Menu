@@ -17,8 +17,9 @@
   - [`camera/film_native_command.c`](camera/film_native_command.c) 新增只讀 `IFSYS sound` 命令讀取 SD 卡 `A:/A6400/CHARO.PCM`／`SHUTTER.PCM`（`1–29,760 B`）原地覆寫 `tmpfs`；**明確規範音效必須編碼為 Sony 24 kHz SDS 32-byte ADPCM**（含對應驗證結果：43–50 dB SNR、`bad_hdr=0`）。
 - **選單即時狀態顯示（`a6400_ui_status_v1`）**：
   - 在維持 `sizeof(ui) == 1120` 快照 ABI 不變前提下，新增獨立導出結構 `a6400_ui_status_v1`（magic `0x53544156`），於主標題列即時顯示轉檔中／已轉張數與 `/1024` 佇列容量，並於「膠片細節」分頁底部顯示 `佇列:M/1024 | 畫質`。
-- **防截斷安全部署器、`--rollback` 與 `--diag`**：
-  - [`tools/pmca_deploy_v3_clite.py`](tools/pmca_deploy_v3_clite.py) 將所有 `serviceshell` 指令分塊控制在 `<= 180` 字元並內建 `rc=None` 自動重試、支援 `extra_persistent_files` 與雙向 SHA-256 讀回校驗，新增 `--rollback`（還原 `.pre-v3c-backup` 或清除掛勾）與 `--diag`（蒐集 10 項機身狀態與日誌）。
+- **防截斷安全部署器、`--safe-serial`（A6100 / Windows 強化）、`--rollback` 與 `--diag`**：
+  - [`tools/pmca_deploy_v3_clite.py`](tools/pmca_deploy_v3_clite.py) 將所有 `serviceshell` 指令分塊控制在 `<= 180` 字元並支援 `extra_persistent_files` 與雙向 SHA-256 讀回校驗，新增 `--rollback`（還原 `.pre-v3c-backup` 或清除掛勾）與 `--diag`（蒐集 10 項機身狀態與日誌）。
+  - 納入 Windows / Sony A6100 實測強化：Windows 自動啟用 `--safe-serial`（`100 B / 20 ms` 分片寫入、`fast=False` 收尾 `0.15s` 上限防雜訊卡滿 timeout）、`echo` + `wc -l` 冪等防重複寫入與 `__B64_L__` 行數預檢。
 
 ### 效能最佳化（Performance）
 - **無 NEON 環境下之位元等價 6MP 解碼倍速優化**：

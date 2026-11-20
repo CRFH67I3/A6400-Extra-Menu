@@ -4,14 +4,14 @@
 
 *Sony A6400 自製觸控浮層選單：半透明深色浮動卡片、Sony Alpha 橘金狀態高亮、繁體中文介面與左下角即時處理進度提示條（Toast HUD）。*
 
-以 **MENU＋放大鏡** 召喚自製觸控浮層選單，在 Sony A6400（FW 2.00）機身上純 RAM 掛載管理 LUT 開關、10 款膠片模擬、**`1.7MP 極速` / `6MP 高清` 雙畫質切換**、**「膠片細節」顆粒強度 (`0–3`) 與底片光暈 (`開/關`) 獨立調節**，以及左下角即時處理進度提示條的研究專案。
+以 **MENU＋放大鏡** 召喚自製觸控浮層選單，在 Sony A6400（FW 2.00；亦支援 **Sony A6100 / ILCE-6100** 實機部署）機身上純 RAM 掛載管理 LUT 開關、10 款膠片模擬、**`1.7MP 極速` / `6MP 高清` 雙畫質切換**、**「膠片細節」顆粒強度 (`0–3`) 與底片光暈 (`開/關`) 獨立調節**，以及左下角即時處理進度提示條的研究專案。
 
 **最新版本：V3.9 SSLF（Sony Super LUT FILM，2026-11-20；前代實機冷開機實拍基準為 V3.5.1 Fast SP）**
 
 - **V3.9 SSLF 主機端加速與穩定性升級**：
   - **`vendor/picojpeg.c` 位元等價倍速最佳化（無 NEON）**：實作 32-bit MSB 位元緩衝、暫存器快取 AC 解碼、DC-only EOB 快速通道與 `rt.c` 32-bit 字組 `memset`，`6MP` 解碼 CPU 於主機 `A6409675-original.JPG` 實測 **`decode_ms: 249 ms → 138 ms`**（全流程 `304 ms → 194 ms`，與 V3.5.1 輸出 JPEG 位元 100% 一致）。
   - **免依賴藍牙開機 & `/etc/a6400-autoexec.so`**：`HOOK_STUB` 與 `bootstrap-local.sh` 在 `/tmp_bt` 為唯讀時自動掛載 `size=2048k` `tmpfs`（無須再強迫保持 Bluetooth 開啟），並於鎖建立失敗時留存 `/tmp/a6400-hook-err.log` 單行診斷。
-  - **多組自訂快門音（Sony 24 kHz SDS ADPCM）／佇列 HUD／防截斷部署工具**：選用支援三組音檔槽位循環切換（`0x33 日文 Charo`、`0x34 Bling Bling / SD自訂`、`0x35 iPhone 快門`）與 `A:/A6400/CHARO.PCM`（須為 Sony 24 kHz SDS 32-byte ADPCM、`<= 29,760` B 原地安全覆寫）；新增 `a6400_ui_status_v1` 顯示即時轉檔數／`1024` 佇列進度；`pmca_deploy_v3_clite.py` 全命令 `<= 180` 字元分塊、掛載獨立 `2048k tmpfs` 並保護 `/etc` 與 `/tmp` 共享 `/dev/nflasha10` Inode（含 `--rollback`、`--diag` 與 `/disable_hook` 升級指引）。
+  - **多組自訂快門音（Sony 24 kHz SDS ADPCM）／佇列 HUD／防截斷與 A6100/Windows 安全部署工具**：選用支援三組音檔槽位循環切換（`0x33 日文 Charo`、`0x34 Bling Bling / SD自訂`、`0x35 iPhone 快門`）與 `A:/A6400/CHARO.PCM`（須為 Sony 24 kHz SDS 32-byte ADPCM、`<= 29,760` B 原地安全覆寫）；新增 `a6400_ui_status_v1` 顯示即時轉檔數／`1024` 佇列進度；`pmca_deploy_v3_clite.py` 全命令 `<= 180` 字元分塊、掛載獨立 `2048k tmpfs` 並保護 `/etc` 與 `/tmp` 共享 `/dev/nflasha10` Inode，並內建 Windows 自動啟用（亦可用 `--safe-serial` 手動啟用）之 **`100 B / 20 ms` 分片寫入、`echo` + `wc -l` 冪等防重複寫入與 `__B64_L__` 行數校對**（實測支援 Sony A6100，含 `--rollback`、`--diag` 與 `/disable_hook` 升級指引）。
 - **V3.5.1 Fast SP（最近一期實機實拍數據）**：
   - **`1.7MP 極速 (1616×1080)` 實測**：`RAM_JOB_TIMING = 5,650 ~ 5,950 ms`（V3.5 Fast 為 `8.16 s`）
   - **`6MP 高清 (3000×2000)` 實測**：`RAM_JOB_TIMING = 17,490 ms`（V3.4 為 `33.41 s`、V3.5 為 `20.96 s`）

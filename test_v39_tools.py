@@ -112,6 +112,44 @@ class V39ToolsTests(unittest.TestCase):
         src_deploy = (Path(__file__).resolve().parent / 'tools/pmca_deploy_v3_clite.py').read_text()
         self.assertNotIn('CLEAN_LEGACY_HOOK', src_deploy)
 
+    def test_deployer_safe_serial_chunking_and_idempotent_upload(self):
+        # 1. safe_serial=True splits >100B commands into <=100B slices and picks latest __PMCA_RC
+        long_cmd = 'echo ' + ('A' * 140)
+        cam_chunked = FakeCam([
+            [],
+            [b'echo __PMCA_RC:99__ noise\n__PMCA_RC:0__\n'],
+        ])
+        out, rc = deployer.run_cmd(cam_chunked, long_cmd, timeout=0.5, fast=False, safe_serial=True)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(cam_chunked.dev.writes), 2)
+        self.assertTrue(all(len(w) <= 100 for w in cam_chunked.dev.writes))
+
+        # 2. upload_b64_chunks uses newline-delimited echo and accepts rc=None when wc -l matches idx+1
+        chunks = deployer.build_upload_chunks('QUJD' * 40, step=120)
+        self.assertEqual(len(chunks), 2)
+        self.assertTrue(all(c.startswith('echo ') for c in chunks))
+        cam_up = FakeCam([
+            [b'> '],
+            [b'__B64_IGNORE__\n__L__\n1\n__E__\n__PMCA_RC:0__\n'],
+            [b'__PMCA_RC:0__\n'],
+        ])
+        deployer.upload_b64_chunks(cam_up, chunks, safe_serial=False)
+
+        # 3. upload_b64_chunks fails closed if wc -l does not match idx+1
+        cam_up_bad = FakeCam([
+            [b'> '],
+            [b'__L__\n0\n__E__\n__PMCA_RC:0__\n'],
+        ])
+        with self.assertRaises(RuntimeError):
+            deployer.upload_b64_chunks(cam_up_bad, chunks, safe_serial=False)
+
+        # 4. verify_uploaded_b64_lines parses markers and rejects mismatched line count
+        cam_pre = FakeCam([[b'__B64_L__\n2\n__B64_C__\n162\n__B64_E__\n__PMCA_RC:0__\n']])
+        self.assertEqual(deployer.verify_uploaded_b64_lines(cam_pre, 2, safe_serial=False), (2, 162))
+        cam_pre_bad = FakeCam([[b'__B64_L__\n1\n__B64_C__\n120\n__B64_E__\n__PMCA_RC:0__\n']])
+        with self.assertRaises(RuntimeError):
+            deployer.verify_uploaded_b64_lines(cam_pre_bad, 2, safe_serial=False)
+
     def test_multi_charo_local_boot_package_optional_slots(self):
         root = Path(__file__).resolve().parent
         sys.path.insert(0, str(root / 'host-tests'))

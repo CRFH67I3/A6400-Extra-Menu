@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deploy, inspect (--diag), or restore (--rollback) V3.9 SSLF on Sony A6400 via Sony-PMCA-RE."""
+"""Deploy, inspect (--diag), or restore (--rollback) V3.9 SSLF on Sony A6400 / A6100 via Sony-PMCA-RE."""
 import argparse
 import base64
 import hashlib
@@ -16,14 +16,20 @@ from pathlib import Path
 MAX_SHELL_CMD_LEN = 180
 HOOK_CAMERA_PATH = "/etc/a6400-autoexec.so"
 LEGACY_HOOK_PATH = "/tmp/a6400-autoexec.so"
+SAFE_SERIAL_MODE = sys.platform == "win32"
 
 
-def run_cmd(cam, cmd, timeout=15.0, fast=False, retry_on_none=True):
+def use_safe_serial(safe_serial=None):
+    return SAFE_SERIAL_MODE if safe_serial is None else bool(safe_serial)
+
+
+def run_cmd(cam, cmd, timeout=15.0, fast=False, retry_on_none=True, safe_serial=None):
     dev = cam.dev
     attempts = 2 if retry_on_none else 1
     out_bytes = b""
     rc = None
     pat = re.compile(rb"__PMCA_RC:(\d+)__")
+    chunked_write = use_safe_serial(safe_serial)
     for attempt in range(attempts):
         if attempt > 0:
             # Recover from a potentially truncated line or open quote before retrying once.
@@ -33,10 +39,19 @@ def run_cmd(cam, cmd, timeout=15.0, fast=False, retry_on_none=True):
                 dev.readTerminal()
             except Exception:
                 pass
-        dev.writeTerminal(f"{cmd}; printf '\\n__PMCA_RC:%s__\\n' $?\n".encode())
+        payload = f"{cmd}; printf '\\n__PMCA_RC:%s__\\n' $?\n".encode()
+        if chunked_write and len(payload) > 100:
+            # Split long commands into 100-byte / 20ms slices to avoid serial drops on A6100 / Windows.
+            for i in range(0, len(payload), 100):
+                dev.writeTerminal(payload[i:i + 100])
+                time.sleep(0.02)
+        else:
+            dev.writeTerminal(payload)
         end = time.monotonic() + timeout
+        post_rc_deadline = None
         out = bytearray()
         rc = None
+        quiet = 0
         while time.monotonic() < end:
             try:
                 chunk = dev.readTerminal()
@@ -44,19 +59,21 @@ def run_cmd(cam, cmd, timeout=15.0, fast=False, retry_on_none=True):
                 break
             if chunk:
                 out.extend(chunk)
-                m = pat.search(out)
-                if m:
-                    rc = int(m.group(1))
-                    if not fast:
-                        time.sleep(0.03)
-                        try:
-                            more = dev.readTerminal()
-                            if more:
-                                out.extend(more)
-                        except Exception:
-                            pass
-                    break
+                quiet = 0
+                ms = list(pat.finditer(bytes(out)))
+                if ms:
+                    rc = int(ms[-1].group(1))
+                    if fast:
+                        break
+                    if post_rc_deadline is None:
+                        post_rc_deadline = time.monotonic() + (0.15 if chunked_write else 0.03)
+                    elif time.monotonic() >= post_rc_deadline:
+                        break
             else:
+                if rc is not None:
+                    quiet += 1
+                    if quiet >= 6 or (post_rc_deadline is not None and time.monotonic() >= post_rc_deadline):
+                        break
                 time.sleep(0.005)
         out_bytes = bytes(out)
         if rc is not None:
@@ -64,8 +81,8 @@ def run_cmd(cam, cmd, timeout=15.0, fast=False, retry_on_none=True):
     return out_bytes.decode("latin1", errors="replace"), rc
 
 
-def must_cmd(cam, cmd, label, timeout=15.0):
-    out, rc = run_cmd(cam, cmd, timeout=timeout, retry_on_none=True)
+def must_cmd(cam, cmd, label, timeout=15.0, safe_serial=None):
+    out, rc = run_cmd(cam, cmd, timeout=timeout, retry_on_none=True, safe_serial=safe_serial)
     if rc is None:
         raise RuntimeError(
             f"{label} failed rc=None (終端命令可能被截斷或超時，已重試一次仍無回應): {out[-400:]}"
@@ -154,7 +171,49 @@ def build_diag_commands():
 
 
 def build_upload_chunks(b64_text, step=120):
-    return [f'printf %s {b64_text[i:i + step]} >> /tmp_bt/v3c_up/up.b64' for i in range(0, len(b64_text), step)]
+    # Use newline-delimited echo so wc -l can verify every chunk on camera (busybox base64 -d ignores newlines).
+    return [f'echo {b64_text[i:i + step]} >> /tmp_bt/v3c_up/up.b64' for i in range(0, len(b64_text), step)]
+
+
+def upload_b64_chunks(cam, chunks, safe_serial=None, progress_cb=None):
+    total = len(chunks)
+    for idx, chunk_cmd in enumerate(chunks):
+        # Never blindly retry append (`>>`) chunks: if the chunk landed without echo/RC, re-sending corrupts up.tgz.
+        _, rc = run_cmd(cam, chunk_cmd, timeout=8.0, fast=True, retry_on_none=False, safe_serial=safe_serial)
+        if rc != 0:
+            diag = must_cmd(
+                cam,
+                'echo __L__; /bin/busybox wc -l < /tmp_bt/v3c_up/up.b64; echo __E__',
+                f'UP_DIAG_{idx}',
+                safe_serial=safe_serial,
+            )
+            m = re.search(r'__L__\s*(\d+)\s*__E__', diag)
+            lines = int(m.group(1)) if m else -1
+            if lines != idx + 1:
+                raise RuntimeError(
+                    f"upload chunk {idx}/{total} failed rc={rc}, lines={lines}, expected={idx + 1}: {diag[-300:]}"
+                )
+        if progress_cb is not None:
+            progress_cb(idx + 1, total)
+
+
+def verify_uploaded_b64_lines(cam, expected_lines, safe_serial=None):
+    pre_dec = must_cmd(
+        cam,
+        'echo __B64_L__; /bin/busybox wc -l < /tmp_bt/v3c_up/up.b64; '
+        'echo __B64_C__; /bin/busybox wc -c < /tmp_bt/v3c_up/up.b64; echo __B64_E__',
+        'B64_PRECHECK',
+        safe_serial=safe_serial,
+    )
+    ml = re.search(r'__B64_L__\s*(\d+)\s*__B64_C__', pre_dec)
+    mc = re.search(r'__B64_C__\s*(\d+)\s*__B64_E__', pre_dec)
+    lines_n = int(ml.group(1)) if ml else -1
+    bytes_n = int(mc.group(1)) if mc else -1
+    if lines_n != expected_lines:
+        raise RuntimeError(
+            f"up.b64 line count mismatch: expected={expected_lines}, actual={lines_n}: {pre_dec[-300:]}"
+        )
+    return lines_n, bytes_n
 
 
 def detect_windows_usb_driver_hint():
@@ -211,7 +270,24 @@ def main():
     parser.add_argument("--rollback", action="store_true", help="Restore .pre-v3c-backup files or remove hook cleanly")
     parser.add_argument("--diag", action="store_true", help="Collect camera diagnostics without modifying flash")
     parser.add_argument("--diag-out", default="", help="Optional output path for --diag report")
+    serial_group = parser.add_mutually_exclusive_group()
+    serial_group.add_argument(
+        "--safe-serial",
+        action="store_true",
+        help="Force 100-byte/20ms chunked serial writes (auto-enabled on Windows; recommended for A6100)",
+    )
+    serial_group.add_argument(
+        "--fast-serial",
+        action="store_true",
+        help="Disable chunked serial writes even on Windows",
+    )
     args = parser.parse_args()
+
+    global SAFE_SERIAL_MODE
+    if args.safe_serial:
+        SAFE_SERIAL_MODE = True
+    elif args.fast_serial:
+        SAFE_SERIAL_MODE = False
 
     if args.rollback and args.diag:
         parser.error("Cannot combine --rollback and --diag")
@@ -362,10 +438,9 @@ def main():
             chunks = build_upload_chunks(b64, step=120)
             total = len(chunks)
             print(f"Uploading {len(tgz_bytes)} B ({total} chunks)...", flush=True)
-            for idx, chunk_cmd in enumerate(chunks):
-                _, rc = run_cmd(cam, chunk_cmd, timeout=5.0, fast=True, retry_on_none=True)
-                if rc != 0:
-                    raise RuntimeError(f"upload chunk {idx}/{total} failed rc={rc}")
+            upload_b64_chunks(cam, chunks)
+            lines_n, bytes_n = verify_uploaded_b64_lines(cam, total)
+            print(f"Verified up.b64: {lines_n} lines / {bytes_n} B", flush=True)
 
             must_cmd(
                 cam,

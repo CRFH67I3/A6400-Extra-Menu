@@ -83,7 +83,7 @@
 | **V3.9 SSLF 開機自動掛載 `/tmp_bt`** | V3.9 起已不再強制依賴開啟藍牙；若系統尚未掛載 `/tmp_bt`，開機掛勾 `/etc/a6400-autoexec.so` 與 `bootstrap-local.sh` 會自動掛載 `size=2048k tmpfs`（失敗則記錄於 `/tmp/a6400-hook-err.log`），並仍以安全模式等待 `im.elf` 喚醒（歷史 V3.5.1 與之前版本須保持 `Bluetooth 功能 = 開`） |
 | 即時取景套色、影片 LUT、任意 `.cube` 匯入 | 本專案不提供 |
 
-> **部署前先讀排雷清單**：[`docs/部署與操作規範.md` 第六節「完整實戰排雷手冊」](docs/部署與操作規範.md#六完整實戰排雷手冊部署過程中所有常見異常與解決對策) 完整整理 Windows Zadig `054C:0CA8`/`054C:0336` 雙裝置 `libusb-win32`、`USBTimeoutError` 與 `/disable_hook`、`--install-hook`、`/etc` 與 `/tmp` 共享 `/dev/nflasha10` Inode 防誤刪、空間清理、拔電池冷開機與 `--diag` 排障。
+> **Windows 10 / 11 與部署排雷必看**：因 Windows 11 核心隔離與驅動簽章經常導致原生 Zadig / `libusb-win32` 失效，**Windows 10 以上一律建議改用 `WSL2 + usbipd-win --auto-attach` 進行安裝**（免改 Windows 驅動、刷完自動維持讀卡機）。完整步驟與所有實機排雷（`054C:0CA8 → 054C:0336` 重枚舉、`USBTimeoutError` 與 `/disable_hook`、`--install-hook`、`/etc` 與 `/tmp` 共享 `/dev/nflasha10` Inode 防誤刪、空間清理、冷開機與 `--diag`）請見 [`docs/部署與操作規範.md`](docs/部署與操作規範.md#六完整實戰排雷手冊部署過程中所有常見異常與解決對策)。
 
 ---
 

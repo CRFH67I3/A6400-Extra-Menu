@@ -49,6 +49,7 @@
 | **V1 Beta（早期初版）** | 早期實機驗證版本，採全屏深色不透明背景、等寬純英文條狀按鈕（`LUT: ON/OFF`、`Film`、`Close`）。<br><img src="docs/images/a6400-extra-menu-camera.jpg" alt="A6400 V1 Beta 早期實機觸控選單" width="460"> |
 | **V0 早期測試原形** | 最早期的自製 OSD 觸控選單介面試驗畫面（`A6400 CUSTOM MENU / TOUCH TEST`）。<br><img src="docs/images/a6400-extra-menu-v0-early.jpg" alt="A6400 V0 早期 OSD 觸控測試原形" width="460"> |
 | **社群跨機身移植紀錄（`A7R4A`）** | 2026-11-17 社群開發者基於本專案架構移植至 Sony A7R4A 之選單點亮紀錄（僅作開發參考，非 A6400 機身之地址須自行校準）。<br><img src="docs/images/community-a7r4a-film-menu.jpg" alt="社群移植至 A7R4A 的 Film Menu 實機測試畫面" width="460"> |
+| **Sony α6100（`ILCE-6100`）實機點亮紀錄** | 2026-11-21 實機驗證成功點亮觸控浮層選單（感謝 A S F C_CYJ 提供 A6100 實機驗證；`tools/pmca_deploy_v3_clite.py` 現已內建支援 A6100 / Windows `--safe-serial` 部署）。<br><img src="docs/images/a6100-extra-menu-camera.jpg" alt="Sony α6100 實機成功點亮觸控選單實拍" width="460"> |
 
 ---
 

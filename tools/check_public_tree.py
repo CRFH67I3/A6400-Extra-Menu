@@ -20,6 +20,8 @@ APPROVED_IMAGES = {
         '5eb2ea263806f734d6778e649011617d8f75368303911441b360bc5d92aca1ee',
     'docs/images/community-a7r4a-film-menu.jpg':
         'cd2925fcb4e14945df6ae9b0b6e97c13c6ff7df218fb3016ad74a8f4415c0e3d',
+    'docs/images/a6100-extra-menu-camera.jpg':
+        '13968f668b8a32f8ecc5bc03321155a858d4e3bd90be548b143265e07f8b58db',
 }
 FORBIDDEN_SUFFIXES = {
     '.elf', '.so', '.dylib', '.o', '.a', '.bin', '.dump', '.req',

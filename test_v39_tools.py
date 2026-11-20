@@ -150,6 +150,48 @@ class V39ToolsTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             deployer.verify_uploaded_b64_lines(cam_pre_bad, 2, safe_serial=False)
 
+        # 5. check_package_charo_notice passes silently when shutter.pcm is present, and prompts/skips when absent
+        import io
+        from contextlib import redirect_stdout
+        from unittest import mock
+
+        self.assertTrue(deployer.check_package_charo_notice([(None, 'a6400-charo-shutter.pcm', '0'*64, '644')]))
+        with redirect_stdout(io.StringIO()):
+            self.assertTrue(deployer.check_package_charo_notice([], assume_yes=True, interactive=True))
+            with mock.patch('builtins.input', return_value='n'):
+                self.assertFalse(deployer.check_package_charo_notice([], assume_yes=False, interactive=True))
+            with mock.patch('builtins.input', return_value=''):
+                self.assertTrue(deployer.check_package_charo_notice([], assume_yes=False, interactive=True))
+
+    def test_encode_sony_sds_adpcm_encodes_and_verifies_slot_limits(self):
+        import math
+        import wave
+        import encode_sony_sds_adpcm as sds
+
+        sr = sds.SAMPLE_RATE
+        # 0.25s 440 Hz sine wave in 24kHz mono WAV
+        samples = [int(18000 * math.sin(2.0 * math.pi * 440.0 * i / sr)) for i in range(sr // 4)]
+        with tempfile.TemporaryDirectory() as td:
+            wav_p = Path(td) / 'tone.wav'
+            with wave.open(str(wav_p), 'wb') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(sr)
+                wf.writeframes(struct.pack(f'<{len(samples)}h', *samples))
+            dec = sds.decode_to_24k_mono_pcm16(wav_p)
+            self.assertEqual(len(dec), len(samples))
+
+        encoded, enc_info = sds.encode_samples_to_sds(samples, 930)
+        self.assertEqual(len(encoded), 29760)
+        self.assertGreaterEqual(enc_info['snr_db'], 35.0)
+        ver = sds.verify_sds_bytes(encoded)
+        self.assertEqual(ver['bad_hdr'], 0)
+        self.assertEqual(ver['frames'], 930)
+
+        too_long = [1000] * (930 * 31 + 100)
+        with self.assertRaises(ValueError):
+            sds.encode_samples_to_sds(too_long, 930, trim_lead=False, truncate=False)
+
     def test_multi_charo_local_boot_package_optional_slots(self):
         root = Path(__file__).resolve().parent
         sys.path.insert(0, str(root / 'host-tests'))

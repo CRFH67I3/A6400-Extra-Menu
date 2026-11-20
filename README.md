@@ -23,6 +23,7 @@
 > - **[更新日誌（CHANGELOG.md）](CHANGELOG.md)** — 完整記錄 V0 → V3.9 SSLF 的版本演進、效能數據與實機修復項目。
 > - **[開發與架構細節（docs/開發與架構細節.md）](docs/開發與架構細節.md)** — 完整記錄 V3.1 → V3.9 SSLF 演進脈絡、硬體 `/proc/cpuinfo`（無 NEON）、解碼/編碼/Shell 各階段拆解、`1120-byte` UI 快照 ABI 與 `manifest.json` 欄位說明。
 > - **📦 [前往 GitHub Releases 下載預編譯包（繁體中文正式版 `v3.9-sslf`）](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/latest)**（簡體中文分支見 [`v3.9-sslf-sc`](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/tag/v3.9-sslf-sc)；**請注意：繁體版須將相機系統語言設為「繁體中文」，簡體版須設為「简体中文」以免原廠字型缺字**）
+> - **🔊 自訂快門音效（公開版預設不含音效，`charo=0`）**：公開倉庫與 Release 預設未隨附私人 `.pcm` 音效檔；**AI 或操作者在部署前應先詢問使用者是否需要導入快門音效（最多 3 個 `.mp3`）**——不需要則直接跳過，需要則由 AI 自動轉成 **單聲道 24 kHz Sony 32-byte SDS ADPCM**（`<= 29,760 / 24,768 / 18,560 B`）並完成重建與無需人工干預的一鍵刷入（詳見 [`docs/部署與操作規範.md`](docs/部署與操作規範.md#步驟-0ai部署前必問是否導入自訂快門音效最多-3-個確認後全程自動部署)）。
 
 ---
 

@@ -216,6 +216,29 @@ def verify_uploaded_b64_lines(cam, expected_lines, safe_serial=None):
     return lines_n, bytes_n
 
 
+def check_package_charo_notice(extra_items, assume_yes=False, interactive=None):
+    """Warn (and optionally confirm) when deploying a charo=0 package without custom shutter sounds."""
+    if any(ename == "a6400-charo-shutter.pcm" for _, ename, _, _ in extra_items):
+        return True
+    print(
+        "[!] 注意：此開機包未包含自訂快門音效（charo=0 公開純淨版）。\n"
+        "    - 若不需要自訂快門音，可直接略過並繼續部署。\n"
+        "    - 若需要導入（最多 3 組：0x34<=29760B、0x33<=24768B、0x35<=18560B），\n"
+        "      請先將 MP3 轉為單聲道 24 kHz Sony 32-byte SDS ADPCM 放入 assets/ 並重新建置後再刷入。",
+        flush=True,
+    )
+    if assume_yes:
+        return True
+    is_tty = sys.stdin.isatty() if interactive is None else bool(interactive)
+    if not is_tty:
+        return True
+    ans = input("是否略過快門音效並繼續部署無音效版？[Y/n] ").strip().lower()
+    if ans in ("n", "no"):
+        print("已取消部署；請先備妥 24 kHz Sony SDS ADPCM (.pcm) 並重新打包。", flush=True)
+        return False
+    return True
+
+
 def detect_windows_usb_driver_hint():
     if sys.platform != "win32":
         return ""
@@ -270,6 +293,7 @@ def main():
     parser.add_argument("--rollback", action="store_true", help="Restore .pre-v3c-backup files or remove hook cleanly")
     parser.add_argument("--diag", action="store_true", help="Collect camera diagnostics without modifying flash")
     parser.add_argument("--diag-out", default="", help="Optional output path for --diag report")
+    parser.add_argument("-y", "--yes", action="store_true", help="Skip interactive confirmation prompts")
     serial_group = parser.add_mutually_exclusive_group()
     serial_group.add_argument(
         "--safe-serial",
@@ -405,6 +429,9 @@ def main():
             tgz.add(ep, arcname=ename)
     tgz_bytes = buf.getvalue()
     tgz_sha = hashlib.sha256(tgz_bytes).hexdigest()
+
+    if not check_package_charo_notice(extra_items, assume_yes=args.yes):
+        return
 
     deploy_ok = False
 

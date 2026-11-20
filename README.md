@@ -22,7 +22,7 @@
 > - **[從原始碼建置、部署與操作規範（docs/部署與操作規範.md）](docs/部署與操作規範.md)** — 收錄從源碼交叉編譯、全自動 PMCA 寫入（自動偵測並修補全新機身開機掛勾 `/etc/a6400-autoexec.so`）、`--rollback` / `--diag` 一鍵救援、**SD 卡 `/A6400/CHARO.PCM` 自訂音效**、**日常使用限制（最新資料夾 1,024 張上限／15.94 MiB／exFAT 與 FAT32 皆可用／`/A6400/TEST/`）**，以及 **[第六節完整實戰排雷手冊](docs/部署與操作規範.md#六完整實戰排雷手冊部署過程中所有常見異常與解決對策)**。
 > - **[更新日誌（CHANGELOG.md）](CHANGELOG.md)** — 完整記錄 V0 → V3.9 SSLF 的版本演進、效能數據與實機修復項目。
 > - **[開發與架構細節（docs/開發與架構細節.md）](docs/開發與架構細節.md)** — 完整記錄 V3.1 → V3.9 SSLF 演進脈絡、硬體 `/proc/cpuinfo`（無 NEON）、解碼/編碼/Shell 各階段拆解、`1120-byte` UI 快照 ABI 與 `manifest.json` 欄位說明。
-> - **📦 [前往 GitHub Releases 下載預編譯包](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/latest)**
+> - **📦 [前往 GitHub Releases 下載預編譯包（繁體中文正式版 `v3.9-sslf`）](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/latest)**（簡體中文分支見 [`v3.9-sslf-sc`](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/tag/v3.9-sslf-sc)；**請注意：繁體版須將相機系統語言設為「繁體中文」，簡體版須設為「简体中文」以免原廠字型缺字**）
 
 ---
 

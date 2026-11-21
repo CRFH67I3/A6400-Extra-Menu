@@ -40,18 +40,23 @@ jobs:
           persist-credentials: false
 
       - name: 下載官方 pbatard/libwdi 編譯 wdi-simple.exe
-        shell: cmd
+        shell: pwsh
         run: |
           git clone --depth 1 --branch v1.5.1 https://github.com/pbatard/libwdi.git libwdi
-          cd libwdi
-          curl -L https://go.microsoft.com/fwlink/p/?LinkID=253170 -o wdk-redist.msi
-          curl -L https://github.com/mcuee/libusb-win32/releases/download/release_1.4.0.0/libusb-win32-bin-1.4.0.0.zip -o libusb0-redist.zip
-          curl -L https://github.com/mcuee/libusbk/releases/download/V3.1.0.0/libusbK-3.1.0.0-bin.7z -o libusbk-redist.7z
-          msiexec /a wdk-redist.msi /qn TARGETDIR=%CD%\wdk
-          7z x libusb0-redist.zip
-          7z x libusbk-redist.7z
-          move libusb-win32* libusb0
-          move libusbK* libusbk
+          Set-Location libwdi
+          curl.exe -fL "https://go.microsoft.com/fwlink/p/?LinkID=253170" -o wdk-redist.msi
+          curl.exe -fL "https://github.com/mcuee/libusb-win32/releases/download/release_1.4.0.0/libusb-win32-bin-1.4.0.0.zip" -o libusb0-redist.zip
+          curl.exe -fL "https://github.com/mcuee/libusbk/releases/download/V3.1.0.0/libusbK-3.1.0.0-bin.7z" -o libusbk-redist.7z
+          Start-Process msiexec.exe -Wait -ArgumentList "/a `"$PWD\wdk-redist.msi`" /qn TARGETDIR=`"$PWD\wdk`""
+          7z x libusb0-redist.zip -y | Out-Null
+          7z x libusbk-redist.7z -y | Out-Null
+          Remove-Item -Force libusb0-redist.zip, libusbk-redist.7z, wdk-redist.msi
+          Get-ChildItem -Directory libusb-win32* | Rename-Item -NewName libusb0
+          Get-ChildItem -Directory libusbK* | Rename-Item -NewName libusbk
+          if (-not (Test-Path "libusbk\bin\sys\amd64\libusbK.sys")) {
+            $k = Get-ChildItem -Recurse -Filter "libusbK.sys" | Select-Object -First 1
+            throw "Unexpected libusbk layout; found libusbK.sys at $($k.FullName)"
+          }
 
       - name: 設定 MSBuild
         uses: microsoft/setup-msbuild@v2

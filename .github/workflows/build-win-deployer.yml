@@ -89,18 +89,17 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller libusb requests asn1crypto "axmlparserpy==0.0.4" certifi comtypes pycparser pycryptodomex pyusb pywin32 pyyaml tlslite-ng
+          pip install pyinstaller requests asn1crypto "axmlparserpy==0.0.4" certifi comtypes pycparser pycryptodomex pyusb pywin32 pyyaml tlslite-ng
           git clone --depth 1 https://github.com/ma1co/Sony-PMCA-RE.git pmca-re
-          $libusbDll = (python -c "import libusb, pathlib; p=list(pathlib.Path(libusb.__file__).parent.rglob('libusb-1.0.dll')); print([x for x in p if 'x64' in str(x) or 'x86_64' in str(x)][0])")
           $libusb0Dll = "libwdi\libusb0\bin\amd64\libusb0.dll"
           if (-not (Test-Path $libusb0Dll)) { throw "Missing $libusb0Dll" }
           if (-not (Test-Path "hook-stub.bin")) { throw "Missing hook-stub.bin" }
+          # Bundle ONLY libusb0.dll (not libusb-1.0.dll) so PyUSB talks directly to libusb-win32 (libusb0.sys)
           pyinstaller --onefile --console --name a6400_win_deploy `
             --paths repo/tools --paths pmca-re `
             --hidden-import config `
             --hidden-import build_autoexec_hook `
             --hidden-import usb.backend.libusb0 `
-            --hidden-import usb.backend.libusb1 `
             --collect-submodules pmca `
             --collect-all axmlparserpy `
             --collect-submodules Cryptodome `
@@ -112,13 +111,11 @@ jobs:
             --collect-all usb `
             --add-data "pmca-re/certs;certs" `
             --add-data "hook-stub.bin;." `
-            --add-binary "${libusbDll};." `
             --add-binary "${libusb0Dll};." `
             repo/tools/win_oneclick_entry.py
           New-Item -ItemType Directory -Force -Path stage | Out-Null
           Copy-Item dist\a6400_win_deploy.exe stage\
           Copy-Item libwdi\x64\Release\examples\wdi-simple.exe stage\
-          Copy-Item $libusbDll stage\libusb-1.0.dll
           Copy-Item $libusb0Dll stage\libusb0.dll
 
       - name: 實機環境 Smoke Test (驗證 EXE 與 PMCA / libusb / hook-stub 無缺漏)

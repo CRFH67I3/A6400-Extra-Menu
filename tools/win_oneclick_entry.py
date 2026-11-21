@@ -12,18 +12,17 @@ import win_usb_driver as windrv
 
 
 def run_smoke_test(root, meipass):
-    """Verify bundled PMCA dependencies, libusb backends, and hook-stub.bin inside frozen EXE."""
+    """Verify bundled PMCA dependencies, libusb0 backend, and hook-stub.bin inside frozen EXE."""
     from pmca.commands.usb import senserShellCommand  # noqa: F401
     import usb.backend.libusb0 as b0
-    import usb.backend.libusb1 as b1
 
     stub_candidates = [root / "hook-stub.bin"]
     if meipass:
         stub_candidates.append(Path(meipass) / "hook-stub.bin")
     if not any(p.is_file() for p in stub_candidates):
         raise RuntimeError("Missing bundled hook-stub.bin")
-    if b0.get_backend() is None and b1.get_backend() is None:
-        raise RuntimeError("Neither libusb0 nor libusb1 backend could load")
+    if b0.get_backend() is None:
+        raise RuntimeError("libusb0 backend (libusb0.dll) could not load")
     print("WIN_ONECLICK_SMOKE_OK", flush=True)
 
 

@@ -511,9 +511,11 @@ def main():
         return
 
     deploy_ok = False
+    connected = False
 
     def deploy(cam):
-        nonlocal deploy_ok
+        nonlocal deploy_ok, connected
+        connected = True
         cam.setTerminalEnable(True)
         time.sleep(0.6)
         try:
@@ -544,7 +546,16 @@ def main():
                 must_cmd(cam, step, f"BACKUP_{idx}")
 
             b64 = base64.b64encode(tgz_bytes).decode("ascii")
-            must_cmd(cam, "/bin/busybox umount /tmp_bt/v3c_up 2>/dev/null||true; rm -rf /tmp_bt/v3c_up && mkdir -p /tmp_bt/v3c_up", "PREP_UP_DIR")
+            must_cmd(
+                cam,
+                "/bin/busybox umount /tmp_bt/v3c_up 2>/dev/null||true; rm -rf /tmp_bt/v3c_up 2>/dev/null||true",
+                "CLEAN_UP_DIR",
+            )
+            must_cmd(
+                cam,
+                "mkdir -p /tmp_bt/v3c_up 2>/dev/null || (/bin/busybox mount -t tmpfs -o size=4096k tmpfs /tmp_bt && mkdir -p /tmp_bt/v3c_up)",
+                "PREP_UP_DIR",
+            )
             must_cmd(cam, "/bin/busybox mount -t tmpfs -o size=2048k tmpfs /tmp_bt/v3c_up", "MOUNT_UP_TMPFS")
             must_cmd(cam, ": > /tmp_bt/v3c_up/up.b64", "PREP_UP_FILE")
             chunks = build_upload_chunks(b64, step=120)
@@ -632,7 +643,10 @@ def main():
     try:
         senserShellCommand(driverName="libusb", complete=deploy)
     except Exception as exc:
-        print(format_usb_help(exc, driver_hint=detect_windows_usb_driver_hint()), file=sys.stderr)
+        if connected:
+            print(f"\n[!] 已連線相機，但部署過程發生錯誤：{exc}\n", file=sys.stderr)
+        else:
+            print(format_usb_help(exc, driver_hint=detect_windows_usb_driver_hint()), file=sys.stderr)
         sys.exit(1)
 
     if not deploy_ok:

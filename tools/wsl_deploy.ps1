@@ -28,27 +28,59 @@ function Test-IsAdmin {
 function Invoke-Native {
     param(
         [Parameter(Mandatory = $true)][string]$FilePath,
-        [string[]]$Arguments = @()
+        [string[]]$Arguments = @(),
+        [int]$TimeoutSec = 15
     )
-    $prev = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        $raw = @(& $FilePath @Arguments 2>&1)
-        $code = $LASTEXITCODE
-    } finally {
-        $ErrorActionPreference = $prev
-    }
-    $lines = @()
-    foreach ($item in $raw) {
-        if ($null -ne $item) {
-            $s = ($item.ToString() -replace "`0", "")
-            $lines += $s
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $FilePath
+    $escaped = foreach ($a in $Arguments) {
+        if ($null -eq $a -or $a -eq "") {
+            '""'
+        } elseif ($a -match '[\s"]') {
+            '"' + ($a -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+        } else {
+            $a
         }
     }
-    return [PSCustomObject]@{
-        ExitCode = $code
-        Lines    = $lines
-        Text     = ($lines -join "`n").Trim()
+    $psi.Arguments = ($escaped -join ' ')
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+
+    $proc = New-Object System.Diagnostics.Process
+    $proc.StartInfo = $psi
+    try {
+        [void]$proc.Start()
+        $proc.StandardInput.Close()
+        $outTask = $proc.StandardOutput.ReadToEndAsync()
+        $errTask = $proc.StandardError.ReadToEndAsync()
+
+        if (-not $proc.WaitForExit($TimeoutSec * 1000)) {
+            try { $proc.Kill() } catch {}
+            return [PSCustomObject]@{
+                ExitCode = -1
+                TimedOut = $true
+                Lines    = @()
+                Text     = "TIMEOUT after ${TimeoutSec}s"
+            }
+        }
+        $proc.WaitForExit()
+        $outStr = $outTask.GetAwaiter().GetResult()
+        $errStr = $errTask.GetAwaiter().GetResult()
+        $combined = (($outStr + "`n" + $errStr) -replace "`0", "")
+        $lines = @($combined -split "`r?`n")
+        return [PSCustomObject]@{
+            ExitCode = $proc.ExitCode
+            TimedOut = $false
+            Lines    = $lines
+            Text     = $combined.Trim()
+        }
+    } finally {
+        $proc.Dispose()
     }
 }
 
@@ -89,20 +121,33 @@ function Convert-ToWslPath([string]$WinPath) {
 }
 
 function Test-WslReady {
+    $build = [Environment]::OSVersion.Version.Build
+    if ($build -ge 22000) {
+        # On Windows 11, check on-disk MSI or Store MSIX first so we NEVER invoke the blocking inbox stub ("Press any key to install")
+        $hasMsi = (Test-Path "C:\Program Files\WSL\wsl.exe") -or (Test-Path (Join-Path $env:ProgramFiles "WSL\wsl.exe"))
+        $hasAppx = $false
+        if (-not $hasMsi) {
+            try {
+                $pkg = Get-AppxPackage -Name "MicrosoftCorporationII.WindowsSubsystemForLinux" -ErrorAction SilentlyContinue
+                if ($pkg) { $hasAppx = $true }
+            } catch {}
+        }
+        if (-not $hasMsi -and -not $hasAppx) {
+            return $false
+        }
+    }
+
     $wsl = Find-WslExe
     if (-not (Test-Path $wsl)) { return $false }
 
-    # Modern WSL2 (Win11 / Win10 Store or MSI): --version returns 0 and never asks for --update
-    $ver = Invoke-Native -FilePath $wsl -Arguments @("--version")
-    if ($ver.ExitCode -eq 0 -and $ver.Text -and ($ver.Text -notmatch "--update")) {
+    $ver = Invoke-Native -FilePath $wsl -Arguments @("--version") -TimeoutSec 8
+    if (-not $ver.TimedOut -and $ver.ExitCode -eq 0 -and $ver.Text -and ($ver.Text -notmatch "--update")) {
         return $true
     }
 
-    # Legacy Win10 inbox WSL2 fallback (Build < 22000)
-    $build = [Environment]::OSVersion.Version.Build
     if ($build -lt 22000) {
-        $st = Invoke-Native -FilePath $wsl -Arguments @("--status")
-        if ($st.ExitCode -eq 0 -and ($st.Text -notmatch "--update")) {
+        $st = Invoke-Native -FilePath $wsl -Arguments @("--status") -TimeoutSec 8
+        if (-not $st.TimedOut -and $st.ExitCode -eq 0 -and ($st.Text -notmatch "--update")) {
             return $true
         }
     }
@@ -111,8 +156,8 @@ function Test-WslReady {
 
 function Get-WslDistros {
     $wsl = Find-WslExe
-    $res = Invoke-Native -FilePath $wsl -Arguments @("-l", "-q")
-    if ($res.ExitCode -ne 0) { return @() }
+    $res = Invoke-Native -FilePath $wsl -Arguments @("-l", "-q") -TimeoutSec 10
+    if ($res.TimedOut -or $res.ExitCode -ne 0) { return @() }
     $list = @()
     foreach ($line in $res.Lines) {
         $clean = $line.Trim()
@@ -128,13 +173,15 @@ function Install-FullWslMsiFromMirror {
     $urls = @(
         "https://gh-proxy.com/https://github.com/microsoft/WSL/releases/download/2.4.13/wsl.2.4.13.0.x64.msi",
         "https://ghfast.top/https://github.com/microsoft/WSL/releases/download/2.4.13/wsl.2.4.13.0.x64.msi",
+        "https://ghproxy.net/https://github.com/microsoft/WSL/releases/download/2.4.13/wsl.2.4.13.0.x64.msi",
         "https://github.com/microsoft/WSL/releases/download/2.4.13/wsl.2.4.13.0.x64.msi"
     )
     if (-not (Test-Path $cachedMsi) -or ((Get-Item $cachedMsi).Length -lt 100MB)) {
         New-Item -ItemType Directory -Force -Path $OfflineDir | Out-Null
         $downloaded = $false
         foreach ($u in $urls) {
-            Write-Host "[*] 嘗試下載微軟官方簽章 WSL2 安裝檔：$u"
+            Write-Host "[*] 正在從國內高速鏡像下載微軟官方簽章 WSL2 引擎 (約 196 MB，下載後會自動快取)："
+            Write-Host "    $u"
             $tmp = "$cachedMsi.part"
             Remove-Item -Force $tmp -ErrorAction SilentlyContinue
             $curlExe = Get-Command curl.exe -ErrorAction SilentlyContinue
@@ -162,15 +209,21 @@ function Install-FullWslMsiFromMirror {
                     }
                 } catch {}
             }
+            Write-Host "[!] 此鏡像下載失敗，自動切換下一個鏡像..." -ForegroundColor Yellow
             Remove-Item -Force $tmp -ErrorAction SilentlyContinue
         }
         if (-not $downloaded) {
             return $false
         }
     }
-    Write-Host "[*] 正在安裝微軟官方 WSL2 MSI ($cachedMsi)..."
+    Write-Host "[*] 正在靜默安裝微軟官方簽章 WSL2 MSI ($cachedMsi)，請稍候約 15~30 秒..."
     $p = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$cachedMsi`" /qn /norestart" -Wait -PassThru
-    return ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010)
+    if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) {
+        Write-Host "[+] 微軟官方 WSL2 MSI 安裝完成 (rc=$($p.ExitCode))"
+        return $true
+    }
+    Write-Host "[!] WSL2 MSI 安裝返回代碼 $($p.ExitCode)" -ForegroundColor Yellow
+    return $false
 }
 
 function Ensure-Wsl2Offline {
@@ -180,7 +233,7 @@ function Ensure-Wsl2Offline {
         return
     }
 
-    Write-Host "[*] 尚未就緒，正在啟用 Windows 虛擬機器平台與 WSL 功能（免聯網）..."
+    Write-Host "[*] 尚未就緒，正在確認 Windows 虛擬機器平台與 WSL 功能..."
     $needReboot = $false
     foreach ($feat in @("VirtualMachinePlatform", "Microsoft-Windows-Subsystem-Linux")) {
         $proc = Start-Process -FilePath "dism.exe" -ArgumentList "/online /enable-feature /featurename:$feat /all /norestart" -Wait -PassThru -NoNewWindow
@@ -201,31 +254,18 @@ function Ensure-Wsl2Offline {
         if ($pFull.ExitCode -eq 3010) { $needReboot = $true }
     }
 
-    # 2. On Windows 11 (Build >= 22000) and modern Win10, run official `wsl.exe --update` (uses MS Store domestic CDN, fast in China)
+    # 2. On Windows 11 (Build >= 22000), install official signed WSL 2.4.13 MSI via fast China mirrors (cached in offline\, works even without MS Store / LTSC!)
     if (-not (Test-WslReady)) {
         $build = [Environment]::OSVersion.Version.Build
         if ($build -ge 22000) {
-            Write-Host "[*] Windows 11 需安裝新版 WSL2 引擎，正在執行微軟官方 wsl.exe --update（國內直連微軟 CDN，免翻牆）..."
-            $prev = $ErrorActionPreference
-            $ErrorActionPreference = "Continue"
-            try {
-                & (Find-WslExe) --update
-                $updRc = $LASTEXITCODE
-            } finally {
-                $ErrorActionPreference = $prev
-            }
-            if ($updRc -eq 0) {
+            Write-Host "[*] Windows 11 尚未安裝新版 WSL2 引擎，正在透過國內加速鏡像自動補裝微軟官方 WSL2 MSI（免微軟商店、免翻牆）..."
+            if (Install-FullWslMsiFromMirror) {
                 Start-Sleep -Seconds 2
             }
-        }
-    }
-
-    # 3. Fallback for stripped/LTSC Win11 without Microsoft Store: auto-download signed WSL 2.4.13 MSI via China mirror
-    if (-not (Test-WslReady)) {
-        $build = [Environment]::OSVersion.Version.Build
-        if ($build -ge 22000) {
-            Write-Host "[*] 微軟商店更新未完成，改由國內加速鏡像自動補裝官方 WSL2 MSI（下載後會快取於 offline\）..."
-            if (Install-FullWslMsiFromMirror) {
+            if (-not (Test-WslReady)) {
+                Write-Host "[*] 嘗試改用微軟內建 wsl.exe --update..."
+                $upd = Invoke-Native -FilePath (Find-WslExe) -Arguments @("--update") -TimeoutSec 90
+                if ($upd.Text) { Write-Host $upd.Text }
                 Start-Sleep -Seconds 2
             }
         } elseif (Test-Path $WslMsi) {
@@ -248,14 +288,13 @@ function Ensure-Wsl2Offline {
     if (-not (Test-WslReady)) {
         Write-Host ""
         Write-Host "[!] WSL2 尚未完成初始化。" -ForegroundColor Yellow
-        Write-Host "    可能原因：" -ForegroundColor Yellow
-        Write-Host "    1. 剛啟用 Windows 虛擬機器平台，請「重新開機一次」後再雙擊「一鍵開始安裝.bat」。" -ForegroundColor Yellow
-        Write-Host "    2. 或請手動在系統管理員終端機執行：wsl --update" -ForegroundColor Yellow
-        Write-Host "    3. 若完全斷網環境，請將 wsl.2.4.13.0.x64.msi 放進本資料夾的 offline\ 內再重試。" -ForegroundColor Yellow
+        Write-Host "    請嘗試：" -ForegroundColor Yellow
+        Write-Host "    1. 重新開機一次後再雙擊「一鍵開始安裝.bat」。" -ForegroundColor Yellow
+        Write-Host "    2. 或手動將 wsl.2.4.13.0.x64.msi 放進本資料夾的 offline\ 內再重試。" -ForegroundColor Yellow
         exit 1
     }
 
-    Invoke-Native -FilePath (Find-WslExe) -Arguments @("--set-default-version", "2") | Out-Null
+    Invoke-Native -FilePath (Find-WslExe) -Arguments @("--set-default-version", "2") -TimeoutSec 10 | Out-Null
     Write-Host "[+] WSL2 已就緒 ($(Find-WslExe))"
 }
 
@@ -297,7 +336,7 @@ function Ensure-AlpineDistro {
         }
         Write-Host "[*] 正在匯入極輕量 Alpine Linux 部署環境 ($DistroName)，約需 3~5 秒..."
         New-Item -ItemType Directory -Force -Path $InstallBase | Out-Null
-        $imp = Invoke-Native -FilePath $wsl -Arguments @("--import", $DistroName, $InstallBase, $RootfsTar, "--version", "2")
+        $imp = Invoke-Native -FilePath $wsl -Arguments @("--import", $DistroName, $InstallBase, $RootfsTar, "--version", "2") -TimeoutSec 120
         if ($imp.ExitCode -ne 0) {
             if ($imp.Text) { Write-Host $imp.Text -ForegroundColor Yellow }
             throw "匯入 $DistroName 失敗 (rc=$($imp.ExitCode))。若電腦剛開啟 WSL2，請先重新開機一次並確認 BIOS 已開啟虛擬化（VT-x / SVM）。"
@@ -308,7 +347,7 @@ function Ensure-AlpineDistro {
     }
 
     # Boot lightweight WSL2 VM and verify USB/IP vhci_hcd kernel support
-    $boot = Invoke-Native -FilePath $wsl -Arguments @("-d", $DistroName, "--", "/bin/sh", "-c", "test -e /sys/devices/platform/vhci_hcd.0/status || modprobe vhci-hcd 2>/dev/null || true")
+    $boot = Invoke-Native -FilePath $wsl -Arguments @("-d", $DistroName, "--", "/bin/sh", "-c", "test -e /sys/devices/platform/vhci_hcd.0/status || modprobe vhci-hcd 2>/dev/null || true") -TimeoutSec 30
     if ($boot.ExitCode -ne 0) {
         if ($boot.Text) { Write-Host $boot.Text -ForegroundColor Yellow }
         throw "無法啟動 $DistroName (rc=$($boot.ExitCode))，請確認電腦已重新開機並開啟 BIOS 虛擬化（VT-x / SVM）。"

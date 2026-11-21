@@ -71,9 +71,9 @@ enabled = false
 appendWindowsPath = false
 EOF
 
-# Smoke test inside the Alpine container
+# Smoke test inside the Alpine container (verifies pyusb library loader without requiring host /dev/bus/usb)
 python3 - <<PY
-import sys
+import sys, ctypes, ctypes.util
 sys.path.insert(0, "/opt/pmca-re")
 sys.path.insert(0, "/opt/a6400")
 from pmca.commands.usb import senserShellCommand
@@ -81,8 +81,11 @@ import usb.core, usb.backend.libusb1
 import pmca_deploy_v3_clite, build_autoexec_hook
 from pathlib import Path
 assert Path("/opt/a6400/hook-stub.bin").is_file()
-assert usb.backend.libusb1.get_backend() is not None, "libusb1 backend failed to load"
-print("ALPINE_WSL_SMOKE_OK")
+lib_path = ctypes.util.find_library("usb-1.0")
+assert lib_path, "ctypes.util.find_library('usb-1.0') returned None"
+lib = usb.backend.libusb1._load_library()
+assert lib is not None and hasattr(lib, "libusb_init"), "pyusb libusb1 _load_library failed"
+print("ALPINE_WSL_SMOKE_OK", lib_path)
 PY
 '
 

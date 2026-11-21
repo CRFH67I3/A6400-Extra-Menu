@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Windows libusb-win32 driver automation (via wdi-simple.exe) and pnputil restore for Sony A6400/A6100."""
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -14,7 +15,7 @@ MASS_STORAGE_PIDS = (0x0CA8, 0x0D12)  # A6400 (0CA8), A6100 (0D12)
 SERVICE_PID = 0x0336
 
 
-def build_wdi_simple_cmd(wdi_exe, vid, pid, name, dest_dir=None, timeout_ms=30000):
+def build_wdi_simple_cmd(wdi_exe, vid, pid, name, dest_dir=None, timeout_ms=60000):
     """Build wdi-simple.exe command using --type 1 (libusb-win32, required by Sony-PMCA-RE)."""
     cmd = [
         str(wdi_exe),
@@ -27,6 +28,21 @@ def build_wdi_simple_cmd(wdi_exe, vid, pid, name, dest_dir=None, timeout_ms=3000
     if dest_dir:
         cmd.extend(["--dest", str(dest_dir)])
     return cmd
+
+
+def make_ascii_wdi_tmpdir():
+    """Create a pure-ASCII temp directory for wdi-simple --dest (avoids CJK username issues in libwdi ANSI argv)."""
+    if sys.platform == "win32":
+        sys_root = os.environ.get("SystemRoot", r"C:\Windows")
+        win_tmp = Path(sys_root) / "Temp"
+        try:
+            win_tmp.mkdir(parents=True, exist_ok=True)
+            cand = tempfile.mkdtemp(prefix="a6400_wdi_", dir=str(win_tmp))
+            if cand.isascii():
+                return cand
+        except Exception:
+            pass
+    return tempfile.mkdtemp(prefix="a6400_wdi_")
 
 
 def parse_pnputil_connected_sony_pids(enum_devices_text):
@@ -125,26 +141,39 @@ def wait_for_sony_pid(target_pid, wait_sec=10.0):
     return target_pid in find_connected_sony_pids() or is_libusb_win32_ready(target_pid)
 
 
+def _print_wdi_troubleshoot_hint(pid):
+    print(
+        f"[!] 自動安裝驅動 (054C:{pid:04X}) 未成功，常見排查方式：\n"
+        "    1. 暫時退出 360 / 火絨 / 電腦管家等安全軟體（可能攔截 libusb-win32 驅動寫入）\n"
+        "    2. Win11 進「Windows 安全性 -> 裝置安全性 -> 核心隔離」確認暫時關閉「記憶體完整性」\n"
+        "    3. 改插主機板後方 USB 孔（勿經擴充塢/Hub），相機重插後靜置 8 秒\n"
+        "    4. 先執行「一鍵還原預設讀卡機.bat」清理舊驅動，再將相機拔線關機重開後重試",
+        flush=True,
+    )
+
+
 def run_wdi_install(wdi_exe, pid, name):
     if is_libusb_win32_ready(pid):
         print(f"[+] 偵測到 libusb-win32 驅動已就緒 (054C:{pid:04X})，略過重複安裝", flush=True)
         return True
     kill_stale_wdi_processes()
-    tmpdir = tempfile.mkdtemp(prefix="a6400_wdi_")
+    tmpdir = make_ascii_wdi_tmpdir()
     try:
         cmd = build_wdi_simple_cmd(wdi_exe, SONY_VID, pid, name, dest_dir=tmpdir)
-        print(f"[*] 正在自動綁定 libusb-win32 驅動 (054C:{pid:04X})，請稍候 10~30 秒...", flush=True)
+        print(f"[*] 正在自動綁定 libusb-win32 驅動 (054C:{pid:04X})，請稍候 10~40 秒...", flush=True)
         try:
-            proc = subprocess.run(cmd, timeout=90, check=False)
+            proc = subprocess.run(cmd, timeout=95, check=False)
         except subprocess.TimeoutExpired:
             kill_stale_wdi_processes()
-            print(f"[!] wdi-simple (054C:{pid:04X}) 逾時 90 秒，已清理背景殘留程序。", flush=True)
+            print(f"[!] wdi-simple (054C:{pid:04X}) 逾時 95 秒，已清理背景殘留程序。", flush=True)
+            _print_wdi_troubleshoot_hint(pid)
             return False
         if proc.returncode != 0:
             if is_libusb_win32_ready(pid):
                 print(f"[+] libusb-win32 驅動已可用 (054C:{pid:04X})", flush=True)
                 return True
             print(f"[!] wdi-simple (054C:{pid:04X}) 返回 rc={proc.returncode}", flush=True)
+            _print_wdi_troubleshoot_hint(pid)
             return False
         print(f"[+] 驅動綁定完成 (054C:{pid:04X})", flush=True)
         return True

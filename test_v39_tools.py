@@ -192,6 +192,34 @@ class V39ToolsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             sds.encode_samples_to_sds(too_long, 930, trim_lead=False, truncate=False)
 
+    def test_win_usb_driver_uses_libusb_win32_and_parses_pnputil(self):
+        import win_usb_driver as windrv
+
+        cmd = windrv.build_wdi_simple_cmd('wdi-simple.exe', 0x054C, 0x0336, 'Sony Camera Service')
+        self.assertEqual(cmd, [
+            'wdi-simple.exe', '--vid', '0x054C', '--pid', '0x0336', '--type', '1', '--name', 'Sony Camera Service',
+        ])
+
+        sample_pnputil = """
+Microsoft PnP Utility
+
+Published Name :            oem14.inf
+Original Name :             sony_camera_a6400_mass_storage_(libusb-win32).inf
+Provider Name :             libusb-win32
+Class Name :                libusb-win32 devices
+
+Published Name :            oem22.inf
+Original Name :             nv_dispi.inf
+Provider Name :             NVIDIA
+Class Name :                Display adapters
+
+Published Name :            oem31.inf
+Original Name :             sony_camera_service_mode_(libusb-win32).inf
+Provider Name :             libusb-win32
+Class Name :                libusb-win32 devices
+"""
+        self.assertEqual(windrv.parse_pnputil_sony_libusb_infs(sample_pnputil), ['oem14.inf', 'oem31.inf'])
+
     def test_multi_charo_local_boot_package_optional_slots(self):
         root = Path(__file__).resolve().parent
         sys.path.insert(0, str(root / 'host-tests'))

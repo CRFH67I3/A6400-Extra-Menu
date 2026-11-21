@@ -1,0 +1,164 @@
+name: 建置 Windows 免 Zadig 一鍵包
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "要打包進 Windows 一鍵包的 Release 標籤（例如 v3.9-sslf 或 v3.9-sslf-sc）"
+        required: true
+        default: "v3.9-sslf"
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  verify-source:
+    name: 源碼與工具檢查
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -p 'test_*.py' -v
+      - run: python3 tools/check_public_tree.py
+
+  build-win-package:
+    name: 編譯 wdi-simple + PyInstaller 單檔並打包 V3.9 SSLF
+    needs: verify-source
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: 取得本專案源碼
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: repo
+          persist-credentials: false
+
+      - name: 下載官方 pbatard/libwdi 編譯 wdi-simple.exe
+        shell: cmd
+        run: |
+          git clone --depth 1 --branch v1.5.1 https://github.com/pbatard/libwdi.git libwdi
+          cd libwdi
+          curl -L https://go.microsoft.com/fwlink/p/?LinkID=253170 -o wdk-redist.msi
+          curl -L https://github.com/mcuee/libusb-win32/releases/download/release_1.4.0.0/libusb-win32-bin-1.4.0.0.zip -o libusb0-redist.zip
+          curl -L https://github.com/mcuee/libusbk/releases/download/V3.1.0.0/libusbK-3.1.0.0-bin.7z -o libusbk-redist.7z
+          msiexec /a wdk-redist.msi /qn TARGETDIR=%CD%\wdk
+          7z x libusb0-redist.zip
+          7z x libusbk-redist.7z
+          move libusb-win32* libusb0
+          move libusbK* libusbk
+
+      - name: 設定 MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: 編譯 wdi-simple.exe (x64 Release)
+        shell: cmd
+        run: |
+          cd libwdi
+          msbuild libwdi.sln /m /t:wdi-simple /p:Configuration=Release,Platform=x64,BuildMacros="\"WDK_DIR=\\\"../wdk/Windows Kits/8.0\\\";LIBUSB0_DIR=\\\"../libusb0\\\";LIBUSBK_DIR=\\\"../libusbk/bin\\\"\""
+
+      - name: 設定 Python 並打包 a6400_win_deploy.exe
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安裝 PyInstaller 與相依套件並建立單檔執行檔
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pyusb libusb pycryptodomex requests
+          git clone --depth 1 https://github.com/ma1co/Sony-PMCA-RE.git pmca-re
+          $libusbDll = (python -c "import libusb, pathlib; p=list(pathlib.Path(libusb.__file__).parent.rglob('libusb-1.0.dll')); print([x for x in p if 'x64' in str(x) or 'x86_64' in str(x)][0])")
+          pyinstaller --onefile --console --name a6400_win_deploy `
+            --paths repo/tools --paths pmca-re `
+            --collect-submodules pmca `
+            --collect-all usb `
+            --add-binary "${libusbDll};." `
+            repo/tools/win_oneclick_entry.py
+          New-Item -ItemType Directory -Force -Path stage | Out-Null
+          Copy-Item dist\a6400_win_deploy.exe stage\
+          Copy-Item libwdi\x64\Release\examples\wdi-simple.exe stage\
+          Copy-Item $libusbDll stage\libusb-1.0.dll
+
+      - name: 整合 Release V3.9 SSLF 開機包與 Windows 一鍵腳本
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+        run: |
+          $relJson = gh release view $env:TAG --repo ${{ github.repository }} --json assets | ConvertFrom-Json
+          $asset = $relJson.assets | Where-Object { $_.name -like "A6400-V3.9*OneClick*.zip" -and $_.name -notlike "*Win-ZeroConfig*" } | Select-Object -First 1
+          if (-not $asset) { throw "No matching OneClick zip in release $env:TAG" }
+          gh release download $env:TAG --repo ${{ github.repository }} --pattern $asset.name -D dl
+          Expand-Archive -Path ("dl/" + $asset.name) -DestinationPath dl_ext
+          $pkgDir = Get-ChildItem -Path dl_ext -Directory -Recurse -Filter "local-boot-package" | Select-Object -First 1
+          if (-not $pkgDir) { throw "local-boot-package not found inside release zip" }
+          Copy-Item -Recurse $pkgDir.FullName stage\local-boot-package
+          $hookFile = Get-ChildItem -Path dl_ext -File -Recurse -Filter "a6400-autoexec.so" | Select-Object -First 1
+          if ($hookFile) { Copy-Item $hookFile.FullName stage\a6400-autoexec.so }
+
+          @'
+          @echo off
+          chcp 65001 >nul
+          net session >nul 2>&1
+          if %errorlevel% neq 0 (
+            powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+            exit /b
+          )
+          cd /d "%~dp0"
+          echo ========================================================
+          echo   A6400 / A6100 Windows 免 Zadig 一鍵部署工具
+          echo   1. 請確認相機已設為：USB連線 = 大容量儲存
+          echo   2. 插上 USB 傳輸線並靜置 8 秒後按任意鍵開始
+          echo ========================================================
+          pause
+          a6400_win_deploy.exe
+          echo.
+          echo 如需將相機變回正常讀卡機，請雙擊「一鍵還原預設讀卡機.bat」。
+          pause
+          '@ | Set-Content -Encoding UTF8 stage\一鍵開始安裝.bat
+
+          @'
+          @echo off
+          chcp 65001 >nul
+          net session >nul 2>&1
+          if %errorlevel% neq 0 (
+            powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+            exit /b
+          )
+          cd /d "%~dp0"
+          a6400_win_deploy.exe --restore-driver
+          pause
+          '@ | Set-Content -Encoding UTF8 stage\一鍵還原預設讀卡機.bat
+
+          @'
+          @echo off
+          chcp 65001 >nul
+          net session >nul 2>&1
+          if %errorlevel% neq 0 (
+            powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+            exit /b
+          )
+          cd /d "%~dp0"
+          a6400_win_deploy.exe --rollback
+          pause
+          '@ | Set-Content -Encoding UTF8 stage\一鍵回滾還原原廠.bat
+
+          $zipName = "A6400-A6100-$($env:TAG)-Win-ZeroConfig.zip"
+          Compress-Archive -Path stage\* -DestinationPath $zipName -Force
+          echo "OUT_ZIP=$zipName" >> $env:GITHUB_ENV
+
+      - name: 上傳 Actions 產物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.OUT_ZIP }}
+          path: ${{ env.OUT_ZIP }}
+
+      - name: 若由 Release 觸發則自動附加到 Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload ${{ github.event.release.tag_name }} ${{ env.OUT_ZIP }} --clobber

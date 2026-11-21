@@ -6,6 +6,7 @@
 )
 
 $ErrorActionPreference = "Stop"
+$env:WSL_UTF8 = "1"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
@@ -22,6 +23,46 @@ function Test-IsAdmin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     $p = New-Object Security.Principal.WindowsPrincipal($id)
     return $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Invoke-Native {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string[]]$Arguments = @()
+    )
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $raw = @(& $FilePath @Arguments 2>&1)
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+    $lines = @()
+    foreach ($item in $raw) {
+        if ($null -ne $item) {
+            $s = ($item.ToString() -replace "`0", "")
+            $lines += $s
+        }
+    }
+    return [PSCustomObject]@{
+        ExitCode = $code
+        Lines    = $lines
+        Text     = ($lines -join "`n").Trim()
+    }
+}
+
+function Find-WslExe {
+    $candidates = @(
+        "C:\Program Files\WSL\wsl.exe",
+        (Join-Path $env:ProgramFiles "WSL\wsl.exe")
+    )
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path $c)) { return $c }
+    }
+    $cmd = Get-Command wsl.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    return "C:\Windows\System32\wsl.exe"
 }
 
 function Find-UsbipdExe {
@@ -47,54 +88,175 @@ function Convert-ToWslPath([string]$WinPath) {
     throw "無法轉換 Windows 路徑至 WSL：$full"
 }
 
+function Test-WslReady {
+    $wsl = Find-WslExe
+    if (-not (Test-Path $wsl)) { return $false }
+
+    # Modern WSL2 (Win11 / Win10 Store or MSI): --version returns 0 and never asks for --update
+    $ver = Invoke-Native -FilePath $wsl -Arguments @("--version")
+    if ($ver.ExitCode -eq 0 -and $ver.Text -and ($ver.Text -notmatch "--update")) {
+        return $true
+    }
+
+    # Legacy Win10 inbox WSL2 fallback (Build < 22000)
+    $build = [Environment]::OSVersion.Version.Build
+    if ($build -lt 22000) {
+        $st = Invoke-Native -FilePath $wsl -Arguments @("--status")
+        if ($st.ExitCode -eq 0 -and ($st.Text -notmatch "--update")) {
+            return $true
+        }
+    }
+    return $false
+}
+
 function Get-WslDistros {
-    $raw = & wsl.exe -l -q 2>$null
-    if (-not $raw) { return @() }
+    $wsl = Find-WslExe
+    $res = Invoke-Native -FilePath $wsl -Arguments @("-l", "-q")
+    if ($res.ExitCode -ne 0) { return @() }
     $list = @()
-    foreach ($line in $raw) {
-        $clean = ($line -replace "`0", "").Trim()
-        if ($clean) { $list += $clean }
+    foreach ($line in $res.Lines) {
+        $clean = $line.Trim()
+        if ($clean -and ($clean -notmatch "--update")) {
+            $list += $clean
+        }
     }
     return $list
 }
 
+function Install-FullWslMsiFromMirror {
+    $cachedMsi = Join-Path $OfflineDir "wsl.2.4.13.0.x64.msi"
+    $urls = @(
+        "https://gh-proxy.com/https://github.com/microsoft/WSL/releases/download/2.4.13/wsl.2.4.13.0.x64.msi",
+        "https://ghfast.top/https://github.com/microsoft/WSL/releases/download/2.4.13/wsl.2.4.13.0.x64.msi",
+        "https://github.com/microsoft/WSL/releases/download/2.4.13/wsl.2.4.13.0.x64.msi"
+    )
+    if (-not (Test-Path $cachedMsi) -or ((Get-Item $cachedMsi).Length -lt 100MB)) {
+        New-Item -ItemType Directory -Force -Path $OfflineDir | Out-Null
+        $downloaded = $false
+        foreach ($u in $urls) {
+            Write-Host "[*] 嘗試下載微軟官方簽章 WSL2 安裝檔：$u"
+            $tmp = "$cachedMsi.part"
+            Remove-Item -Force $tmp -ErrorAction SilentlyContinue
+            $curlExe = Get-Command curl.exe -ErrorAction SilentlyContinue
+            if ($curlExe) {
+                $prev = $ErrorActionPreference
+                $ErrorActionPreference = "Continue"
+                try {
+                    & curl.exe -fL --connect-timeout 15 --max-time 600 -# -o $tmp $u
+                    $rc = $LASTEXITCODE
+                } finally {
+                    $ErrorActionPreference = $prev
+                }
+                if ($rc -eq 0 -and (Test-Path $tmp) -and ((Get-Item $tmp).Length -gt 100MB)) {
+                    Move-Item -Force $tmp $cachedMsi
+                    $downloaded = $true
+                    break
+                }
+            } else {
+                try {
+                    Invoke-WebRequest -Uri $u -OutFile $tmp -UseBasicParsing -TimeoutSec 600
+                    if ((Test-Path $tmp) -and ((Get-Item $tmp).Length -gt 100MB)) {
+                        Move-Item -Force $tmp $cachedMsi
+                        $downloaded = $true
+                        break
+                    }
+                } catch {}
+            }
+            Remove-Item -Force $tmp -ErrorAction SilentlyContinue
+        }
+        if (-not $downloaded) {
+            return $false
+        }
+    }
+    Write-Host "[*] 正在安裝微軟官方 WSL2 MSI ($cachedMsi)..."
+    $p = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$cachedMsi`" /qn /norestart" -Wait -PassThru
+    return ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010)
+}
+
 function Ensure-Wsl2Offline {
     Write-Host "[*] 檢查 Windows WSL2 環境..."
-    $wslOk = $false
-    try {
-        & wsl.exe --status *> $null
-        if ($LASTEXITCODE -eq 0) { $wslOk = $true }
-    } catch {}
+    if (Test-WslReady) {
+        Write-Host "[+] WSL2 已就緒 ($(Find-WslExe))"
+        return
+    }
 
-    if (-not $wslOk) {
-        Write-Host "[*] 尚未啟用 WSL2，正在使用 Windows 本機離線功能開啟 WSL2 與虛擬機器平台（免聯網）..."
-        $needReboot = $false
-        foreach ($feat in @("Microsoft-Windows-Subsystem-Linux", "VirtualMachinePlatform")) {
-            $proc = Start-Process -FilePath "dism.exe" -ArgumentList "/online /enable-feature /featurename:$feat /all /norestart" -Wait -PassThru -NoNewWindow
-            if ($proc.ExitCode -eq 3010) {
-                $needReboot = $true
-            } elseif ($proc.ExitCode -ne 0) {
-                Write-Host "[!] 啟用 Windows 功能 $feat 返回代碼 $($proc.ExitCode)，請確認 BIOS 已開啟虛擬化（VT-x / SVM）。" -ForegroundColor Yellow
+    Write-Host "[*] 尚未就緒，正在啟用 Windows 虛擬機器平台與 WSL 功能（免聯網）..."
+    $needReboot = $false
+    foreach ($feat in @("VirtualMachinePlatform", "Microsoft-Windows-Subsystem-Linux")) {
+        $proc = Start-Process -FilePath "dism.exe" -ArgumentList "/online /enable-feature /featurename:$feat /all /norestart" -Wait -PassThru -NoNewWindow
+        if ($proc.ExitCode -eq 3010) {
+            $needReboot = $true
+        } elseif ($proc.ExitCode -ne 0) {
+            Write-Host "[!] 啟用 Windows 功能 $feat 返回代碼 $($proc.ExitCode)，請確認 BIOS 已開啟虛擬化（VT-x / SVM）。" -ForegroundColor Yellow
+        }
+    }
+
+    # 1. If a full modern offline WSL MSI (e.g. wsl.2.x.x.x.x64.msi) exists in offline\, install it directly
+    $fullMsi = Get-ChildItem -Path $OfflineDir -Filter "wsl*.x64.msi" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne "wsl_update_x64.msi" -and $_.Length -gt 80MB } |
+        Select-Object -First 1
+    if ($fullMsi) {
+        Write-Host "[*] 偵測到本機完整離線 WSL2 安裝檔 ($($fullMsi.Name))，正在離線安裝..."
+        $pFull = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$($fullMsi.FullName)`" /qn /norestart" -Wait -PassThru
+        if ($pFull.ExitCode -eq 3010) { $needReboot = $true }
+    }
+
+    # 2. On Windows 11 (Build >= 22000) and modern Win10, run official `wsl.exe --update` (uses MS Store domestic CDN, fast in China)
+    if (-not (Test-WslReady)) {
+        $build = [Environment]::OSVersion.Version.Build
+        if ($build -ge 22000) {
+            Write-Host "[*] Windows 11 需安裝新版 WSL2 引擎，正在執行微軟官方 wsl.exe --update（國內直連微軟 CDN，免翻牆）..."
+            $prev = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+                & (Find-WslExe) --update
+                $updRc = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $prev
+            }
+            if ($updRc -eq 0) {
+                Start-Sleep -Seconds 2
             }
         }
-        if (Test-Path $WslMsi) {
-            Write-Host "[*] 正在離線安裝微軟官方 WSL2 核心套件 (wsl_update_x64.msi)..."
+    }
+
+    # 3. Fallback for stripped/LTSC Win11 without Microsoft Store: auto-download signed WSL 2.4.13 MSI via China mirror
+    if (-not (Test-WslReady)) {
+        $build = [Environment]::OSVersion.Version.Build
+        if ($build -ge 22000) {
+            Write-Host "[*] 微軟商店更新未完成，改由國內加速鏡像自動補裝官方 WSL2 MSI（下載後會快取於 offline\）..."
+            if (Install-FullWslMsiFromMirror) {
+                Start-Sleep -Seconds 2
+            }
+        } elseif (Test-Path $WslMsi) {
+            Write-Host "[*] 正在離線安裝微軟官方 Win10 WSL2 核心套件 (wsl_update_x64.msi)..."
             $p2 = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$WslMsi`" /qn /norestart" -Wait -PassThru
             if ($p2.ExitCode -eq 3010) { $needReboot = $true }
         }
-        if ($needReboot) {
-            Write-Host ""
-            Write-Host "========================================================" -ForegroundColor Green
-            Write-Host "  [+] 已完成離線啟用 WSL2 與安裝微軟 WSL2 核心！" -ForegroundColor Green
-            Write-Host "  [!] Windows 需要「重新開機一次」讓虛擬機器平台生效。" -ForegroundColor Yellow
-            Write-Host "  請重新開機後，再次雙擊「一鍵開始安裝.bat」即可直接刷機！" -ForegroundColor Yellow
-            Write-Host "========================================================" -ForegroundColor Green
-            exit 0
-        }
-        try { & wsl.exe --set-default-version 2 *> $null } catch {}
-    } else {
-        Write-Host "[+] WSL2 已就緒"
     }
+
+    if ($needReboot) {
+        Write-Host ""
+        Write-Host "========================================================" -ForegroundColor Green
+        Write-Host "  [+] 已完成啟用 WSL2 與安裝微軟 WSL2 引擎！" -ForegroundColor Green
+        Write-Host "  [!] Windows 需要「重新開機一次」讓虛擬機器平台生效。" -ForegroundColor Yellow
+        Write-Host "  請重新開機後，再次雙擊「一鍵開始安裝.bat」即可直接刷機！" -ForegroundColor Yellow
+        Write-Host "========================================================" -ForegroundColor Green
+        exit 0
+    }
+
+    if (-not (Test-WslReady)) {
+        Write-Host ""
+        Write-Host "[!] WSL2 尚未完成初始化。" -ForegroundColor Yellow
+        Write-Host "    可能原因：" -ForegroundColor Yellow
+        Write-Host "    1. 剛啟用 Windows 虛擬機器平台，請「重新開機一次」後再雙擊「一鍵開始安裝.bat」。" -ForegroundColor Yellow
+        Write-Host "    2. 或請手動在系統管理員終端機執行：wsl --update" -ForegroundColor Yellow
+        Write-Host "    3. 若完全斷網環境，請將 wsl.2.4.13.0.x64.msi 放進本資料夾的 offline\ 內再重試。" -ForegroundColor Yellow
+        exit 1
+    }
+
+    Invoke-Native -FilePath (Find-WslExe) -Arguments @("--set-default-version", "2") | Out-Null
+    Write-Host "[+] WSL2 已就緒 ($(Find-WslExe))"
 }
 
 function Ensure-UsbipdOffline {
@@ -127,6 +289,7 @@ function Ensure-UsbipdOffline {
 }
 
 function Ensure-AlpineDistro {
+    $wsl = Find-WslExe
     $distros = Get-WslDistros
     if ($distros -notcontains $DistroName) {
         if (-not (Test-Path $RootfsTar)) {
@@ -134,16 +297,10 @@ function Ensure-AlpineDistro {
         }
         Write-Host "[*] 正在匯入極輕量 Alpine Linux 部署環境 ($DistroName)，約需 3~5 秒..."
         New-Item -ItemType Directory -Force -Path $InstallBase | Out-Null
-        & wsl.exe --import $DistroName $InstallBase $RootfsTar --version 2
-        if ($LASTEXITCODE -ne 0) {
-            if (Test-Path $WslMsi) {
-                Write-Host "[*] 嘗試補裝離線 WSL2 核心套件後重試匯入..."
-                Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$WslMsi`" /qn /norestart" -Wait | Out-Null
-                & wsl.exe --import $DistroName $InstallBase $RootfsTar --version 2
-            }
-            if ($LASTEXITCODE -ne 0) {
-                throw "匯入 $DistroName 失敗。若電腦剛開啟 WSL2，請先重新開機一次並確認 BIOS 已開啟虛擬化（VT-x / SVM）。"
-            }
+        $imp = Invoke-Native -FilePath $wsl -Arguments @("--import", $DistroName, $InstallBase, $RootfsTar, "--version", "2")
+        if ($imp.ExitCode -ne 0) {
+            if ($imp.Text) { Write-Host $imp.Text -ForegroundColor Yellow }
+            throw "匯入 $DistroName 失敗 (rc=$($imp.ExitCode))。若電腦剛開啟 WSL2，請先重新開機一次並確認 BIOS 已開啟虛擬化（VT-x / SVM）。"
         }
         Write-Host "[+] 極輕量 Linux 環境匯入完成"
     } else {
@@ -151,16 +308,47 @@ function Ensure-AlpineDistro {
     }
 
     # Boot lightweight WSL2 VM and verify USB/IP vhci_hcd kernel support
-    & wsl.exe -d $DistroName -- /bin/sh -c "test -e /sys/devices/platform/vhci_hcd.0/status || modprobe vhci-hcd 2>/dev/null || true"
-    if ($LASTEXITCODE -ne 0) {
-        throw "無法啟動 $DistroName，請確認電腦已重開機並開啟 BIOS 虛擬化（VT-x / SVM）。"
+    $boot = Invoke-Native -FilePath $wsl -Arguments @("-d", $DistroName, "--", "/bin/sh", "-c", "test -e /sys/devices/platform/vhci_hcd.0/status || modprobe vhci-hcd 2>/dev/null || true")
+    if ($boot.ExitCode -ne 0) {
+        if ($boot.Text) { Write-Host $boot.Text -ForegroundColor Yellow }
+        throw "無法啟動 $DistroName (rc=$($boot.ExitCode))，請確認電腦已重新開機並開啟 BIOS 虛擬化（VT-x / SVM）。"
     }
 }
 
 function Parse-SonyUsbipdDevices([string]$UsbipdExe) {
-    $lines = & $UsbipdExe list 2>$null
     $found = @()
-    foreach ($line in $lines) {
+
+    # Prefer structured JSON from `usbipd state` (100% immune to Windows locale / column spacing)
+    $st = Invoke-Native -FilePath $UsbipdExe -Arguments @("state")
+    if ($st.ExitCode -eq 0 -and $st.Text) {
+        try {
+            $parsed = $st.Text | ConvertFrom-Json
+            $items = if ($parsed -and $parsed.PSObject.Properties["Devices"]) { @($parsed.Devices) } else { @($parsed) }
+            foreach ($dev in $items) {
+                if ($null -eq $dev -or -not $dev.BusId) { continue }
+                if ($dev.InstanceId -match 'VID_054C&PID_(0CA8|0D12|0336)') {
+                    $pidHex = $Matches[1].ToLower()
+                    $stateStr = "Not shared"
+                    if ($dev.ClientIPAddress) {
+                        $stateStr = "Attached"
+                    } elseif ($dev.PersistedGuid) {
+                        $stateStr = "Shared"
+                    }
+                    $found += [PSCustomObject]@{
+                        BusId = [string]$dev.BusId
+                        Pid   = $pidHex
+                        Desc  = [string]$dev.Description
+                        State = $stateStr
+                    }
+                }
+            }
+            return $found
+        } catch {}
+    }
+
+    # Fallback: text parsing of `usbipd list`
+    $lst = Invoke-Native -FilePath $UsbipdExe -Arguments @("list")
+    foreach ($line in $lst.Lines) {
         if ($line -match '^\s*(\d+-\d+(?:\.\d+)*)\s+054c:(0ca8|0d12|0336)\s+(.*?)\s{2,}(Not shared|Shared(?:\s*\(forced\))?|Attached)\s*$') {
             $found += [PSCustomObject]@{
                 BusId = $Matches[1]
@@ -178,11 +366,11 @@ function Attach-SonyDevicesOnce([string]$UsbipdExe) {
     $attachedAny = $false
     foreach ($d in $devs) {
         if ($d.State -eq "Not shared") {
-            & $UsbipdExe bind --force --busid $d.BusId *> $null
+            Invoke-Native -FilePath $UsbipdExe -Arguments @("bind", "--force", "--busid", $d.BusId) | Out-Null
         }
         if ($d.State -ne "Attached") {
-            & $UsbipdExe attach --wsl --busid $d.BusId *> $null
-            if ($LASTEXITCODE -eq 0) {
+            $att = Invoke-Native -FilePath $UsbipdExe -Arguments @("attach", "--wsl", "--busid", $d.BusId)
+            if ($att.ExitCode -eq 0) {
                 Write-Host "[+] 已透過 usbipd 將相機 (054c:$($d.Pid), bus $($d.BusId)) 透傳至 Linux"
                 $attachedAny = $true
             }
@@ -198,10 +386,10 @@ function Detach-SonyDevices([string]$UsbipdExe) {
         $devs = Parse-SonyUsbipdDevices $UsbipdExe
         foreach ($d in $devs) {
             if ($d.State -eq "Attached") {
-                & $UsbipdExe detach --busid $d.BusId *> $null
+                Invoke-Native -FilePath $UsbipdExe -Arguments @("detach", "--busid", $d.BusId) | Out-Null
             }
             if ($d.State -ne "Not shared") {
-                & $UsbipdExe unbind --busid $d.BusId *> $null
+                Invoke-Native -FilePath $UsbipdExe -Arguments @("unbind", "--busid", $d.BusId) | Out-Null
             }
         }
     } catch {}
@@ -249,7 +437,7 @@ if ($Action -eq "cleanup") {
     $distros = Get-WslDistros
     if ($distros -contains $DistroName) {
         Write-Host "[*] 正在移除極輕量 Linux 部署環境 ($DistroName)..."
-        & wsl.exe --unregister $DistroName
+        Invoke-Native -FilePath (Find-WslExe) -Arguments @("--unregister", $DistroName) | Out-Null
     }
     if (Test-Path $InstallBase) {
         Remove-Item -Recurse -Force $InstallBase -ErrorAction SilentlyContinue
@@ -271,6 +459,7 @@ Write-Host "========================================================"
 Ensure-Wsl2Offline
 $usbipdExe = Ensure-UsbipdOffline
 Ensure-AlpineDistro
+$wslExe = Find-WslExe
 
 $wslArgs = @("/opt/a6400/pmca_deploy_v3_clite.py", "--pmca-dir", "/opt/pmca-re", "--safe-serial", "--yes")
 if ($Action -eq "rollback") {
@@ -289,8 +478,8 @@ if ($Action -eq "rollback") {
     }
 }
 
-# Keep WSL2 VM awake while choosing language and attaching Sony USB
-$keepAlive = Start-Process -FilePath "wsl.exe" -ArgumentList "-d $DistroName -- sleep 600" -WindowStyle Hidden -PassThru
+# Keep WSL2 VM awake while attaching Sony USB and running deployer
+$keepAlive = Start-Process -FilePath $wslExe -ArgumentList "-d $DistroName -- sleep 600" -WindowStyle Hidden -PassThru
 
 $watcher = $null
 $rc = 1
@@ -316,17 +505,24 @@ try {
     # Background auto-attacher: automatically binds & attaches 054c:0336 within 0.7s when camera switches to Service Mode
     $watcher = Start-Job -ScriptBlock {
         param($exe)
+        $ErrorActionPreference = "Continue"
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
         while ($true) {
             try {
-                $lines = & $exe list 2>$null
-                foreach ($line in $lines) {
-                    if ($line -match '^\s*(\d+-\d+(?:\.\d+)*)\s+054c:(0ca8|0d12|0336)\s+.*?\s{2,}(Not shared|Shared(?:\s*\(forced\))?)\s*$') {
-                        $bus = $Matches[1]
-                        $st = $Matches[3]
-                        if ($st -eq "Not shared") {
-                            & $exe bind --force --busid $bus *> $null
+                $raw = (& $exe state 2>$null) -join "`n"
+                if ($raw) {
+                    $parsed = $raw | ConvertFrom-Json
+                    $items = if ($parsed -and $parsed.PSObject.Properties["Devices"]) { @($parsed.Devices) } else { @($parsed) }
+                    foreach ($dev in $items) {
+                        if ($null -eq $dev -or -not $dev.BusId) { continue }
+                        if ($dev.InstanceId -match 'VID_054C&PID_(0CA8|0D12|0336)') {
+                            if (-not $dev.PersistedGuid) {
+                                & $exe bind --force --busid $dev.BusId *> $null
+                            }
+                            if (-not $dev.ClientIPAddress) {
+                                & $exe attach --wsl --busid $dev.BusId *> $null
+                            }
                         }
-                        & $exe attach --wsl --busid $bus *> $null
                     }
                 }
             } catch {}
@@ -335,16 +531,28 @@ try {
     } -ArgumentList $usbipdExe
 
     Write-Host "[*] 已開始在極輕量 Linux 內執行部署（切換服務模式時會自動重新透傳，請勿拔線）..."
-    & wsl.exe -d $DistroName -- python3 @wslArgs
-    $rc = $LASTEXITCODE
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $wslExe -d $DistroName -- python3 @wslArgs
+        $rc = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prev
+    }
 
     if ($rc -eq 1) {
         Write-Host "[*] 相機剛切換至服務模式 (054c:0336)，等待 Linux 接管後自動重試..."
         Start-Sleep -Seconds 3
         Attach-SonyDevicesOnce $usbipdExe | Out-Null
         Start-Sleep -Seconds 1
-        & wsl.exe -d $DistroName -- python3 @wslArgs
-        $rc = $LASTEXITCODE
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & $wslExe -d $DistroName -- python3 @wslArgs
+            $rc = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $prev
+        }
     }
 } finally {
     if ($watcher) {

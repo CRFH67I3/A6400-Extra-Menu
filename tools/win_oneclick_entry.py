@@ -42,6 +42,10 @@ def main():
     wdi_exe = root / "wdi-simple.exe"
     pkg_dir = root / "local-boot-package"
     hook_file = root / "a6400-autoexec.so"
+    stub_candidates = [root / "hook-stub.bin"]
+    if meipass:
+        stub_candidates.append(Path(meipass) / "hook-stub.bin")
+    stub_file = next((p for p in stub_candidates if p.is_file()), None)
 
     passthrough = [a for a in sys.argv[1:] if a != "--no-auto-driver"]
     auto_driver = "--no-auto-driver" not in sys.argv and sys.platform == "win32" and wdi_exe.is_file()
@@ -64,6 +68,8 @@ def main():
     argv = ["pmca_deploy_v3_clite.py", str(pkg_dir), "--safe-serial", "--yes"]
     if hook_file.is_file():
         argv.extend(["--install-hook", str(hook_file)])
+    elif stub_file is not None:
+        argv.extend(["--auto-hook-stub", str(stub_file)])
     argv.extend(passthrough)
 
     if auto_driver:

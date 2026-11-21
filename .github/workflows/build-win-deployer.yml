@@ -24,6 +24,14 @@ jobs:
           persist-credentials: false
       - run: python3 -m unittest discover -p 'test_*.py' -v
       - run: python3 tools/check_public_tree.py
+      - name: 編譯純開源 ARM 開機掛勾機器碼 Stub (不含任何 Sony 檔案)
+        run: |
+          sudo apt-get update && sudo apt-get install -y binutils-arm-linux-gnueabihf
+          python3 tools/build_autoexec_hook.py --emit-stub hook-stub.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hook-stub-bin
+          path: hook-stub.bin
 
   build-win-package:
     name: 編譯 wdi-simple + PyInstaller 單檔並打包 V3.9 SSLF
@@ -72,6 +80,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: 下載開源 hook-stub.bin
+        uses: actions/download-artifact@v4
+        with:
+          name: hook-stub-bin
+
       - name: 安裝 PyInstaller 與相依套件並建立單檔執行檔
         shell: pwsh
         run: |
@@ -81,15 +94,18 @@ jobs:
           $libusbDll = (python -c "import libusb, pathlib; p=list(pathlib.Path(libusb.__file__).parent.rglob('libusb-1.0.dll')); print([x for x in p if 'x64' in str(x) or 'x86_64' in str(x)][0])")
           $libusb0Dll = "libwdi\libusb0\bin\amd64\libusb0.dll"
           if (-not (Test-Path $libusb0Dll)) { throw "Missing $libusb0Dll" }
+          if (-not (Test-Path "hook-stub.bin")) { throw "Missing hook-stub.bin" }
           pyinstaller --onefile --console --name a6400_win_deploy `
             --paths repo/tools --paths pmca-re `
             --hidden-import config `
+            --hidden-import build_autoexec_hook `
             --hidden-import usb.backend.libusb0 `
             --hidden-import usb.backend.libusb1 `
             --collect-submodules pmca `
             --collect-submodules Cryptodome `
             --collect-all usb `
             --add-data "pmca-re/certs;certs" `
+            --add-data "hook-stub.bin;." `
             --add-binary "${libusbDll};." `
             --add-binary "${libusb0Dll};." `
             repo/tools/win_oneclick_entry.py
@@ -201,10 +217,11 @@ jobs:
             '     - 最上層建好空資料夾：/A6400/TEST/',
             '     - 確認沒有 /disable_hook 或 /A6400/DISABLE（升級舊版時例外，',
             '       若有舊版殘留可先放這兩檔純淨冷開機一次後再開始刷）',
-            '  4. ★ 重要邊界說明（全新未改過的相機必看）：',
-            '     - 公開包預設只升級「已安裝過開機掛勾 (/etc/a6400-autoexec.so)」的機身。',
-            '     - 若是完全沒裝過任何版本的新機，請先依 GitHub 文檔產生你的',
-            '       a6400-autoexec.so 並複製到本資料夾旁邊，程式會自動偵測並安裝。',
+            '  4. ★ 支援全新未改機身與舊版升級：',
+            '     - 若相機從未安裝過開機掛勾，本程式會自動讀取您相機內原廠',
+            '       /usr/lib/libAK8975.so，經 ELF 邊界安全驗證後就地產生並',
+            '       安裝 V3.9 開機掛勾（完全無需另備 a6400-autoexec.so）。',
+            '     - 若您手動將自備 a6400-autoexec.so 放於同資料夾則優先使用。',
             '',
             '【開始安裝（只需點一下）】',
             '  1. 用「可傳資料的 Micro-USB 線」連接相機與電腦，靜置 8 秒。',

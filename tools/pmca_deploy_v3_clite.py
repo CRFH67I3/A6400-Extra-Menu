@@ -239,6 +239,87 @@ def check_package_charo_notice(extra_items, assume_yes=False, interactive=None):
     return True
 
 
+def read_camera_file_b64(cam, remote_path, chunk_bytes=3072):
+    """Safely read a binary file from camera over serviceshell in bounded base64 chunks + SHA verification."""
+    stat_out = must_cmd(
+        cam,
+        f'echo __SZ__; /bin/busybox wc -c < "{remote_path}"; echo __SH__; /bin/busybox sha256sum "{remote_path}"',
+        "STAT_CAM_FILE",
+    )
+    m_sz = re.search(r"__SZ__\s*(\d+)\s*__SH__", stat_out)
+    m_sh = re.search(r"__SH__\s*([0-9a-fA-F]{64})\b", stat_out)
+    if not m_sz or not m_sh:
+        raise RuntimeError(f"Failed to stat camera file {remote_path}: {stat_out[-300:]}")
+    total_size = int(m_sz.group(1))
+    exp_sha = m_sh.group(1).lower()
+    if total_size <= 0:
+        raise RuntimeError(f"Empty camera file {remote_path}")
+
+    n_chunks = (total_size + chunk_bytes - 1) // chunk_bytes
+    collected = bytearray()
+    for skip in range(n_chunks):
+        expected_len = min(chunk_bytes, total_size - skip * chunk_bytes)
+        chunk_data = None
+        last_err = ""
+        for _ in range(3):
+            out = must_cmd(
+                cam,
+                f'echo __FB__; /bin/busybox dd if="{remote_path}" bs={chunk_bytes} count=1 skip={skip} 2>/dev/null | /bin/busybox base64; echo __FE__',
+                f"PULL_CHUNK_{skip}",
+                timeout=15.0,
+            )
+            mb = re.search(r"__FB__\s*([A-Za-z0-9+/=\s]+?)\s*__FE__", out)
+            if not mb:
+                last_err = f"missing framing markers: {out[-200:]}"
+                continue
+            b64_clean = re.sub(r"\s+", "", mb.group(1))
+            try:
+                raw = base64.b64decode(b64_clean, validate=True)
+            except Exception as exc:
+                last_err = f"base64 decode error: {exc}"
+                continue
+            if len(raw) != expected_len:
+                last_err = f"length {len(raw)} != expected {expected_len}"
+                continue
+            chunk_data = raw
+            break
+        if chunk_data is None:
+            raise RuntimeError(f"Failed pulling {remote_path} chunk {skip}/{n_chunks}: {last_err}")
+        collected.extend(chunk_data)
+
+    data = bytes(collected)
+    got_sha = hashlib.sha256(data).hexdigest().lower()
+    if got_sha != exp_sha:
+        raise RuntimeError(f"Pulled {remote_path} SHA mismatch: got={got_sha} expected={exp_sha}")
+    return data
+
+
+def build_hook_from_camera(cam, stub_bytes, remote_path="/usr/lib/libAK8975.so"):
+    """Pull camera's stock libAK8975.so, patch with open-source ARM stub, and return (so_bytes, sha256)."""
+    import build_autoexec_hook as hook_builder
+
+    src_bytes = read_camera_file_b64(cam, remote_path)
+    patched = hook_builder.patch_libak8975(src_bytes, stub_bytes)
+    return patched, hashlib.sha256(patched).hexdigest()
+
+
+def build_deploy_tgz(boot_sh, boot_tar, hook_bytes, extra_items):
+    """Assemble in-memory upload tar.gz containing scripts, boot tar, optional hook SO, and extra files."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tgz:
+        tgz.add(boot_sh, arcname="new-autoexec.sh")
+        tgz.add(boot_tar, arcname="new-boot.tar")
+        if hook_bytes is not None:
+            ti = tarfile.TarInfo("new-autoexec.so")
+            ti.size = len(hook_bytes)
+            ti.mode = 0o755
+            tgz.addfile(ti, io.BytesIO(hook_bytes))
+        for ep, ename, _, _ in extra_items:
+            tgz.add(ep, arcname=ename)
+    tgz_bytes = buf.getvalue()
+    return tgz_bytes, hashlib.sha256(tgz_bytes).hexdigest()
+
+
 def detect_windows_usb_driver_hint():
     if sys.platform != "win32":
         return ""
@@ -289,6 +370,11 @@ def main():
         "--install-hook",
         default="",
         help=f"Optional path to a6400-autoexec.so (installed to {HOOK_CAMERA_PATH})",
+    )
+    parser.add_argument(
+        "--auto-hook-stub",
+        default="",
+        help="Optional assembled ARM hook stub (.bin) to auto-patch camera /usr/lib/libAK8975.so on blank cameras",
     )
     parser.add_argument("--rollback", action="store_true", help="Restore .pre-v3c-backup files or remove hook cleanly")
     parser.add_argument("--diag", action="store_true", help="Collect camera diagnostics without modifying flash")
@@ -401,7 +487,9 @@ def main():
     boot_sh_sha = hashlib.sha256(boot_sh.read_bytes()).hexdigest()
     boot_tar_sha = hashlib.sha256(boot_tar.read_bytes()).hexdigest()
     hook_path = Path(args.install_hook).resolve() if args.install_hook else None
-    hook_sha = hashlib.sha256(hook_path.read_bytes()).hexdigest() if hook_path else ""
+    init_hook_bytes = hook_path.read_bytes() if hook_path else None
+    init_hook_sha = hashlib.sha256(init_hook_bytes).hexdigest() if init_hook_bytes is not None else ""
+    stub_bytes = Path(args.auto_hook_stub).resolve().read_bytes() if args.auto_hook_stub else None
 
     extra_items = []
     for row in manifest.get("extra_persistent_files", []):
@@ -419,17 +507,6 @@ def main():
                 data = tf.extractfile(m).read()
                 entry_shas.append((m.name, hashlib.sha256(data).hexdigest()))
 
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tgz:
-        tgz.add(boot_sh, arcname="new-autoexec.sh")
-        tgz.add(boot_tar, arcname="new-boot.tar")
-        if hook_path:
-            tgz.add(hook_path, arcname="new-autoexec.so")
-        for ep, ename, _, _ in extra_items:
-            tgz.add(ep, arcname=ename)
-    tgz_bytes = buf.getvalue()
-    tgz_sha = hashlib.sha256(tgz_bytes).hexdigest()
-
     if not check_package_charo_notice(extra_items, assume_yes=args.yes):
         return
 
@@ -444,16 +521,24 @@ def main():
         except Exception:
             pass
         try:
-            if not hook_path:
-                pre = must_cmd(cam, "/bin/busybox cat /etc/ld.so.preload", "CHECK_PRELOAD")
+            hook_bytes = init_hook_bytes
+            hook_sha = init_hook_sha
+            if hook_bytes is None:
+                pre = must_cmd(cam, "/bin/busybox cat /etc/ld.so.preload 2>/dev/null || true", "CHECK_PRELOAD")
                 if HOOK_CAMERA_PATH in pre:
                     must_cmd(cam, f'/bin/busybox ls -la "{HOOK_CAMERA_PATH}"', "CHECK_HOOK_FILE")
                 elif LEGACY_HOOK_PATH in pre:
                     must_cmd(cam, f'/bin/busybox ls -la "{LEGACY_HOOK_PATH}"', "CHECK_LEGACY_HOOK")
+                elif stub_bytes is not None:
+                    print("[*] 偵測到全新未改機身，正在讀取相機原廠 /usr/lib/libAK8975.so 並自動產生開機掛勾...", flush=True)
+                    hook_bytes, hook_sha = build_hook_from_camera(cam, stub_bytes)
+                    print(f"[+] 開機掛勾產生完成 ({len(hook_bytes)} B, sha256={hook_sha[:12]}...)", flush=True)
                 else:
                     raise RuntimeError(
-                        f"Existing /etc/ld.so.preload + {HOOK_CAMERA_PATH} hook required (or pass --install-hook)"
+                        f"Existing /etc/ld.so.preload + {HOOK_CAMERA_PATH} hook required (or pass --install-hook / --auto-hook-stub)"
                     )
+
+            tgz_bytes, tgz_sha = build_deploy_tgz(boot_sh, boot_tar, hook_bytes, extra_items)
 
             for idx, step in enumerate(build_backup_steps()):
                 must_cmd(cam, step, f"BACKUP_{idx}")
@@ -491,7 +576,8 @@ def main():
                 ("/tmp_bt/v3c_up/new-autoexec.sh", boot_sh_sha),
                 ("/tmp_bt/v3c_up/new-boot.tar", boot_tar_sha),
             ]
-            if hook_path:
+            install_hook = hook_bytes is not None
+            if install_hook:
                 verify_targets.append(("/tmp_bt/v3c_up/new-autoexec.so", hook_sha))
             for _, ename, esha, _ in extra_items:
                 verify_targets.append((f"/tmp_bt/v3c_up/{ename}", esha))
@@ -513,14 +599,14 @@ def main():
                     raise RuntimeError(f"entry {name} SHA mismatch")
 
             extra_entries = [(ename, emode) for _, ename, _, emode in extra_items]
-            for idx, step in enumerate(build_install_steps(bool(hook_path), extra_entries)):
+            for idx, step in enumerate(build_install_steps(install_hook, extra_entries)):
                 must_cmd(cam, step, f"INSTALL_{idx}", timeout=20.0)
 
             final_targets = [
                 ("/tmp/autoexec.sh", boot_sh_sha),
                 ("/tmp/a6400-film-boot-v15.tar", boot_tar_sha),
             ]
-            if hook_path:
+            if install_hook:
                 final_targets.append((HOOK_CAMERA_PATH, hook_sha))
             for _, ename, esha, _ in extra_items:
                 final_targets.append((f"/tmp/{ename}", esha))
@@ -529,7 +615,7 @@ def main():
                 if fsha not in fout:
                     raise RuntimeError(f"final SHA mismatch for {fpath}")
 
-            if hook_path:
+            if install_hook:
                 preload_out = must_cmd(cam, '/bin/busybox cat /etc/ld.so.preload', "FINAL_PRELOAD")
                 if HOOK_CAMERA_PATH not in preload_out:
                     raise RuntimeError(f"/etc/ld.so.preload missing {HOOK_CAMERA_PATH}")

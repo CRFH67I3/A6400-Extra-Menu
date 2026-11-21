@@ -273,13 +273,23 @@ def patch_libak8975(src_bytes, code_bytes):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("input_libak8975", help="Path to camera-pulled libAK8975.so")
+    parser.add_argument("input_libak8975", nargs="?", default="", help="Path to camera-pulled libAK8975.so")
     parser.add_argument("output_so", nargs="?", default="a6400-autoexec.so", help="Output patched .so path")
+    parser.add_argument("--emit-stub", default="", help="Emit assembled ARM hook machine-code stub (.bin) only")
     args = parser.parse_args()
+
+    code = assemble_arm(ASM_TEMPLATE)
+    if args.emit_stub:
+        stub_path = Path(args.emit_stub).resolve()
+        stub_path.write_bytes(code)
+        print(f"AUTOEXEC_STUB_EMITTED code_bytes={len(code)} out={stub_path} sha256={hashlib.sha256(code).hexdigest()}")
+        if not args.input_libak8975:
+            return
+    if not args.input_libak8975:
+        parser.error("input_libak8975 is required unless --emit-stub is specified")
 
     src_path = Path(args.input_libak8975).resolve()
     out_path = Path(args.output_so).resolve()
-    code = assemble_arm(ASM_TEMPLATE)
     patched = patch_libak8975(src_path.read_bytes(), code)
     out_path.write_bytes(patched)
     out_path.chmod(0o755)

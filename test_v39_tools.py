@@ -225,6 +225,38 @@ Class Name :                libusb-win32 devices
 """
         self.assertEqual(windrv.parse_pnputil_sony_libusb_infs(sample_pnputil), ['oem14.inf', 'oem31.inf'])
 
+    def test_auto_hook_from_camera_pulls_verifies_sha_and_patches(self):
+        import base64
+        rodata_off = 0xB88
+        dyn_off = 0xC00
+        shstr_off = 0xC80
+        shoff = 0xD00
+        shstr = b'\x00.text\x00.rodata\x00.dynamic\x00.shstrtab\x00'
+        buf = bytearray(shoff + 5 * 40)
+        buf[0:4] = b'\x7fELF'
+        struct.pack_into('<I', buf, 0x20, shoff)
+        struct.pack_into('<HHH', buf, 0x2E, 40, 5, 4)
+        struct.pack_into('<IIIIII', buf, shoff + 1 * 40, 1, 1, 6, 0x988, 0x988, 0x200)
+        struct.pack_into('<IIIIII', buf, shoff + 2 * 40, 7, 1, 2, rodata_off, rodata_off, 0x20)
+        struct.pack_into('<IIIIII', buf, shoff + 3 * 40, 15, 6, 3, dyn_off, dyn_off, 0x40)
+        struct.pack_into('<IIIIII', buf, shoff + 4 * 40, 24, 3, 0, 0, shstr_off, len(shstr))
+        buf[shstr_off:shstr_off + len(shstr)] = shstr
+
+        raw_so = bytes(buf)
+        raw_sha = hashlib.sha256(raw_so).hexdigest()
+        c0 = raw_so[:3072]
+        c1 = raw_so[3072:]
+        cam = FakeCam([
+            [f'__SZ__\n{len(raw_so)}\n__SH__\n{raw_sha}  /usr/lib/libAK8975.so\n__PMCA_RC:0__\n'.encode()],
+            [f'__FB__\n{base64.b64encode(c0).decode()}\n__FE__\n__PMCA_RC:0__\n'.encode()],
+            [f'__FB__\n{base64.b64encode(c1).decode()}\n__FE__\n__PMCA_RC:0__\n'.encode()],
+        ])
+        stub = b'\x00\xf0\x20\xe3' * 16
+        patched, psha = deployer.build_hook_from_camera(cam, stub)
+        self.assertEqual(psha, hashlib.sha256(patched).hexdigest())
+        self.assertEqual(patched[0x988:0x988 + len(stub)], stub)
+        self.assertEqual(struct.unpack_from('<II', patched, dyn_off), (12, 0x988))
+
     def test_multi_charo_local_boot_package_optional_slots(self):
         root = Path(__file__).resolve().parent
         sys.path.insert(0, str(root / 'host-tests'))

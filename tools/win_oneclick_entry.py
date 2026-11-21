@@ -28,8 +28,13 @@ def run_deployer_argv(argv):
 
 
 def main():
+    if "-h" in sys.argv[1:] or "--help" in sys.argv[1:]:
+        sys.exit(run_deployer_argv(["pmca_deploy_v3_clite.py", "--help"]))
+
     root = base_dir()
-    os.environ["PATH"] = str(root) + os.pathsep + os.environ.get("PATH", "")
+    meipass = getattr(sys, "_MEIPASS", "")
+    extra_paths = [str(root)] + ([str(meipass)] if meipass else [])
+    os.environ["PATH"] = os.pathsep.join(extra_paths) + os.pathsep + os.environ.get("PATH", "")
 
     if "--restore-driver" in sys.argv:
         sys.exit(windrv.restore_default_drivers())

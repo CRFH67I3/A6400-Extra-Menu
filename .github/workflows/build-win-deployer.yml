@@ -79,18 +79,33 @@ jobs:
           pip install pyinstaller pyusb libusb pycryptodomex requests
           git clone --depth 1 https://github.com/ma1co/Sony-PMCA-RE.git pmca-re
           $libusbDll = (python -c "import libusb, pathlib; p=list(pathlib.Path(libusb.__file__).parent.rglob('libusb-1.0.dll')); print([x for x in p if 'x64' in str(x) or 'x86_64' in str(x)][0])")
+          $libusb0Dll = "libwdi\libusb0\bin\amd64\libusb0.dll"
+          if (-not (Test-Path $libusb0Dll)) { throw "Missing $libusb0Dll" }
           pyinstaller --onefile --console --name a6400_win_deploy `
             --paths repo/tools --paths pmca-re `
+            --hidden-import config `
+            --hidden-import usb.backend.libusb0 `
+            --hidden-import usb.backend.libusb1 `
             --collect-submodules pmca `
+            --collect-submodules Cryptodome `
             --collect-all usb `
+            --add-data "pmca-re/certs;certs" `
             --add-binary "${libusbDll};." `
+            --add-binary "${libusb0Dll};." `
             repo/tools/win_oneclick_entry.py
           New-Item -ItemType Directory -Force -Path stage | Out-Null
           Copy-Item dist\a6400_win_deploy.exe stage\
           Copy-Item libwdi\x64\Release\examples\wdi-simple.exe stage\
           Copy-Item $libusbDll stage\libusb-1.0.dll
+          Copy-Item $libusb0Dll stage\libusb0.dll
 
-      - name: 整合 Release V3.9 SSLF 開機包與 Windows 一鍵腳本
+      - name: 實機環境 Smoke Test (驗證 EXE 與驅動工具無缺 DLL / 模組)
+        shell: cmd
+        run: |
+          .\stage\a6400_win_deploy.exe --help
+          .\stage\wdi-simple.exe --help || echo wdi-simple help checked
+
+      - name: 整合 Release V3.9 SSLF 開機包與 Windows 一鍵腳本 + 使用說明
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -107,52 +122,112 @@ jobs:
           $hookFile = Get-ChildItem -Path dl_ext -File -Recurse -Filter "a6400-autoexec.so" | Select-Object -First 1
           if ($hookFile) { Copy-Item $hookFile.FullName stage\a6400-autoexec.so }
 
-          @'
-          @echo off
-          chcp 65001 >nul
-          net session >nul 2>&1
-          if %errorlevel% neq 0 (
-            powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-            exit /b
-          )
-          cd /d "%~dp0"
-          echo ========================================================
-          echo   A6400 / A6100 Windows 免 Zadig 一鍵部署工具
-          echo   1. 請確認相機已設為：USB連線 = 大容量儲存
-          echo   2. 插上 USB 傳輸線並靜置 8 秒後按任意鍵開始
-          echo ========================================================
-          pause
-          a6400_win_deploy.exe
-          echo.
-          echo 如需將相機變回正常讀卡機，請雙擊「一鍵還原預設讀卡機.bat」。
-          pause
-          '@ | Set-Content -Encoding UTF8 stage\一鍵開始安裝.bat
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
-          @'
-          @echo off
-          chcp 65001 >nul
-          net session >nul 2>&1
-          if %errorlevel% neq 0 (
-            powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-            exit /b
-          )
-          cd /d "%~dp0"
-          a6400_win_deploy.exe --restore-driver
-          pause
-          '@ | Set-Content -Encoding UTF8 stage\一鍵還原預設讀卡機.bat
+          $batInstall = @(
+            '@echo off',
+            'chcp 65001 >nul',
+            'setlocal',
+            'set "SELF=%~f0"',
+            'net session >nul 2>&1',
+            'if %errorlevel% neq 0 (',
+            '  powershell -NoProfile -Command "Start-Process -FilePath $env:SELF -Verb RunAs"',
+            '  exit /b',
+            ')',
+            'cd /d "%~dp0"',
+            'echo ========================================================',
+            'echo   A6400 / A6100 Windows 免 Zadig 一鍵部署工具 (V3.9 SSLF)',
+            'echo   1. 相機語言請設為與套件一致 (繁體中文 / 简体中文)',
+            'echo   2. 相機設為：USB連線 = 大容量儲存、USB LUN = 多重',
+            'echo   3. 記憶卡先建好 /A6400/TEST/，插線後靜置 8 秒再按任意鍵',
+            'echo ========================================================',
+            'pause',
+            'a6400_win_deploy.exe',
+            'echo.',
+            'echo 如需將相機變回正常讀卡機，請雙擊「一鍵還原預設讀卡機.bat」。',
+            'pause'
+          ) -join "`r`n"
+          [System.IO.File]::WriteAllText((Join-Path (Resolve-Path stage) "一鍵開始安裝.bat"), $batInstall + "`r`n", $utf8NoBom)
 
-          @'
-          @echo off
-          chcp 65001 >nul
-          net session >nul 2>&1
-          if %errorlevel% neq 0 (
-            powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-            exit /b
-          )
-          cd /d "%~dp0"
-          a6400_win_deploy.exe --rollback
-          pause
-          '@ | Set-Content -Encoding UTF8 stage\一鍵回滾還原原廠.bat
+          $batRestore = @(
+            '@echo off',
+            'chcp 65001 >nul',
+            'setlocal',
+            'set "SELF=%~f0"',
+            'net session >nul 2>&1',
+            'if %errorlevel% neq 0 (',
+            '  powershell -NoProfile -Command "Start-Process -FilePath $env:SELF -Verb RunAs"',
+            '  exit /b',
+            ')',
+            'cd /d "%~dp0"',
+            'a6400_win_deploy.exe --restore-driver',
+            'pause'
+          ) -join "`r`n"
+          [System.IO.File]::WriteAllText((Join-Path (Resolve-Path stage) "一鍵還原預設讀卡機.bat"), $batRestore + "`r`n", $utf8NoBom)
+
+          $batRollback = @(
+            '@echo off',
+            'chcp 65001 >nul',
+            'setlocal',
+            'set "SELF=%~f0"',
+            'net session >nul 2>&1',
+            'if %errorlevel% neq 0 (',
+            '  powershell -NoProfile -Command "Start-Process -FilePath $env:SELF -Verb RunAs"',
+            '  exit /b',
+            ')',
+            'cd /d "%~dp0"',
+            'a6400_win_deploy.exe --rollback',
+            'pause'
+          ) -join "`r`n"
+          [System.IO.File]::WriteAllText((Join-Path (Resolve-Path stage) "一鍵回滾還原原廠.bat"), $batRollback + "`r`n", $utf8NoBom)
+
+          $readme = @(
+            '================================================================',
+            '  Sony A6400 / A6100 — V3.9 SSLF Windows 免 Zadig 一鍵包說明',
+            '================================================================',
+            '',
+            '【本包特點】',
+            '  - 無需安裝 Python、無需安裝 WSL2、無需手動開啟 Zadig 點兩次！',
+            '  - 自動以 wdi-simple.exe (--type 1) 綁定 libusb-win32 驅動，',
+            '    並內建 Windows/A6100 專用的 --safe-serial 防掉字、防重複寫入機制。',
+            '',
+            '【事前準備（務必確認）】',
+            '  1. 先把這個 ZIP 完整解壓縮到電腦資料夾（不要在壓縮檔裡面直接雙擊！）。',
+            '  2. 相機確認：',
+            '     - 系統語言：官方繁體版設為「繁體中文」（簡體版設為「简体中文」）',
+            '     - MENU -> 設定4 -> USB 連線 = 大容量儲存',
+            '     - MENU -> 設定4 -> USB LUN 設定 = 多重',
+            '  3. 記憶卡確認：',
+            '     - 最上層建好空資料夾：/A6400/TEST/',
+            '     - 確認沒有 /disable_hook 或 /A6400/DISABLE（升級舊版時例外，',
+            '       若有舊版殘留可先放這兩檔純淨冷開機一次後再開始刷）',
+            '  4. ★ 重要邊界說明（全新未改過的相機必看）：',
+            '     - 公開包預設只升級「已安裝過開機掛勾 (/etc/a6400-autoexec.so)」的機身。',
+            '     - 若是完全沒裝過任何版本的新機，請先依 GitHub 文檔產生你的',
+            '       a6400-autoexec.so 並複製到本資料夾旁邊，程式會自動偵測並安裝。',
+            '',
+            '【開始安裝（只需點一下）】',
+            '  1. 用「可傳資料的 Micro-USB 線」連接相機與電腦，靜置 8 秒。',
+            '  2. 雙擊「一鍵開始安裝.bat」（跳出管理員權限視窗請按「是」）。',
+            '  3. 過程中相機可能會黑屏重連進入服務模式 (054C:0336) 並自動補裝驅動，',
+            '     請保持靜置切勿拔線！約 1~2 分鐘看到 V3_CLITE_DEPLOY_OK 與 Done 即完成。',
+            '',
+            '【裝完後如何開機喚出選單】',
+            '  1. 拔掉 USB 線 → 關機 → 取出電池等 10 秒 → 裝回再開機。',
+            '  2. 開機等待 35~40 秒 → 先輕觸螢幕並鬆開一次 → 等 2 秒 →',
+            '     長按「MENU + 放大鏡」2 秒即可叫出膠片選單！',
+            '',
+            '【如何變回正常讀卡機 / 如何回滾卸載】',
+            '  - 變回讀卡機：雙擊「一鍵還原預設讀卡機.bat」，跑完後重插相機 USB。',
+            '  - 卸載本外掛：插回 USB 雙擊「一鍵回滾還原原廠.bat」（或記憶卡放 /disable_hook）。',
+            '',
+            '【常見異常排查】',
+            '  - 若中途斷線失敗導致出現 GenericUsbException / Wrong status signature：',
+            '    代表相機停在 0336 髒會話或 USB 狀態錯亂！請拔線 → 關機拔電池 10 秒 →',
+            '    裝回開機 → 插線靜置 8 秒再重跑，切勿連續硬刷。',
+            '================================================================'
+          ) -join "`r`n"
+          [System.IO.File]::WriteAllText((Join-Path (Resolve-Path stage) "README-Windows使用說明.txt"), $readme + "`r`n", $utf8NoBom)
 
           $zipName = "A6400-A6100-$($env:TAG)-Win-ZeroConfig.zip"
           Compress-Archive -Path stage\* -DestinationPath $zipName -Force

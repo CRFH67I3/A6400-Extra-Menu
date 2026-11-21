@@ -556,6 +556,24 @@ Class Name :                libusb-win32 devices
         ])
         deployer.verify_camera_file(cam_sz, '/tmp/test.bin', sample, 'VERIFY_TEST', hash_algo='size')
 
+    def test_wsl_offline_deployer_scripts(self):
+        root = Path(__file__).resolve().parent
+        ps1 = root / 'tools' / 'wsl_deploy.ps1'
+        raw = ps1.read_bytes()
+        self.assertTrue(raw.startswith(b'\xef\xbb\xbf'), 'wsl_deploy.ps1 must have UTF-8 BOM for PowerShell 5.1')
+        txt = raw.decode('utf-8-sig')
+        self.assertIn('dism.exe', txt)
+        self.assertIn('wsl_update_x64.msi', txt)
+        self.assertIn('usbipd-win.msi', txt)
+        self.assertIn('a6400-alpine-wsl.tar.gz', txt)
+        self.assertIn('054c:(0ca8|0d12|0336)', txt)
+        self.assertNotIn('wdi-simple', txt)
+
+        sh = root / 'tools' / 'build_alpine_wsl_rootfs.sh'
+        res = subprocess.run(['bash', '-n', str(sh)], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn('ALPINE_WSL_SMOKE_OK', sh.read_text())
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

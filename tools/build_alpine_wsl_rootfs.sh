@@ -43,6 +43,25 @@ apk del --no-cache .build-deps py3-pip git
 rm -rf /root/.cache /var/cache/apk/* /tmp/*
 find /usr/lib/python3* -type d \( -name "__pycache__" -o -name "test" -o -name "tests" -o -name "idlelib" -o -name "tkinter" \) -exec rm -rf {} + 2>/dev/null || true
 
+# On Alpine musl (no ldconfig/gcc in final image), ctypes.util.find_library("usb-1.0") returns None.
+# Install a minimal sitecustomize.py shim so pyusb always finds /usr/lib/libusb-1.0.so.0 directly.
+ln -sf /usr/lib/libusb-1.0.so.0 /usr/lib/libusb-1.0.so
+SITE_PKG="$(python3 -c "import sysconfig; print(sysconfig.get_path(\"purelib\"))")"
+cat > "$SITE_PKG/sitecustomize.py" <<EOF
+import ctypes.util, glob
+_orig_find = ctypes.util.find_library
+def _musl_find(name):
+    res = _orig_find(name)
+    if res:
+        return res
+    for pat in (f"/usr/lib/lib{name}.so*", f"/lib/lib{name}.so*"):
+        hits = sorted(glob.glob(pat))
+        if hits:
+            return hits[0]
+    return None
+ctypes.util.find_library = _musl_find
+EOF
+
 cat > /etc/wsl.conf <<EOF
 [automount]
 enabled = true

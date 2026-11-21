@@ -176,6 +176,16 @@ def find_connected_sony_pids():
     return pids
 
 
+def wait_for_libusb_ready(pid, wait_sec=8.0):
+    """Wait until Windows PnP finishes starting libusb0.sys so pyusb can actually see 054C:pid."""
+    deadline = time.monotonic() + wait_sec
+    while time.monotonic() < deadline:
+        if is_libusb_win32_ready(pid):
+            return True
+        time.sleep(0.5)
+    return is_libusb_win32_ready(pid)
+
+
 def wait_for_sony_pid(target_pid, wait_sec=10.0):
     """Wait briefly for Windows PnP to enumerate target Sony PID."""
     deadline = time.monotonic() + wait_sec
@@ -271,8 +281,8 @@ def ensure_mass_storage_driver(wdi_exe, force=False):
             else "Sony Camera A6100 Mass Storage (libusb-win32)"
         )
         if run_wdi_install(wdi_exe, pid, label, force=force):
+            wait_for_libusb_ready(pid, wait_sec=8.0)
             ok = True
-    time.sleep(1.0)
     return ok
 
 
@@ -290,16 +300,13 @@ def ensure_service_driver(wdi_exe, force=False):
         )
         return False
     # Give Windows PnP up to 4 seconds to finish starting existing libusb0.sys on 054C:0336 before invoking wdi-simple.
-    if not force:
-        deadline = time.monotonic() + 4.0
-        while time.monotonic() < deadline:
-            if is_libusb_win32_ready(SERVICE_PID):
-                deduplicate_sony_libusb_infs(role="service", keep_latest=1)
-                print(f"[+] 偵測到服務模式 libusb-win32 驅動已就緒 (054C:{SERVICE_PID:04X})，略過重複安裝", flush=True)
-                return True
-            time.sleep(0.4)
+    if not force and wait_for_libusb_ready(SERVICE_PID, wait_sec=4.0):
+        deduplicate_sony_libusb_infs(role="service", keep_latest=1)
+        print(f"[+] 偵測到服務模式 libusb-win32 驅動已就緒 (054C:{SERVICE_PID:04X})，略過重複安裝", flush=True)
+        return True
     ok = run_wdi_install(wdi_exe, SERVICE_PID, "Sony Camera Service Mode (libusb-win32)", force=force)
-    time.sleep(1.5)
+    if ok:
+        wait_for_libusb_ready(SERVICE_PID, wait_sec=8.0)
     return ok
 
 

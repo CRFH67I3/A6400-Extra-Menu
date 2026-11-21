@@ -528,12 +528,12 @@ Class Name :                libusb-win32 devices
         ])
         self.assertEqual(deployer.detect_camera_b64_mode(cam_b64), 'openssl')
 
-        # Simulate pulling file with openssl_sha256 and openssl base64 fallback
+        # Simulate pulling file with openssl_sha256 and openssl base64 fallback (including OpenSSL stderr warning noise)
         sha_hex = hashlib.sha256(sample).hexdigest()
         b64_s = base64.b64encode(sample).decode('ascii')
         cam_pull_ossl = FakeCam([
-            [f'__SZ__\n{len(sample)}\n__SH__\nSHA256(/usr/lib/libAK8975.so)= {sha_hex}\n__PMCA_RC:0__\n'.encode()],
-            [f'__FB__\n{b64_s}\n__FE__\n__PMCA_RC:0__\n'.encode()],
+            [f'__SZ__\n{len(sample)}\n__SH__\nWARNING: can\'t open config file: /usr/local/ssl/openssl.cnf\nSHA256(/usr/lib/libAK8975.so)= {sha_hex}\n__PMCA_RC:0__\n'.encode()],
+            [f'echo __FB__; dd ...; echo __FE__\n__FB__\nWARNING: can\'t open config file: /usr/local/ssl/openssl.cnf\n{b64_s}\n__FE__\n__PMCA_RC:0__\n'.encode()],
         ])
         got_ossl = deployer.read_camera_file_b64(
             cam_pull_ossl, '/usr/lib/libAK8975.so', chunk_bytes=1024, hash_algo='openssl_sha256', b64_mode='openssl'

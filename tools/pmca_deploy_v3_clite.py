@@ -327,7 +327,7 @@ def verify_camera_file(cam, remote_path: str, expected_bytes: bytes, label: str,
         out = must_cmd(cam, f'/bin/busybox sha256sum "{remote_path}"', label)
         ok = exp in out.lower()
     elif hash_algo == "openssl_sha256":
-        out = must_cmd(cam, f'/usr/bin/openssl dgst -sha256 "{remote_path}"', label)
+        out = must_cmd(cam, f"/usr/bin/openssl dgst -sha256 {remote_path} 2>/dev/null", label)
         ok = exp in out.lower()
     elif hash_algo == "md5":
         out = must_cmd(cam, f'/bin/busybox md5sum "{remote_path}"', label)
@@ -349,7 +349,7 @@ def read_camera_file_b64(cam, remote_path, chunk_bytes=3072, hash_algo="sha256",
         hash_cmd = f'/bin/busybox sha256sum "{remote_path}"'
         hash_re = r"__SH__[\s\S]*?([0-9a-fA-F]{64})\b"
     elif hash_algo == "openssl_sha256":
-        hash_cmd = f'/usr/bin/openssl dgst -sha256 "{remote_path}"'
+        hash_cmd = f"/usr/bin/openssl dgst -sha256 {remote_path} 2>/dev/null"
         hash_re = r"__SH__[\s\S]*?([0-9a-fA-F]{64})\b"
     elif hash_algo == "md5":
         hash_cmd = f'/bin/busybox md5sum "{remote_path}"'
@@ -361,9 +361,9 @@ def read_camera_file_b64(cam, remote_path, chunk_bytes=3072, hash_algo="sha256",
         hash_cmd = ""
         hash_re = None
 
-    b64_pipe = "/bin/busybox base64" if b64_mode == "busybox" else "/usr/bin/openssl enc -base64"
+    b64_pipe = "/bin/busybox base64 2>/dev/null" if b64_mode == "busybox" else "/usr/bin/openssl enc -base64 2>/dev/null"
 
-    stat_cmd = f'echo __SZ__; /bin/busybox wc -c < "{remote_path}"; echo __SH__'
+    stat_cmd = f"echo __SZ__; /bin/busybox wc -c < {remote_path}; echo __SH__"
     if hash_cmd:
         stat_cmd += f"; {hash_cmd}"
     stat_out = must_cmd(cam, stat_cmd, "STAT_CAM_FILE")
@@ -385,15 +385,18 @@ def read_camera_file_b64(cam, remote_path, chunk_bytes=3072, hash_algo="sha256",
         for _ in range(3):
             out = must_cmd(
                 cam,
-                f'echo __FB__; /bin/busybox dd if="{remote_path}" bs={chunk_bytes} count=1 skip={skip} 2>/dev/null | {b64_pipe}; echo __FE__',
+                f"echo __FB__; /bin/busybox dd if={remote_path} bs={chunk_bytes} count=1 skip={skip} 2>/dev/null | {b64_pipe}; echo __FE__",
                 f"PULL_CHUNK_{skip}",
                 timeout=15.0,
             )
-            mb = re.search(r"__FB__\s*([A-Za-z0-9+/=\s]+?)\s*__FE__", out)
-            if not mb:
+            matches = re.findall(r"__FB__\r?\n([\s\S]*?)\r?\n__FE__", out)
+            if not matches:
                 last_err = f"missing framing markers: {out[-200:]}"
                 continue
-            b64_clean = re.sub(r"\s+", "", mb.group(1))
+            body = matches[-1]
+            # Filter line-by-line so any OpenSSL stderr warning or kernel log line cannot break decoding.
+            b64_lines = [ln.strip() for ln in body.splitlines() if re.fullmatch(r"[A-Za-z0-9+/=]+", ln.strip())]
+            b64_clean = "".join(b64_lines)
             try:
                 raw = base64.b64decode(b64_clean, validate=True)
             except Exception as exc:
@@ -696,7 +699,7 @@ def main():
             b64_dec_cmd = (
                 "/bin/busybox base64 -d /tmp_bt/v3c_up/up.b64 > /tmp_bt/v3c_up/up.tgz"
                 if b64_mode == "busybox"
-                else "/usr/bin/openssl enc -d -base64 -in /tmp_bt/v3c_up/up.b64 -out /tmp_bt/v3c_up/up.tgz"
+                else "/usr/bin/openssl enc -d -base64 -in /tmp_bt/v3c_up/up.b64 -out /tmp_bt/v3c_up/up.tgz 2>/dev/null"
             )
             must_cmd(cam, b64_dec_cmd, "B64_DECODE", timeout=20.0)
             must_cmd(cam, "/bin/busybox rm -f /tmp_bt/v3c_up/up.b64", "CLEAN_UP_B64")

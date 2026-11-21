@@ -22,6 +22,7 @@
 > - **[從原始碼建置、部署與操作規範（docs/部署與操作規範.md）](docs/部署與操作規範.md)** — 收錄從源碼交叉編譯、全自動 PMCA 寫入（自動偵測並修補全新機身開機掛勾 `/etc/a6400-autoexec.so`）、`--rollback` / `--diag` 一鍵救援、**SD 卡 `/A6400/CHARO.PCM` 自訂音效**、**日常使用限制（最新資料夾 1,024 張上限／15.94 MiB／exFAT 與 FAT32 皆可用／`/A6400/TEST/`）**，以及 **[第六節完整實戰排雷手冊](docs/部署與操作規範.md#六完整實戰排雷手冊部署過程中所有常見異常與解決對策)**。
 > - **[更新日誌（CHANGELOG.md）](CHANGELOG.md)** — 完整記錄 V0 → V3.9 SSLF 的版本演進、效能數據與實機修復項目。
 > - **[開發與架構細節（docs/開發與架構細節.md）](docs/開發與架構細節.md)** — 完整記錄 V3.1 → V3.9 SSLF 演進脈絡、硬體 `/proc/cpuinfo`（無 NEON）、解碼/編碼/Shell 各階段拆解、`1120-byte` UI 快照 ABI 與 `manifest.json` 欄位說明。
+> - **[社群實戰指南：A6400-V3.x 升級工作流程與經驗教訓（docs/A6400-V3.x升級工作流程與經驗教訓.md）](docs/A6400-V3.x升級工作流程與經驗教訓.md)** — 感謝 **阿杰** 貢獻同一台 A6400 連續四次升級實戰筆記（Windows 驅動包累積排查、SCSI INQUIRY 判據、上傳確認機制與排錯速查表）。
 > - **📦 [前往 GitHub Releases 下載預編譯包（繁體中文正式版 `v3.9-sslf`）](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/latest)**（簡體中文分支見 [`v3.9-sslf-sc`](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/tag/v3.9-sslf-sc)；**請注意：繁體版須將相機系統語言設為「繁體中文」，簡體版須設為「简体中文」以免原廠字型缺字**）
 > - **🔊 自訂快門音效（公開版預設不含音效，`charo=0`）**：公開倉庫與 Release 預設未隨附私人 `.pcm` 音效檔；**AI 或操作者在部署前應先詢問使用者是否需要導入快門音效（最多 3 個 `.mp3`）**——不需要則直接跳過，需要則由 AI 自動轉成 **單聲道 24 kHz Sony 32-byte SDS ADPCM**（`<= 29,760 / 24,768 / 18,560 B`）並完成重建與無需人工干預的一鍵刷入（詳見 [`docs/部署與操作規範.md`](docs/部署與操作規範.md#步驟-0ai部署前必問是否導入自訂快門音效最多-3-個確認後全程自動部署)）。
 
@@ -112,4 +113,4 @@ python3 tools/check_public_tree.py
 
 - 本專案新增部分：[PolyForm Noncommercial 1.0.0](LICENSE)（商業使用須另行取得授權）。
 - 沿用的 MIT / Public Domain 元件：見 [THIRD_PARTY.md](THIRD_PARTY.md)。
-- 特別感謝 **ASFC-CYJ** 提供 Sony A6100（ILCE-6100）與 Windows 10 實機測試並協助促成 `--safe-serial` 安全傳輸機制；完整致謝見 [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md)。Sony、Kodak、Fujifilm、CineStill 等名稱僅用於描述相容性或模擬色彩選項，本專案並非上述公司之官方產品。
+- 特別感謝 **ASFC-CYJ** 提供 Sony A6100（ILCE-6100）與 Windows 10 實機測試並協助促成 `--safe-serial` 安全傳輸機制；特別感謝 **阿杰** 貢獻 [《A6400-V3.x 升級工作流程與經驗教訓》](docs/A6400-V3.x升級工作流程與經驗教訓.md) 並協助定位 Windows `oemXX.inf` 驅動包累積與上傳累計回顯問題；完整致謝見 [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md)。Sony、Kodak、Fujifilm、CineStill 等名稱僅用於描述相容性或模擬色彩選項，本專案並非上述公司之官方產品。

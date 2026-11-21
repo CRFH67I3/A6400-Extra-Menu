@@ -23,7 +23,7 @@ class FakeDev:
 
     def writeTerminal(self, data):
         self.writes.append(data)
-        if data != b'\x03\n' and self.script:
+        if data not in (b'\x03\n', b'\"\n\'\n\x03\n') and self.script:
             self.current = list(self.script.pop(0))
 
     def readTerminal(self):
@@ -97,12 +97,12 @@ class V39ToolsTests(unittest.TestCase):
         self.assertNotIn('printf', install)
 
         cam = FakeCam([[b'> '], [b'__PMCA_RC:0__\n']])
-        out, rc = deployer.run_cmd(cam, 'echo ok', timeout=0.05, fast=True, retry_on_none=True)
+        out, rc = deployer.run_cmd(cam, 'echo ok', timeout=0.05, fast=True, retry_on_none=True, safe_serial=False)
         self.assertEqual(rc, 0, out)
         self.assertNotIn(b'printf', cam.dev.writes[0])
-        self.assertIn(b'R=$?; echo; echo __PMCA_RC:${R}__', cam.dev.writes[0])
+        self.assertIn(b'R=$?;echo;echo __PMCA_RC:$R__', cam.dev.writes[0])
         self.assertGreaterEqual(len(cam.dev.writes), 3)
-        self.assertIn(b'\x03\n', cam.dev.writes)
+        self.assertIn(b'\"\n\'\n\x03\n', cam.dev.writes)
 
         msg = deployer.format_usb_help(RuntimeError('No devices found'), platform='win32')
         self.assertIn('不支援 WinUSB', msg)
@@ -116,8 +116,8 @@ class V39ToolsTests(unittest.TestCase):
         self.assertNotIn('CLEAN_LEGACY_HOOK', src_deploy)
 
     def test_deployer_safe_serial_chunking_and_idempotent_upload(self):
-        # 1. safe_serial=True splits >100B commands into <=100B slices and picks latest __PMCA_RC
-        long_cmd = 'echo ' + ('A' * 140)
+        # 1. safe_serial=True splits >48B commands into <=48B (< 0x40=64B USB packet) slices and picks latest __PMCA_RC
+        long_cmd = 'echo ' + ('A' * 50)
         cam_chunked = FakeCam([
             [],
             [b'echo __PMCA_RC:99__ noise\n__PMCA_RC:0__\n'],
@@ -125,7 +125,7 @@ class V39ToolsTests(unittest.TestCase):
         out, rc = deployer.run_cmd(cam_chunked, long_cmd, timeout=0.5, fast=False, safe_serial=True)
         self.assertEqual(rc, 0, out)
         self.assertEqual(len(cam_chunked.dev.writes), 2)
-        self.assertTrue(all(len(w) <= 100 for w in cam_chunked.dev.writes))
+        self.assertTrue(all(len(w) <= 48 for w in cam_chunked.dev.writes))
 
         # 2. upload_b64_chunks uses newline-delimited echo and accepts rc=None when wc -l matches idx+1
         chunks = deployer.build_upload_chunks('QUJD' * 40, step=120)

@@ -34,22 +34,30 @@ def run_cmd(cam, cmd, timeout=15.0, fast=False, retry_on_none=True, safe_serial=
         if attempt > 0:
             # Recover from a potentially truncated line or open quote before retrying once.
             try:
-                dev.writeTerminal(b"\x03\n")
+                dev.writeTerminal(b"\"\n'\n\x03\n")
                 time.sleep(0.15)
                 dev.readTerminal()
             except Exception:
                 pass
-        payload = f"{cmd}; R=$?; echo; echo __PMCA_RC:${{R}}__\n".encode()
-        if chunked_write and len(payload) > 100:
-            # Split long commands into 100-byte / 20ms slices to avoid serial drops on A6100 / Windows.
-            for i in range(0, len(payload), 100):
-                dev.writeTerminal(payload[i:i + 100])
+        payload = f"{cmd};R=$?;echo;echo __PMCA_RC:$R__\n".encode()
+        out = bytearray()
+        if chunked_write and len(payload) > 48:
+            # SonySenserDevice.writeTerminal loops at 0x40 (64B) with 0ms delay.
+            # Slicing at 48B (< 64B) guarantees 1 USB packet per write + echo drain.
+            for i in range(0, len(payload), 48):
+                dev.writeTerminal(payload[i:i + 48])
                 time.sleep(0.02)
+                if i + 48 < len(payload):
+                    try:
+                        ech = dev.readTerminal()
+                        if ech:
+                            out.extend(ech)
+                    except Exception:
+                        pass
         else:
             dev.writeTerminal(payload)
         end = time.monotonic() + timeout
         post_rc_deadline = None
-        out = bytearray()
         rc = None
         quiet = 0
         while time.monotonic() < end:
@@ -97,9 +105,9 @@ def atomic_copy_steps(src, dst, mode):
     name = posixpath.basename(dst)
     tmp_dst = f"{parent}/{name}.new"
     return [
-        f'/bin/busybox cp "{src}" "{tmp_dst}"',
-        f'/bin/busybox chmod {mode} "{tmp_dst}" && /bin/busybox sync',
-        f'/bin/busybox mv "{tmp_dst}" "{dst}" && /bin/busybox sync',
+        f"/bin/busybox cp {src} {tmp_dst}",
+        f"/bin/busybox chmod {mode} {tmp_dst} && /bin/busybox sync",
+        f"/bin/busybox mv {tmp_dst} {dst} && /bin/busybox sync",
     ]
 
 
@@ -112,8 +120,8 @@ def build_backup_steps():
     )
     steps = []
     for t in targets:
-        steps.append(f'P="{t}"')
-        steps.append('test ! -f "$P" || test -f "$P.pre-v3c-backup" || /bin/busybox cp -p "$P" "$P.pre-v3c-backup"')
+        steps.append(f"P={t}; B=$P.pre-v3c-backup")
+        steps.append("test ! -f $P || test -f $B || /bin/busybox cp -p $P $B")
     steps.append("/bin/busybox sync")
     return steps
 
@@ -130,19 +138,19 @@ def build_install_steps(has_hook, extra_entries):
     steps.extend(atomic_copy_steps(f"{d}/new-autoexec.sh", "/tmp/autoexec.sh", "755"))
     if has_hook:
         steps.extend([
-            f'echo "{HOOK_CAMERA_PATH}" > /etc/ld.so.preload.new',
-            '/bin/busybox chmod 644 /etc/ld.so.preload.new && /bin/busybox sync',
-            '/bin/busybox mv /etc/ld.so.preload.new /etc/ld.so.preload && /bin/busybox sync',
+            f"echo {HOOK_CAMERA_PATH} > /etc/ld.so.preload.new",
+            "/bin/busybox chmod 644 /etc/ld.so.preload.new && /bin/busybox sync",
+            "/bin/busybox mv /etc/ld.so.preload.new /etc/ld.so.preload && /bin/busybox sync",
         ])
-    steps.append('/bin/busybox rm -f /tmp/disable_hook && /bin/busybox sync')
+    steps.append("/bin/busybox rm -f /tmp/disable_hook && /bin/busybox sync")
     return steps
 
 
 def build_rollback_steps():
     steps = []
     for path in ("/etc/ld.so.preload", "/tmp/autoexec.sh", "/tmp/a6400-film-boot-v15.tar", HOOK_CAMERA_PATH):
-        steps.append(f'P="{path}"')
-        steps.append('test -f "$P.pre-v3c-backup" && /bin/busybox mv "$P.pre-v3c-backup" "$P" || /bin/busybox rm -f "$P"')
+        steps.append(f"P={path}; B=$P.pre-v3c-backup")
+        steps.append("test -f $B && /bin/busybox mv $B $P || /bin/busybox rm -f $P")
     for extra in (
         "/tmp/a6400-charo-bind.elf",
         "/tmp/a6400-charo-shutter.pcm",
@@ -150,7 +158,7 @@ def build_rollback_steps():
         "/tmp/a6400-charo-push.pcm",
         "/tmp/a6400-hook-err.log",
     ):
-        steps.append(f'/bin/busybox rm -f "{extra}"')
+        steps.append(f"/bin/busybox rm -f {extra}")
     steps.append("/bin/busybox sync")
     return steps
 
@@ -652,16 +660,12 @@ def main():
                 must_cmd(cam, step, f"BACKUP_{idx}")
 
             b64 = base64.b64encode(tgz_bytes).decode("ascii")
-            must_cmd(
-                cam,
-                "/bin/busybox umount /tmp_bt/v3c_up 2>/dev/null||true; rm -rf /tmp_bt/v3c_up 2>/dev/null||true",
-                "CLEAN_UP_DIR",
-            )
-            must_cmd(
-                cam,
-                "mkdir -p /tmp_bt/v3c_up 2>/dev/null || (/bin/busybox mount -t tmpfs -o size=4096k tmpfs /tmp_bt && mkdir -p /tmp_bt/v3c_up)",
-                "PREP_UP_DIR",
-            )
+            must_cmd(cam, "/bin/busybox umount /tmp_bt/v3c_up 2>/dev/null || true", "UMOUNT_UP_DIR")
+            must_cmd(cam, "/bin/busybox rm -rf /tmp_bt/v3c_up 2>/dev/null || true", "CLEAN_UP_DIR")
+            _, mk_rc = run_cmd(cam, "/bin/busybox mkdir -p /tmp_bt/v3c_up 2>/dev/null")
+            if mk_rc != 0:
+                must_cmd(cam, "/bin/busybox mount -t tmpfs -o size=4096k tmpfs /tmp_bt", "MOUNT_TMP_BT")
+                must_cmd(cam, "/bin/busybox mkdir -p /tmp_bt/v3c_up", "PREP_UP_DIR")
             must_cmd(cam, "/bin/busybox mount -t tmpfs -o size=2048k tmpfs /tmp_bt/v3c_up", "MOUNT_UP_TMPFS")
             must_cmd(cam, ": > /tmp_bt/v3c_up/up.b64", "PREP_UP_FILE")
             # OpenSSL 1.0.x `enc -d -base64` expects <=64-char lines; busybox base64 accepts 120-char lines.
@@ -674,25 +678,21 @@ def main():
             print(f"Verified up.b64: {lines_n} lines / {bytes_n} B", flush=True)
 
             b64_dec_cmd = (
-                '/bin/busybox base64 -d /tmp_bt/v3c_up/up.b64 > /tmp_bt/v3c_up/up.tgz && rm -f /tmp_bt/v3c_up/up.b64'
+                "/bin/busybox base64 -d /tmp_bt/v3c_up/up.b64 > /tmp_bt/v3c_up/up.tgz"
                 if b64_mode == "busybox"
-                else '/usr/bin/openssl enc -d -base64 -in /tmp_bt/v3c_up/up.b64 -out /tmp_bt/v3c_up/up.tgz && rm -f /tmp_bt/v3c_up/up.b64'
+                else "/usr/bin/openssl enc -d -base64 -in /tmp_bt/v3c_up/up.b64 -out /tmp_bt/v3c_up/up.tgz"
             )
-            must_cmd(
-                cam,
-                b64_dec_cmd,
-                "B64_DECODE",
-                timeout=20.0,
-            )
+            must_cmd(cam, b64_dec_cmd, "B64_DECODE", timeout=20.0)
+            must_cmd(cam, "/bin/busybox rm -f /tmp_bt/v3c_up/up.b64", "CLEAN_UP_B64")
             verify_camera_file(cam, "/tmp_bt/v3c_up/up.tgz", tgz_bytes, "VERIFY_TGZ", hash_algo)
             must_cmd(
                 cam,
-                '/bin/busybox tar -xzf /tmp_bt/v3c_up/up.tgz -C /tmp_bt/v3c_up',
+                "/bin/busybox tar -xzf /tmp_bt/v3c_up/up.tgz -C /tmp_bt/v3c_up",
                 "UNTAR_UP",
                 timeout=20.0,
             )
-            must_cmd(cam, 'rm -f /tmp_bt/v3c_up/up.tgz', "CLEAN_UP_TGZ")
-            must_cmd(cam, '/bin/sh -n /tmp_bt/v3c_up/new-autoexec.sh', "SYNTAX_AUTOEXEC")
+            must_cmd(cam, "/bin/busybox rm -f /tmp_bt/v3c_up/up.tgz", "CLEAN_UP_TGZ")
+            must_cmd(cam, "/bin/sh -n /tmp_bt/v3c_up/new-autoexec.sh", "SYNTAX_AUTOEXEC")
 
             verify_targets = [
                 ("/tmp_bt/v3c_up/new-autoexec.sh", boot_sh_bytes),
@@ -707,14 +707,14 @@ def main():
                 verify_camera_file(cam, vpath, vbytes, f"VERIFY_{posixpath.basename(vpath)}", hash_algo)
 
             for name, exp_bytes in entry_items:
-                must_cmd(cam, 'mkdir -p /tmp_bt/v3c_up/ex', f"MKEX_{name}")
+                must_cmd(cam, "/bin/busybox mkdir -p /tmp_bt/v3c_up/ex", f"MKEX_{name}")
                 must_cmd(
                     cam,
-                    f'/bin/busybox tar -xf /tmp_bt/v3c_up/new-boot.tar -C /tmp_bt/v3c_up/ex "{name}"',
+                    f"/bin/busybox tar -xf /tmp_bt/v3c_up/new-boot.tar -C /tmp_bt/v3c_up/ex {name}",
                     f"EX_{name}",
                 )
                 verify_camera_file(cam, f"/tmp_bt/v3c_up/ex/{name}", exp_bytes, f"VERIFY_{name}", hash_algo)
-                must_cmd(cam, 'rm -rf /tmp_bt/v3c_up/ex', f"RMEX_{name}")
+                must_cmd(cam, "/bin/busybox rm -rf /tmp_bt/v3c_up/ex", f"RMEX_{name}")
 
             extra_entries = [(ename, emode) for _, ename, _, emode in extra_items]
             for idx, step in enumerate(build_install_steps(install_hook, extra_entries)):
@@ -732,11 +732,12 @@ def main():
                 verify_camera_file(cam, fpath, fbytes, f"FINAL_{posixpath.basename(fpath)}", hash_algo)
 
             if install_hook:
-                preload_out = must_cmd(cam, '/bin/busybox cat /etc/ld.so.preload', "FINAL_PRELOAD")
+                preload_out = must_cmd(cam, "/bin/busybox cat /etc/ld.so.preload", "FINAL_PRELOAD")
                 if HOOK_CAMERA_PATH not in preload_out:
                     raise RuntimeError(f"/etc/ld.so.preload missing {HOOK_CAMERA_PATH}")
 
-            must_cmd(cam, '/bin/busybox umount /tmp_bt/v3c_up 2>/dev/null||true; rm -rf /tmp_bt/v3c_up && /bin/busybox sync', "CLEAN_UP_STAGE")
+            must_cmd(cam, "/bin/busybox umount /tmp_bt/v3c_up 2>/dev/null || true", "UMOUNT_UP_STAGE")
+            must_cmd(cam, "/bin/busybox rm -rf /tmp_bt/v3c_up && /bin/busybox sync", "CLEAN_UP_STAGE")
             print(f"V3_CLITE_DEPLOY_OK package={manifest['package_id']} version=V3.9-SSLF", flush=True)
             deploy_ok = True
         finally:

@@ -168,16 +168,9 @@ jobs:
             '  exit /b',
             ')',
             'cd /d "%~dp0"',
-            'echo ========================================================',
-            'echo   A6400 / A6100 Windows 免 Zadig 一鍵部署工具 (V3.9 SSLF)',
-            'echo   1. 安裝時可選擇「繁體中文」或「簡體中文」介面',
-            'echo   2. 相機設為：USB連線 = 大容量儲存、USB LUN = 多重',
-            'echo   3. 記憶卡先建好 /A6400/TEST/，插線後靜置 8 秒再按任意鍵',
-            'echo ========================================================',
-            'pause',
             'a6400_win_deploy.exe',
             'echo.',
-            'echo 如需將相機變回正常讀卡機，請雙擊「一鍵還原預設讀卡機.bat」。',
+            'echo Done. To restore Windows Explorer drive access, run the restore-driver .bat file.',
             'pause'
           ) -join "`r`n"
           [System.IO.File]::WriteAllText((Join-Path (Resolve-Path stage) "一鍵開始安裝.bat"), $batInstall + "`r`n", $utf8NoBom)

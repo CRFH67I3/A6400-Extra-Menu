@@ -14,13 +14,14 @@ MASS_STORAGE_PIDS = (0x0CA8, 0x0D12)  # A6400 (0CA8), A6100 (0D12)
 SERVICE_PID = 0x0336
 
 
-def build_wdi_simple_cmd(wdi_exe, vid, pid, name, dest_dir=None):
+def build_wdi_simple_cmd(wdi_exe, vid, pid, name, dest_dir=None, timeout_ms=30000):
     """Build wdi-simple.exe command using --type 1 (libusb-win32, required by Sony-PMCA-RE)."""
     cmd = [
         str(wdi_exe),
         "--vid", f"0x{vid:04X}",
         "--pid", f"0x{pid:04X}",
         "--type", "1",
+        "--timeout", str(timeout_ms),
         "--name", name,
     ]
     if dest_dir:
@@ -79,15 +80,28 @@ def find_connected_sony_pids():
     return pids
 
 
+def wait_for_sony_pid(target_pid, wait_sec=10.0):
+    """Wait briefly for Windows PnP to enumerate target Sony PID."""
+    deadline = time.monotonic() + wait_sec
+    while time.monotonic() < deadline:
+        if target_pid in find_connected_sony_pids():
+            return True
+        time.sleep(0.5)
+    return target_pid in find_connected_sony_pids()
+
+
 def run_wdi_install(wdi_exe, pid, name):
     tmpdir = tempfile.mkdtemp(prefix="a6400_wdi_")
     try:
         cmd = build_wdi_simple_cmd(wdi_exe, SONY_VID, pid, name, dest_dir=tmpdir)
-        print(f"[*] 正在自動綁定 libusb-win32 驅動 (054C:{pid:04X})...", flush=True)
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        out = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+        print(f"[*] 正在自動綁定 libusb-win32 驅動 (054C:{pid:04X})，請稍候 10~30 秒...", flush=True)
+        try:
+            proc = subprocess.run(cmd, timeout=90, check=False)
+        except subprocess.TimeoutExpired:
+            print(f"[!] wdi-simple (054C:{pid:04X}) 逾時 90 秒，請確認相機連線並重試。", flush=True)
+            return False
         if proc.returncode != 0:
-            print(f"[!] wdi-simple (054C:{pid:04X}) 返回 rc={proc.returncode}: {out.strip()}", flush=True)
+            print(f"[!] wdi-simple (054C:{pid:04X}) 返回 rc={proc.returncode}", flush=True)
             return False
         print(f"[+] 驅動綁定完成 (054C:{pid:04X})", flush=True)
         return True
@@ -117,6 +131,12 @@ def ensure_mass_storage_driver(wdi_exe):
 
 def ensure_service_driver(wdi_exe):
     if sys.platform != "win32":
+        return False
+    if not wait_for_sony_pid(SERVICE_PID, wait_sec=10.0):
+        print(
+            "[!] 未偵測到服務模式裝置 (054C:0336)。若相機黑屏或卡死，請拔線 → 關機取電池 10 秒 → 裝回開機插線靜置 8 秒後重試。",
+            flush=True,
+        )
         return False
     ok = run_wdi_install(wdi_exe, SERVICE_PID, "Sony Camera Service Mode (libusb-win32)")
     time.sleep(2.0)

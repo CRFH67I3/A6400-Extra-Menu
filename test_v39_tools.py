@@ -198,7 +198,7 @@ class V39ToolsTests(unittest.TestCase):
         cmd = windrv.build_wdi_simple_cmd('wdi-simple.exe', 0x054C, 0x0336, 'Sony Camera Service', dest_dir='C:\\tmp')
         self.assertEqual(cmd, [
             'wdi-simple.exe', '--vid', '0x054C', '--pid', '0x0336', '--type', '1',
-            '--name', 'Sony Camera Service', '--dest', 'C:\\tmp',
+            '--timeout', '30000', '--name', 'Sony Camera Service', '--dest', 'C:\\tmp',
         ])
         self.assertEqual(
             windrv.parse_pnputil_connected_sony_pids('USB\\VID_054C&PID_0D12\\1234\nUSB\\VID_054C&PID_0336\\5678'),

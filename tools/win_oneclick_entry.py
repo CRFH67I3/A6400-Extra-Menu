@@ -129,6 +129,17 @@ def main():
     if "--restore-driver" in sys.argv:
         sys.exit(windrv.restore_default_drivers())
 
+    if sys.stdin.isatty() and not any(a in sys.argv[1:] for a in ("--diag", "--rollback", "--smoke-test")):
+        print(
+            "========================================================\n"
+            "  A6400 / A6100 Windows 免 Zadig 一鍵部署工具 (V3.9 SSLF)\n"
+            "  1. 安裝時可選擇「繁體中文」或「簡體中文」介面\n"
+            "  2. 相機設為：USB連線 = 大容量儲存、USB LUN = 多重\n"
+            "  3. 記憶卡先建好 /A6400/TEST/，插線後靜置 8 秒再繼續\n"
+            "========================================================",
+            flush=True,
+        )
+
     lang, rem = parse_lang_arg(sys.argv[1:])
     wdi_exe = root / "wdi-simple.exe"
     hook_file = root / "a6400-autoexec.so"

@@ -55,13 +55,17 @@ jobs:
           mkdir -p stage/offline stage/tools
           bash repo/tools/build_alpine_wsl_rootfs.sh stage/offline/a6400-alpine-wsl.tar.gz hook-stub.bin
 
-      - name: 下載官方簽章離線安裝檔 (WSL2 核心 + usbipd-win)
+      - name: 下載官方簽章離線安裝檔 (完整 WSL2 本體 + Win10 核心 + usbipd-win)
         run: |
-          # 1. Microsoft official WSL2 kernel update (5.10.102+ with vhci_hcd USB/IP built in, ~16 MB)
+          # 1. Microsoft official full WSL2 MSI (Win10 19041+ & Win11 22H2/23H2/24H2 100% offline, ~196 MB)
+          curl -fL "https://github.com/microsoft/WSL/releases/download/2.4.13/wsl.2.4.13.0.x64.msi" \
+            -o stage/offline/wsl.2.4.13.0.x64.msi
+
+          # 2. Microsoft official legacy Win10 WSL2 kernel update (~16 MB fallback)
           curl -fL "https://wslstorestorage.blob.core.windows.net/wslblob/wsl_update_x64.msi" \
             -o stage/offline/wsl_update_x64.msi
 
-          # 2. Official signed dorssel/usbipd-win x64 MSI (~4.3 MB)
+          # 3. Official signed dorssel/usbipd-win x64 MSI (~4.3 MB)
           USBIPD_URL="$(python3 - <<'PY'
           import urllib.request, json
           req = urllib.request.Request(
@@ -165,8 +169,9 @@ jobs:
               "  - 完全不需 Zadig、不需安裝 libusb-win32、不累積 oemXX.inf！",
               "  - 使用微軟簽章官方 usbipd-win + 極輕量 Alpine Linux (~20 MB) 離線部署，",
               "    免疫 Windows 11 記憶體完整性（核心隔離）與驅動衝突。",
-              "  - 內附離線 WSL2 核心 (wsl_update_x64.msi) 與 usbipd-win.msi，",
-              "    中國大陸免翻牆、斷網即可開箱使用！",
+              "  - 內附完整微軟官方簽章 WSL2 本體 (wsl.2.4.13.0.x64.msi)、Win10 核心",
+              "    (wsl_update_x64.msi) 與 usbipd-win.msi，Win10 / Win11 24H2 皆免翻牆、",
+              "    100% 斷網即可開箱使用！",
               "  - 刷完自動解除 USB 透傳，拔線即為正常 Windows 讀卡機，免還原驅動！",
               "",
               "【事前準備】",
@@ -196,7 +201,9 @@ jobs:
           with zipfile.ZipFile(zip_name, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
               for p in sorted(stage.rglob("*")):
                   if p.is_file():
-                      zf.write(p, f"A6400-A6100-{tag}-Win-WSL-Offline/{p.relative_to(stage).as_posix()}")
+                      arc = f"A6400-A6100-{tag}-Win-WSL-Offline/{p.relative_to(stage).as_posix()}"
+                      comp = zipfile.ZIP_STORED if p.suffix.lower() in (".msi", ".gz") else zipfile.ZIP_DEFLATED
+                      zf.write(p, arc, compress_type=comp)
 
           with open(os.environ["GITHUB_ENV"], "a") as f:
               f.write(f"ZIP_NAME={zip_name}\n")

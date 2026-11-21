@@ -3,10 +3,28 @@
 import os
 import sys
 import time
+import traceback
 from pathlib import Path
 
+import build_autoexec_hook  # ensure bundled for blank-camera patching
 import pmca_deploy_v3_clite as deployer
 import win_usb_driver as windrv
+
+
+def run_smoke_test(root, meipass):
+    """Verify bundled PMCA dependencies, libusb backends, and hook-stub.bin inside frozen EXE."""
+    from pmca.commands.usb import senserShellCommand  # noqa: F401
+    import usb.backend.libusb0 as b0
+    import usb.backend.libusb1 as b1
+
+    stub_candidates = [root / "hook-stub.bin"]
+    if meipass:
+        stub_candidates.append(Path(meipass) / "hook-stub.bin")
+    if not any(p.is_file() for p in stub_candidates):
+        raise RuntimeError("Missing bundled hook-stub.bin")
+    if b0.get_backend() is None and b1.get_backend() is None:
+        raise RuntimeError("Neither libusb0 nor libusb1 backend could load")
+    print("WIN_ONECLICK_SMOKE_OK", flush=True)
 
 
 def base_dir():
@@ -105,6 +123,10 @@ def main():
     extra_paths = [str(root)] + ([str(meipass)] if meipass else [])
     os.environ["PATH"] = os.pathsep.join(extra_paths) + os.pathsep + os.environ.get("PATH", "")
 
+    if "--smoke-test" in sys.argv[1:]:
+        run_smoke_test(root, meipass)
+        sys.exit(0)
+
     if "--restore-driver" in sys.argv:
         sys.exit(windrv.restore_default_drivers())
 
@@ -156,4 +178,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        traceback.print_exc()
+        sys.exit(1)

@@ -89,7 +89,7 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller libusb requests asn1crypto axmlparserpy certifi comtypes pycparser pycryptodomex pyusb pywin32 pyyaml tlslite-ng
+          pip install pyinstaller libusb requests asn1crypto "axmlparserpy==0.0.4" certifi comtypes pycparser pycryptodomex pyusb pywin32 pyyaml tlslite-ng
           git clone --depth 1 https://github.com/ma1co/Sony-PMCA-RE.git pmca-re
           $libusbDll = (python -c "import libusb, pathlib; p=list(pathlib.Path(libusb.__file__).parent.rglob('libusb-1.0.dll')); print([x for x in p if 'x64' in str(x) or 'x86_64' in str(x)][0])")
           $libusb0Dll = "libwdi\libusb0\bin\amd64\libusb0.dll"
@@ -102,6 +102,7 @@ jobs:
             --hidden-import usb.backend.libusb0 `
             --hidden-import usb.backend.libusb1 `
             --collect-submodules pmca `
+            --collect-all axmlparserpy `
             --collect-submodules Cryptodome `
             --collect-submodules asn1crypto `
             --collect-submodules tlslite `
@@ -121,11 +122,12 @@ jobs:
           Copy-Item $libusb0Dll stage\libusb0.dll
 
       - name: 實機環境 Smoke Test (驗證 EXE 與 PMCA / libusb / hook-stub 無缺漏)
-        shell: cmd
+        shell: pwsh
         run: |
           .\stage\a6400_win_deploy.exe --smoke-test
+          if ($LASTEXITCODE -ne 0) { throw "a6400_win_deploy --smoke-test failed with $LASTEXITCODE" }
           .\stage\a6400_win_deploy.exe --help
-          .\stage\wdi-simple.exe --help || echo wdi-simple help checked
+          if ($LASTEXITCODE -ne 0) { throw "a6400_win_deploy --help failed with $LASTEXITCODE" }
 
       - name: 整合 Release V3.9 SSLF (繁中+簡中雙語) 開機包與 Windows 一鍵腳本 + 使用說明
         shell: pwsh

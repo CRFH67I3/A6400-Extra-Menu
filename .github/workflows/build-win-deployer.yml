@@ -121,22 +121,34 @@ jobs:
           .\stage\a6400_win_deploy.exe --help
           .\stage\wdi-simple.exe --help || echo wdi-simple help checked
 
-      - name: 整合 Release V3.9 SSLF 開機包與 Windows 一鍵腳本 + 使用說明
+      - name: 整合 Release V3.9 SSLF (繁中+簡中雙語) 開機包與 Windows 一鍵腳本 + 使用說明
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
         run: |
-          $relJson = gh release view $env:TAG --repo ${{ github.repository }} --json assets | ConvertFrom-Json
-          $asset = $relJson.assets | Where-Object { $_.name -like "A6400-V3.9*OneClick*.zip" -and $_.name -notlike "*Win-ZeroConfig*" } | Select-Object -First 1
-          if (-not $asset) { throw "No matching OneClick zip in release $env:TAG" }
-          gh release download $env:TAG --repo ${{ github.repository }} --pattern $asset.name -D dl
-          Expand-Archive -Path ("dl/" + $asset.name) -DestinationPath dl_ext
-          $pkgDir = Get-ChildItem -Path dl_ext -Directory -Recurse -Filter "local-boot-package" | Select-Object -First 1
-          if (-not $pkgDir) { throw "local-boot-package not found inside release zip" }
-          Copy-Item -Recurse $pkgDir.FullName stage\local-boot-package
-          $hookFile = Get-ChildItem -Path dl_ext -File -Recurse -Filter "a6400-autoexec.so" | Select-Object -First 1
-          if ($hookFile) { Copy-Item $hookFile.FullName stage\a6400-autoexec.so }
+          function Fetch-PackageFromRelease($tagName, $destDir) {
+            $relJson = gh release view $tagName --repo ${{ github.repository }} --json assets | ConvertFrom-Json
+            $asset = $relJson.assets | Where-Object { $_.name -like "A6400-V3.9*OneClick*.zip" -and $_.name -notlike "*Win-ZeroConfig*" } | Select-Object -First 1
+            if (-not $asset) { return $false }
+            $dlSub = "dl_$tagName"
+            $extSub = "ext_$tagName"
+            gh release download $tagName --repo ${{ github.repository }} --pattern $asset.name -D $dlSub
+            Expand-Archive -Path ("$dlSub/" + $asset.name) -DestinationPath $extSub
+            $pkgDir = Get-ChildItem -Path $extSub -Directory -Recurse -Filter "local-boot-package" | Select-Object -First 1
+            if (-not $pkgDir) { throw "local-boot-package not found inside release $tagName" }
+            Copy-Item -Recurse $pkgDir.FullName $destDir
+            $hookFile = Get-ChildItem -Path $extSub -File -Recurse -Filter "a6400-autoexec.so" | Select-Object -First 1
+            if ($hookFile -and -not (Test-Path "stage\a6400-autoexec.so")) { Copy-Item $hookFile.FullName stage\a6400-autoexec.so }
+            return $true
+          }
+
+          if ($env:TAG -eq "v3.9-sslf-sc") {
+            if (-not (Fetch-PackageFromRelease "v3.9-sslf-sc" "stage\local-boot-package")) { throw "Missing v3.9-sslf-sc release" }
+          } else {
+            if (-not (Fetch-PackageFromRelease $env:TAG "stage\local-boot-package-tc")) { throw "Missing $env:TAG release" }
+            Fetch-PackageFromRelease "v3.9-sslf-sc" "stage\local-boot-package-sc" | Out-Null
+          }
 
           $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
@@ -153,7 +165,7 @@ jobs:
             'cd /d "%~dp0"',
             'echo ========================================================',
             'echo   A6400 / A6100 Windows 免 Zadig 一鍵部署工具 (V3.9 SSLF)',
-            'echo   1. 相機語言請設為與套件一致 (繁體中文 / 简体中文)',
+            'echo   1. 安裝時可選擇「繁體中文」或「簡體中文」介面',
             'echo   2. 相機設為：USB連線 = 大容量儲存、USB LUN = 多重',
             'echo   3. 記憶卡先建好 /A6400/TEST/，插線後靜置 8 秒再按任意鍵',
             'echo ========================================================',

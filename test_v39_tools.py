@@ -257,6 +257,27 @@ Class Name :                libusb-win32 devices
         self.assertEqual(patched[0x988:0x988 + len(stub)], stub)
         self.assertEqual(struct.unpack_from('<II', patched, dyn_off), (12, 0x988))
 
+    def test_win_oneclick_entry_selects_tc_or_sc_package(self):
+        import io
+        from contextlib import redirect_stdout
+        from unittest import mock
+        import win_oneclick_entry as entry
+
+        self.assertEqual(entry.parse_lang_arg(['--lang', 'sc', '--diag']), ('sc', ['--diag']))
+        self.assertEqual(entry.parse_lang_arg(['--lang=tc']), ('tc', []))
+
+        with tempfile.TemporaryDirectory() as td:
+            r = Path(td)
+            (r / 'local-boot-package-tc').mkdir()
+            (r / 'local-boot-package-sc').mkdir()
+            self.assertEqual(entry.select_package_dir(r, lang='sc').name, 'local-boot-package-sc')
+            self.assertEqual(entry.select_package_dir(r, lang='tc').name, 'local-boot-package-tc')
+            with redirect_stdout(io.StringIO()):
+                with mock.patch('builtins.input', return_value='2'):
+                    self.assertEqual(entry.select_package_dir(r, interactive=True).name, 'local-boot-package-sc')
+                with mock.patch('builtins.input', return_value=''):
+                    self.assertEqual(entry.select_package_dir(r, interactive=True).name, 'local-boot-package-tc')
+
     def test_multi_charo_local_boot_package_optional_slots(self):
         root = Path(__file__).resolve().parent
         sys.path.insert(0, str(root / 'host-tests'))

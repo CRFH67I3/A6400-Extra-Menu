@@ -484,6 +484,38 @@ Class Name :                libusb-win32 devices
             self.assertNotEqual(r_bad.returncode, 0)
             self.assertFalse((d / 'bad_out.jpg').exists())
 
+    def test_camera_hash_algo_fallback_and_cksum(self):
+        import base64
+        sample = b'Sony A6100/A6400 checksum test payload 1234567890!'
+        crc, n = deployer.posix_cksum(sample)
+        self.assertEqual(n, len(sample))
+        res = subprocess.run(['cksum'], input=sample, capture_output=True, check=True)
+        sys_crc, sys_n = res.stdout.decode().strip().split()[:2]
+        self.assertEqual((crc, n), (int(sys_crc), int(sys_n)))
+
+        # Simulate camera without sha256sum, with md5sum
+        cam = FakeCam([
+            [b'sha256sum: applet not found\n__PMCA_RC:127__\n'],
+            [b'd41d8cd98f00b204e9800998ecf8427e  /dev/null\n__PMCA_RC:0__\n'],
+        ])
+        self.assertEqual(deployer.detect_camera_hash_algo(cam), 'md5')
+
+        # Simulate pulling file with md5 fallback
+        md5_hex = hashlib.md5(sample).hexdigest()
+        b64_s = base64.b64encode(sample).decode('ascii')
+        cam_pull = FakeCam([
+            [f'__SZ__\n{len(sample)}\n__SH__\n{md5_hex}  /usr/lib/libAK8975.so\n__PMCA_RC:0__\n'.encode()],
+            [f'__FB__\n{b64_s}\n__FE__\n__PMCA_RC:0__\n'.encode()],
+        ])
+        got = deployer.read_camera_file_b64(cam_pull, '/usr/lib/libAK8975.so', chunk_bytes=1024, hash_algo='md5')
+        self.assertEqual(got, sample)
+
+        # Simulate size-only fallback verify
+        cam_sz = FakeCam([
+            [f'__SZ__\n{len(sample)}\n__SE__\n__PMCA_RC:0__\n'.encode()],
+        ])
+        deployer.verify_camera_file(cam_sz, '/tmp/test.bin', sample, 'VERIFY_TEST', hash_algo='size')
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

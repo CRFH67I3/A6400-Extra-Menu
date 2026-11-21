@@ -239,19 +239,89 @@ def check_package_charo_notice(extra_items, assume_yes=False, interactive=None):
     return True
 
 
-def read_camera_file_b64(cam, remote_path, chunk_bytes=3072):
-    """Safely read a binary file from camera over serviceshell in bounded base64 chunks + SHA verification."""
-    stat_out = must_cmd(
-        cam,
-        f'echo __SZ__; /bin/busybox wc -c < "{remote_path}"; echo __SH__; /bin/busybox sha256sum "{remote_path}"',
-        "STAT_CAM_FILE",
-    )
+def posix_cksum(data: bytes):
+    """Compute POSIX cksum (CRC-32 IEEE 802.3 MSB-first + length) matching busybox cksum."""
+    crc = 0
+    for b in data:
+        crc ^= b << 24
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x04C11DB7) if (crc & 0x80000000) else (crc << 1)
+            crc &= 0xFFFFFFFF
+    n = len(data)
+    while n:
+        crc ^= (n & 0xFF) << 24
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x04C11DB7) if (crc & 0x80000000) else (crc << 1)
+            crc &= 0xFFFFFFFF
+        n >>= 8
+    return (~crc) & 0xFFFFFFFF, len(data)
+
+
+def detect_camera_hash_algo(cam):
+    """Detect the strongest checksum applet supported by camera /bin/busybox."""
+    for algo, applet in (("sha256", "sha256sum"), ("md5", "md5sum"), ("cksum", "cksum")):
+        _, rc = run_cmd(cam, f"/bin/busybox {applet} /dev/null >/dev/null 2>&1", timeout=8.0)
+        if rc == 0:
+            return algo
+    return "size"
+
+
+def local_digest(data: bytes, algo: str) -> str:
+    if algo == "sha256":
+        return hashlib.sha256(data).hexdigest().lower()
+    if algo == "md5":
+        return hashlib.md5(data).hexdigest().lower()
+    if algo == "cksum":
+        crc, n = posix_cksum(data)
+        return f"{crc} {n}"
+    return str(len(data))
+
+
+def verify_camera_file(cam, remote_path: str, expected_bytes: bytes, label: str, hash_algo: str = "sha256"):
+    """Verify remote file integrity on camera using the detected hash algorithm."""
+    exp = local_digest(expected_bytes, hash_algo)
+    if hash_algo == "sha256":
+        out = must_cmd(cam, f'/bin/busybox sha256sum "{remote_path}"', label)
+        ok = exp in out.lower()
+    elif hash_algo == "md5":
+        out = must_cmd(cam, f'/bin/busybox md5sum "{remote_path}"', label)
+        ok = exp in out.lower()
+    elif hash_algo == "cksum":
+        out = must_cmd(cam, f'/bin/busybox cksum "{remote_path}"', label)
+        ok = re.search(rf"\b{re.escape(exp)}\b", out) is not None
+    else:
+        out = must_cmd(cam, f'echo __SZ__; /bin/busybox wc -c < "{remote_path}"; echo __SE__', label)
+        m = re.search(r"__SZ__\s*(\d+)\s*__SE__", out)
+        ok = bool(m and m.group(1) == exp)
+    if not ok:
+        raise RuntimeError(f"{label} {hash_algo} mismatch for {remote_path} (expected {exp})")
+
+
+def read_camera_file_b64(cam, remote_path, chunk_bytes=3072, hash_algo="sha256"):
+    """Safely read a binary file from camera over serviceshell in bounded base64 chunks + integrity verification."""
+    if hash_algo == "sha256":
+        hash_cmd = f'/bin/busybox sha256sum "{remote_path}"'
+        hash_re = r"__SH__\s*([0-9a-fA-F]{64})\b"
+    elif hash_algo == "md5":
+        hash_cmd = f'/bin/busybox md5sum "{remote_path}"'
+        hash_re = r"__SH__\s*([0-9a-fA-F]{32})\b"
+    elif hash_algo == "cksum":
+        hash_cmd = f'/bin/busybox cksum "{remote_path}"'
+        hash_re = r"__SH__\s*(\d+\s+\d+)\b"
+    else:
+        hash_cmd = ""
+        hash_re = None
+
+    stat_cmd = f'echo __SZ__; /bin/busybox wc -c < "{remote_path}"; echo __SH__'
+    if hash_cmd:
+        stat_cmd += f"; {hash_cmd}"
+    stat_out = must_cmd(cam, stat_cmd, "STAT_CAM_FILE")
     m_sz = re.search(r"__SZ__\s*(\d+)\s*__SH__", stat_out)
-    m_sh = re.search(r"__SH__\s*([0-9a-fA-F]{64})\b", stat_out)
+    m_sh = re.search(hash_re, stat_out) if hash_re else True
     if not m_sz or not m_sh:
         raise RuntimeError(f"Failed to stat camera file {remote_path}: {stat_out[-300:]}")
     total_size = int(m_sz.group(1))
-    exp_sha = m_sh.group(1).lower()
+    exp_digest = re.sub(r"\s+", " ", m_sh.group(1).strip().lower()) if hash_re else str(total_size)
     if total_size <= 0:
         raise RuntimeError(f"Empty camera file {remote_path}")
 
@@ -288,17 +358,17 @@ def read_camera_file_b64(cam, remote_path, chunk_bytes=3072):
         collected.extend(chunk_data)
 
     data = bytes(collected)
-    got_sha = hashlib.sha256(data).hexdigest().lower()
-    if got_sha != exp_sha:
-        raise RuntimeError(f"Pulled {remote_path} SHA mismatch: got={got_sha} expected={exp_sha}")
+    got_digest = local_digest(data, hash_algo)
+    if got_digest != exp_digest:
+        raise RuntimeError(f"Pulled {remote_path} {hash_algo} mismatch: got={got_digest} expected={exp_digest}")
     return data
 
 
-def build_hook_from_camera(cam, stub_bytes, remote_path="/usr/lib/libAK8975.so"):
+def build_hook_from_camera(cam, stub_bytes, remote_path="/usr/lib/libAK8975.so", hash_algo="sha256"):
     """Pull camera's stock libAK8975.so, patch with open-source ARM stub, and return (so_bytes, sha256)."""
     import build_autoexec_hook as hook_builder
 
-    src_bytes = read_camera_file_b64(cam, remote_path)
+    src_bytes = read_camera_file_b64(cam, remote_path, hash_algo=hash_algo)
     patched = hook_builder.patch_libak8975(src_bytes, stub_bytes)
     return patched, hashlib.sha256(patched).hexdigest()
 
@@ -484,28 +554,31 @@ def main():
     manifest = json.loads((pkg / "manifest.json").read_text())
     boot_sh = pkg / "bootstrap-local.sh"
     boot_tar = pkg / "persistent/a6400-film-boot-v15.tar"
-    boot_sh_sha = hashlib.sha256(boot_sh.read_bytes()).hexdigest()
-    boot_tar_sha = hashlib.sha256(boot_tar.read_bytes()).hexdigest()
+    boot_sh_bytes = boot_sh.read_bytes()
+    boot_tar_bytes = boot_tar.read_bytes()
     hook_path = Path(args.install_hook).resolve() if args.install_hook else None
     init_hook_bytes = hook_path.read_bytes() if hook_path else None
     init_hook_sha = hashlib.sha256(init_hook_bytes).hexdigest() if init_hook_bytes is not None else ""
     stub_bytes = Path(args.auto_hook_stub).resolve().read_bytes() if args.auto_hook_stub else None
 
     extra_items = []
+    extra_bytes_map = {}
     for row in manifest.get("extra_persistent_files", []):
         ep = pkg / row["local_path"]
         data = ep.read_bytes()
         sha = hashlib.sha256(data).hexdigest()
         if sha != row["sha256"]:
             raise RuntimeError(f"local extra file SHA mismatch: {ep}")
-        extra_items.append((ep, posixpath.basename(row["camera_path"]), sha, row.get("mode", "644")))
+        ename = posixpath.basename(row["camera_path"])
+        extra_items.append((ep, ename, sha, row.get("mode", "644")))
+        extra_bytes_map[ename] = data
 
-    entry_shas = []
+    entry_items = []
     with tarfile.open(boot_tar, "r") as tf:
         for m in tf.getmembers():
             if m.isfile():
                 data = tf.extractfile(m).read()
-                entry_shas.append((m.name, hashlib.sha256(data).hexdigest()))
+                entry_items.append((m.name, data))
 
     if not check_package_charo_notice(extra_items, assume_yes=args.yes):
         return
@@ -523,6 +596,9 @@ def main():
         except Exception:
             pass
         try:
+            hash_algo = detect_camera_hash_algo(cam)
+            if hash_algo != "sha256":
+                print(f"[*] 相機 busybox 未內建 sha256sum，已自動切換為 {hash_algo} 校驗模式", flush=True)
             hook_bytes = init_hook_bytes
             hook_sha = init_hook_sha
             if hook_bytes is None:
@@ -533,7 +609,7 @@ def main():
                     must_cmd(cam, f'/bin/busybox ls -la "{LEGACY_HOOK_PATH}"', "CHECK_LEGACY_HOOK")
                 elif stub_bytes is not None:
                     print("[*] 偵測到全新未改機身，正在讀取相機原廠 /usr/lib/libAK8975.so 並自動產生開機掛勾...", flush=True)
-                    hook_bytes, hook_sha = build_hook_from_camera(cam, stub_bytes)
+                    hook_bytes, hook_sha = build_hook_from_camera(cam, stub_bytes, hash_algo=hash_algo)
                     print(f"[+] 開機掛勾產生完成 ({len(hook_bytes)} B, sha256={hook_sha[:12]}...)", flush=True)
                 else:
                     raise RuntimeError(
@@ -571,9 +647,7 @@ def main():
                 "B64_DECODE",
                 timeout=20.0,
             )
-            tgz_out = must_cmd(cam, '/bin/busybox sha256sum /tmp_bt/v3c_up/up.tgz', "VERIFY_TGZ")
-            if tgz_sha not in tgz_out:
-                raise RuntimeError("uploaded tgz SHA mismatch")
+            verify_camera_file(cam, "/tmp_bt/v3c_up/up.tgz", tgz_bytes, "VERIFY_TGZ", hash_algo)
             must_cmd(
                 cam,
                 '/bin/busybox tar -xzf /tmp_bt/v3c_up/up.tgz -C /tmp_bt/v3c_up',
@@ -584,47 +658,41 @@ def main():
             must_cmd(cam, '/bin/sh -n /tmp_bt/v3c_up/new-autoexec.sh', "SYNTAX_AUTOEXEC")
 
             verify_targets = [
-                ("/tmp_bt/v3c_up/new-autoexec.sh", boot_sh_sha),
-                ("/tmp_bt/v3c_up/new-boot.tar", boot_tar_sha),
+                ("/tmp_bt/v3c_up/new-autoexec.sh", boot_sh_bytes),
+                ("/tmp_bt/v3c_up/new-boot.tar", boot_tar_bytes),
             ]
             install_hook = hook_bytes is not None
             if install_hook:
-                verify_targets.append(("/tmp_bt/v3c_up/new-autoexec.so", hook_sha))
-            for _, ename, esha, _ in extra_items:
-                verify_targets.append((f"/tmp_bt/v3c_up/{ename}", esha))
-            for vpath, vsha in verify_targets:
-                vout = must_cmd(cam, f'/bin/busybox sha256sum "{vpath}"', f"VERIFY_{posixpath.basename(vpath)}")
-                if vsha not in vout:
-                    raise RuntimeError(f"uploaded SHA mismatch for {vpath}")
+                verify_targets.append(("/tmp_bt/v3c_up/new-autoexec.so", hook_bytes))
+            for _, ename, _, _ in extra_items:
+                verify_targets.append((f"/tmp_bt/v3c_up/{ename}", extra_bytes_map[ename]))
+            for vpath, vbytes in verify_targets:
+                verify_camera_file(cam, vpath, vbytes, f"VERIFY_{posixpath.basename(vpath)}", hash_algo)
 
-            for name, exp_sha in entry_shas:
+            for name, exp_bytes in entry_items:
                 must_cmd(cam, 'mkdir -p /tmp_bt/v3c_up/ex', f"MKEX_{name}")
                 must_cmd(
                     cam,
                     f'/bin/busybox tar -xf /tmp_bt/v3c_up/new-boot.tar -C /tmp_bt/v3c_up/ex "{name}"',
                     f"EX_{name}",
                 )
-                r = must_cmd(cam, f'/bin/busybox sha256sum "/tmp_bt/v3c_up/ex/{name}"', f"VERIFY_{name}")
+                verify_camera_file(cam, f"/tmp_bt/v3c_up/ex/{name}", exp_bytes, f"VERIFY_{name}", hash_algo)
                 must_cmd(cam, 'rm -rf /tmp_bt/v3c_up/ex', f"RMEX_{name}")
-                if exp_sha not in r:
-                    raise RuntimeError(f"entry {name} SHA mismatch")
 
             extra_entries = [(ename, emode) for _, ename, _, emode in extra_items]
             for idx, step in enumerate(build_install_steps(install_hook, extra_entries)):
                 must_cmd(cam, step, f"INSTALL_{idx}", timeout=20.0)
 
             final_targets = [
-                ("/tmp/autoexec.sh", boot_sh_sha),
-                ("/tmp/a6400-film-boot-v15.tar", boot_tar_sha),
+                ("/tmp/autoexec.sh", boot_sh_bytes),
+                ("/tmp/a6400-film-boot-v15.tar", boot_tar_bytes),
             ]
             if install_hook:
-                final_targets.append((HOOK_CAMERA_PATH, hook_sha))
-            for _, ename, esha, _ in extra_items:
-                final_targets.append((f"/tmp/{ename}", esha))
-            for fpath, fsha in final_targets:
-                fout = must_cmd(cam, f'/bin/busybox sha256sum "{fpath}"', f"FINAL_{posixpath.basename(fpath)}")
-                if fsha not in fout:
-                    raise RuntimeError(f"final SHA mismatch for {fpath}")
+                final_targets.append((HOOK_CAMERA_PATH, hook_bytes))
+            for _, ename, _, _ in extra_items:
+                final_targets.append((f"/tmp/{ename}", extra_bytes_map[ename]))
+            for fpath, fbytes in final_targets:
+                verify_camera_file(cam, fpath, fbytes, f"FINAL_{posixpath.basename(fpath)}", hash_algo)
 
             if install_hook:
                 preload_out = must_cmd(cam, '/bin/busybox cat /etc/ld.so.preload', "FINAL_PRELOAD")

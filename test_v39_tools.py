@@ -100,7 +100,7 @@ class V39ToolsTests(unittest.TestCase):
         out, rc = deployer.run_cmd(cam, 'echo ok', timeout=0.05, fast=True, retry_on_none=True)
         self.assertEqual(rc, 0, out)
         self.assertNotIn(b'printf', cam.dev.writes[0])
-        self.assertIn(b'echo __PMCA_RC:$?__', cam.dev.writes[0])
+        self.assertIn(b'R=$?; echo; echo __PMCA_RC:${R}__', cam.dev.writes[0])
         self.assertGreaterEqual(len(cam.dev.writes), 3)
         self.assertIn(b'\x03\n', cam.dev.writes)
 
@@ -227,6 +227,12 @@ Provider Name :             libusb-win32
 Class Name :                libusb-win32 devices
 """
         self.assertEqual(windrv.parse_pnputil_sony_libusb_infs(sample_pnputil), ['oem14.inf', 'oem31.inf'])
+
+        from unittest import mock
+        with mock.patch.object(windrv, 'is_libusb_win32_ready', return_value=True), \
+             mock.patch.object(windrv.subprocess, 'run') as m_run:
+            self.assertTrue(windrv.run_wdi_install('wdi-simple.exe', 0x0CA8, 'Sony A6400'))
+            m_run.assert_not_called()
 
     def test_auto_hook_from_camera_pulls_verifies_sha_and_patches(self):
         import base64
@@ -493,12 +499,38 @@ Class Name :                libusb-win32 devices
         sys_crc, sys_n = res.stdout.decode().strip().split()[:2]
         self.assertEqual((crc, n), (int(sys_crc), int(sys_n)))
 
-        # Simulate camera without sha256sum, with md5sum
+        # Simulate camera without sha256sum, with /usr/bin/openssl dgst -sha256
+        cam_ossl = FakeCam([
+            [b'sha256sum: applet not found\n__PMCA_RC:127__\n'],
+            [f'SHA256(/dev/null)= {deployer.EMPTY_SHA256}\n__PMCA_RC:0__\n'.encode()],
+        ])
+        self.assertEqual(deployer.detect_camera_hash_algo(cam_ossl), 'openssl_sha256')
+
+        # Simulate camera without sha256sum or openssl, with md5sum
         cam = FakeCam([
             [b'sha256sum: applet not found\n__PMCA_RC:127__\n'],
+            [b'ash: /usr/bin/openssl: not found\n__PMCA_RC:127__\n'],
             [b'd41d8cd98f00b204e9800998ecf8427e  /dev/null\n__PMCA_RC:0__\n'],
         ])
         self.assertEqual(deployer.detect_camera_hash_algo(cam), 'md5')
+
+        # Simulate b64 mode fallback to openssl when busybox base64 is missing
+        cam_b64 = FakeCam([
+            [b'base64: applet not found\n__PMCA_RC:127__\n'],
+        ])
+        self.assertEqual(deployer.detect_camera_b64_mode(cam_b64), 'openssl')
+
+        # Simulate pulling file with openssl_sha256 and openssl base64 fallback
+        sha_hex = hashlib.sha256(sample).hexdigest()
+        b64_s = base64.b64encode(sample).decode('ascii')
+        cam_pull_ossl = FakeCam([
+            [f'__SZ__\n{len(sample)}\n__SH__\nSHA256(/usr/lib/libAK8975.so)= {sha_hex}\n__PMCA_RC:0__\n'.encode()],
+            [f'__FB__\n{b64_s}\n__FE__\n__PMCA_RC:0__\n'.encode()],
+        ])
+        got_ossl = deployer.read_camera_file_b64(
+            cam_pull_ossl, '/usr/lib/libAK8975.so', chunk_bytes=1024, hash_algo='openssl_sha256', b64_mode='openssl'
+        )
+        self.assertEqual(got_ossl, sample)
 
         # Simulate pulling file with md5 fallback
         md5_hex = hashlib.md5(sample).hexdigest()

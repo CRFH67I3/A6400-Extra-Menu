@@ -57,6 +57,34 @@ def parse_pnputil_sony_libusb_infs(enum_drivers_text):
     return matches
 
 
+def is_libusb_win32_ready(pid):
+    """Return True if 054C:pid is already bound to libusb-win32 (libusb0.sys) and visible to pyusb."""
+    try:
+        import usb.core
+        import usb.util
+        dev = usb.core.find(idVendor=SONY_VID, idProduct=pid)
+        if dev is not None:
+            try:
+                usb.util.dispose_resources(dev)
+            except Exception:
+                pass
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def kill_stale_wdi_processes():
+    """Terminate any orphaned wdi-simple / installer_x64 process holding the Windows PnP install mutex."""
+    if sys.platform != "win32":
+        return
+    for exe in ("installer_x64.exe", "installer_x86.exe", "wdi-simple.exe"):
+        try:
+            subprocess.run(["taskkill", "/F", "/IM", exe, "/T"], capture_output=True, check=False)
+        except Exception:
+            pass
+
+
 def find_connected_sony_pids():
     """Detect connected Sony USB PIDs via PnP (works even before libusb-win32 is installed)."""
     pids = set()
@@ -71,12 +99,19 @@ def find_connected_sony_pids():
             pids.update(parse_pnputil_connected_sony_pids(res.stdout or ""))
         except Exception:
             pass
-    try:
-        import usb.core
-        devs = list(usb.core.find(find_all=True, idVendor=SONY_VID) or [])
-        pids.update(int(d.idProduct) for d in devs)
-    except Exception:
-        pass
+    if not pids:
+        try:
+            import usb.core
+            import usb.util
+            devs = list(usb.core.find(find_all=True, idVendor=SONY_VID) or [])
+            for d in devs:
+                pids.add(int(d.idProduct))
+                try:
+                    usb.util.dispose_resources(d)
+                except Exception:
+                    pass
+        except Exception:
+            pass
     return pids
 
 
@@ -84,13 +119,17 @@ def wait_for_sony_pid(target_pid, wait_sec=10.0):
     """Wait briefly for Windows PnP to enumerate target Sony PID."""
     deadline = time.monotonic() + wait_sec
     while time.monotonic() < deadline:
-        if target_pid in find_connected_sony_pids():
+        if target_pid in find_connected_sony_pids() or is_libusb_win32_ready(target_pid):
             return True
         time.sleep(0.5)
-    return target_pid in find_connected_sony_pids()
+    return target_pid in find_connected_sony_pids() or is_libusb_win32_ready(target_pid)
 
 
 def run_wdi_install(wdi_exe, pid, name):
+    if is_libusb_win32_ready(pid):
+        print(f"[+] 偵測到 libusb-win32 驅動已就緒 (054C:{pid:04X})，略過重複安裝", flush=True)
+        return True
+    kill_stale_wdi_processes()
     tmpdir = tempfile.mkdtemp(prefix="a6400_wdi_")
     try:
         cmd = build_wdi_simple_cmd(wdi_exe, SONY_VID, pid, name, dest_dir=tmpdir)
@@ -98,9 +137,13 @@ def run_wdi_install(wdi_exe, pid, name):
         try:
             proc = subprocess.run(cmd, timeout=90, check=False)
         except subprocess.TimeoutExpired:
-            print(f"[!] wdi-simple (054C:{pid:04X}) 逾時 90 秒，請確認相機連線並重試。", flush=True)
+            kill_stale_wdi_processes()
+            print(f"[!] wdi-simple (054C:{pid:04X}) 逾時 90 秒，已清理背景殘留程序。", flush=True)
             return False
         if proc.returncode != 0:
+            if is_libusb_win32_ready(pid):
+                print(f"[+] libusb-win32 驅動已可用 (054C:{pid:04X})", flush=True)
+                return True
             print(f"[!] wdi-simple (054C:{pid:04X}) 返回 rc={proc.returncode}", flush=True)
             return False
         print(f"[+] 驅動綁定完成 (054C:{pid:04X})", flush=True)
@@ -112,10 +155,33 @@ def run_wdi_install(wdi_exe, pid, name):
 def ensure_mass_storage_driver(wdi_exe):
     if sys.platform != "win32":
         return False
+    if is_libusb_win32_ready(SERVICE_PID):
+        print(f"[+] 偵測到相機已在服務模式 (054C:{SERVICE_PID:04X}) 且驅動已就緒，略過重複安裝", flush=True)
+        return True
+    for pid in MASS_STORAGE_PIDS:
+        if is_libusb_win32_ready(pid):
+            print(f"[+] 偵測到 libusb-win32 驅動已就緒 (054C:{pid:04X})，略過重複安裝", flush=True)
+            return True
+
     pids = find_connected_sony_pids()
+    if not pids:
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and not pids:
+            time.sleep(0.5)
+            pids = find_connected_sony_pids()
+
     if SERVICE_PID in pids and not any(p in pids for p in MASS_STORAGE_PIDS):
         return ensure_service_driver(wdi_exe)
-    target_pids = [p for p in MASS_STORAGE_PIDS if p in pids] or list(MASS_STORAGE_PIDS)
+
+    target_pids = [p for p in MASS_STORAGE_PIDS if p in pids]
+    if not target_pids:
+        print(
+            "[!] Windows 尚未偵測到相機 USB 裝置 (054C:0CA8 / 0D12 / 0336)。"
+            "若相機黑屏或剛才中斷過，請拔線 → 關機重開 → 重新插線靜置 8 秒後再試。",
+            flush=True,
+        )
+        return False
+
     ok = False
     for pid in target_pids:
         label = (
@@ -125,13 +191,16 @@ def ensure_mass_storage_driver(wdi_exe):
         )
         if run_wdi_install(wdi_exe, pid, label):
             ok = True
-    time.sleep(1.5)
+    time.sleep(1.0)
     return ok
 
 
 def ensure_service_driver(wdi_exe):
     if sys.platform != "win32":
         return False
+    if is_libusb_win32_ready(SERVICE_PID):
+        print(f"[+] 偵測到服務模式 libusb-win32 驅動已就緒 (054C:{SERVICE_PID:04X})，略過重複安裝", flush=True)
+        return True
     if not wait_for_sony_pid(SERVICE_PID, wait_sec=10.0):
         print(
             "[!] 未偵測到服務模式裝置 (054C:0336)。若相機黑屏或卡死，請拔線 → 關機取電池 10 秒 → 裝回開機插線靜置 8 秒後重試。",
@@ -139,7 +208,7 @@ def ensure_service_driver(wdi_exe):
         )
         return False
     ok = run_wdi_install(wdi_exe, SERVICE_PID, "Sony Camera Service Mode (libusb-win32)")
-    time.sleep(2.0)
+    time.sleep(1.5)
     return ok
 
 
@@ -148,6 +217,7 @@ def restore_default_drivers():
     if sys.platform != "win32":
         print("restore_default_drivers only runs on Windows.", file=sys.stderr)
         return 1
+    kill_stale_wdi_processes()
     res = subprocess.run(["pnputil", "/enum-drivers"], capture_output=True, text=True, check=False)
     infs = parse_pnputil_sony_libusb_infs(res.stdout or "")
     if not infs:

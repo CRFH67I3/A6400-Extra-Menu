@@ -39,7 +39,7 @@ def run_cmd(cam, cmd, timeout=15.0, fast=False, retry_on_none=True, safe_serial=
                 dev.readTerminal()
             except Exception:
                 pass
-        payload = f"{cmd}; echo; echo __PMCA_RC:$?__\n".encode()
+        payload = f"{cmd}; R=$?; echo; echo __PMCA_RC:${{R}}__\n".encode()
         if chunked_write and len(payload) > 100:
             # Split long commands into 100-byte / 20ms slices to avoid serial drops on A6100 / Windows.
             for i in range(0, len(payload), 100):
@@ -257,17 +257,36 @@ def posix_cksum(data: bytes):
     return (~crc) & 0xFFFFFFFF, len(data)
 
 
+EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+EMPTY_MD5 = "d41d8cd98f00b204e9800998ecf8427e"
+EMPTY_CKSUM = "4294967295 0"
+
+
 def detect_camera_hash_algo(cam):
-    """Detect the strongest checksum applet supported by camera /bin/busybox."""
-    for algo, applet in (("sha256", "sha256sum"), ("md5", "md5sum"), ("cksum", "cksum")):
-        _, rc = run_cmd(cam, f"/bin/busybox {applet} /dev/null >/dev/null 2>&1", timeout=8.0)
-        if rc == 0:
+    """Detect the strongest checksum tool supported by camera (/bin/busybox or /usr/bin/openssl)."""
+    probes = (
+        ("sha256", "/bin/busybox sha256sum /dev/null 2>&1", EMPTY_SHA256),
+        ("openssl_sha256", "/usr/bin/openssl dgst -sha256 /dev/null 2>&1", EMPTY_SHA256),
+        ("md5", "/bin/busybox md5sum /dev/null 2>&1", EMPTY_MD5),
+        ("cksum", "/bin/busybox cksum /dev/null 2>&1", EMPTY_CKSUM),
+    )
+    for algo, cmd, expected in probes:
+        out, rc = run_cmd(cam, cmd, timeout=8.0)
+        if rc == 0 and expected in out.lower():
             return algo
     return "size"
 
 
+def detect_camera_b64_mode(cam):
+    """Return 'busybox' if /bin/busybox base64 works, else 'openssl' (/usr/bin/openssl enc -base64)."""
+    out, rc = run_cmd(cam, "echo -n A | /bin/busybox base64 2>&1", timeout=8.0)
+    if rc == 0 and "QQ==" in out:
+        return "busybox"
+    return "openssl"
+
+
 def local_digest(data: bytes, algo: str) -> str:
-    if algo == "sha256":
+    if algo in ("sha256", "openssl_sha256"):
         return hashlib.sha256(data).hexdigest().lower()
     if algo == "md5":
         return hashlib.md5(data).hexdigest().lower()
@@ -283,6 +302,9 @@ def verify_camera_file(cam, remote_path: str, expected_bytes: bytes, label: str,
     if hash_algo == "sha256":
         out = must_cmd(cam, f'/bin/busybox sha256sum "{remote_path}"', label)
         ok = exp in out.lower()
+    elif hash_algo == "openssl_sha256":
+        out = must_cmd(cam, f'/usr/bin/openssl dgst -sha256 "{remote_path}"', label)
+        ok = exp in out.lower()
     elif hash_algo == "md5":
         out = must_cmd(cam, f'/bin/busybox md5sum "{remote_path}"', label)
         ok = exp in out.lower()
@@ -297,20 +319,25 @@ def verify_camera_file(cam, remote_path: str, expected_bytes: bytes, label: str,
         raise RuntimeError(f"{label} {hash_algo} mismatch for {remote_path} (expected {exp})")
 
 
-def read_camera_file_b64(cam, remote_path, chunk_bytes=3072, hash_algo="sha256"):
+def read_camera_file_b64(cam, remote_path, chunk_bytes=3072, hash_algo="sha256", b64_mode="busybox"):
     """Safely read a binary file from camera over serviceshell in bounded base64 chunks + integrity verification."""
     if hash_algo == "sha256":
         hash_cmd = f'/bin/busybox sha256sum "{remote_path}"'
-        hash_re = r"__SH__\s*([0-9a-fA-F]{64})\b"
+        hash_re = r"__SH__[\s\S]*?([0-9a-fA-F]{64})\b"
+    elif hash_algo == "openssl_sha256":
+        hash_cmd = f'/usr/bin/openssl dgst -sha256 "{remote_path}"'
+        hash_re = r"__SH__[\s\S]*?([0-9a-fA-F]{64})\b"
     elif hash_algo == "md5":
         hash_cmd = f'/bin/busybox md5sum "{remote_path}"'
-        hash_re = r"__SH__\s*([0-9a-fA-F]{32})\b"
+        hash_re = r"__SH__[\s\S]*?([0-9a-fA-F]{32})\b"
     elif hash_algo == "cksum":
         hash_cmd = f'/bin/busybox cksum "{remote_path}"'
         hash_re = r"__SH__\s*(\d+\s+\d+)\b"
     else:
         hash_cmd = ""
         hash_re = None
+
+    b64_pipe = "/bin/busybox base64" if b64_mode == "busybox" else "/usr/bin/openssl enc -base64"
 
     stat_cmd = f'echo __SZ__; /bin/busybox wc -c < "{remote_path}"; echo __SH__'
     if hash_cmd:
@@ -334,7 +361,7 @@ def read_camera_file_b64(cam, remote_path, chunk_bytes=3072, hash_algo="sha256")
         for _ in range(3):
             out = must_cmd(
                 cam,
-                f'echo __FB__; /bin/busybox dd if="{remote_path}" bs={chunk_bytes} count=1 skip={skip} 2>/dev/null | /bin/busybox base64; echo __FE__',
+                f'echo __FB__; /bin/busybox dd if="{remote_path}" bs={chunk_bytes} count=1 skip={skip} 2>/dev/null | {b64_pipe}; echo __FE__',
                 f"PULL_CHUNK_{skip}",
                 timeout=15.0,
             )
@@ -364,11 +391,11 @@ def read_camera_file_b64(cam, remote_path, chunk_bytes=3072, hash_algo="sha256")
     return data
 
 
-def build_hook_from_camera(cam, stub_bytes, remote_path="/usr/lib/libAK8975.so", hash_algo="sha256"):
+def build_hook_from_camera(cam, stub_bytes, remote_path="/usr/lib/libAK8975.so", hash_algo="sha256", b64_mode="busybox"):
     """Pull camera's stock libAK8975.so, patch with open-source ARM stub, and return (so_bytes, sha256)."""
     import build_autoexec_hook as hook_builder
 
-    src_bytes = read_camera_file_b64(cam, remote_path, hash_algo=hash_algo)
+    src_bytes = read_camera_file_b64(cam, remote_path, hash_algo=hash_algo, b64_mode=b64_mode)
     patched = hook_builder.patch_libak8975(src_bytes, stub_bytes)
     return patched, hashlib.sha256(patched).hexdigest()
 
@@ -599,6 +626,9 @@ def main():
             hash_algo = detect_camera_hash_algo(cam)
             if hash_algo != "sha256":
                 print(f"[*] 相機 busybox 未內建 sha256sum，已自動切換為 {hash_algo} 校驗模式", flush=True)
+            b64_mode = detect_camera_b64_mode(cam)
+            if b64_mode != "busybox":
+                print(f"[*] 相機 busybox 未內建 base64，已自動切換為 {b64_mode} 編解碼模式", flush=True)
             hook_bytes = init_hook_bytes
             hook_sha = init_hook_sha
             if hook_bytes is None:
@@ -609,7 +639,7 @@ def main():
                     must_cmd(cam, f'/bin/busybox ls -la "{LEGACY_HOOK_PATH}"', "CHECK_LEGACY_HOOK")
                 elif stub_bytes is not None:
                     print("[*] 偵測到全新未改機身，正在讀取相機原廠 /usr/lib/libAK8975.so 並自動產生開機掛勾...", flush=True)
-                    hook_bytes, hook_sha = build_hook_from_camera(cam, stub_bytes, hash_algo=hash_algo)
+                    hook_bytes, hook_sha = build_hook_from_camera(cam, stub_bytes, hash_algo=hash_algo, b64_mode=b64_mode)
                     print(f"[+] 開機掛勾產生完成 ({len(hook_bytes)} B, sha256={hook_sha[:12]}...)", flush=True)
                 else:
                     raise RuntimeError(
@@ -641,9 +671,14 @@ def main():
             lines_n, bytes_n = verify_uploaded_b64_lines(cam, total)
             print(f"Verified up.b64: {lines_n} lines / {bytes_n} B", flush=True)
 
+            b64_dec_cmd = (
+                '/bin/busybox base64 -d /tmp_bt/v3c_up/up.b64 > /tmp_bt/v3c_up/up.tgz && rm -f /tmp_bt/v3c_up/up.b64'
+                if b64_mode == "busybox"
+                else '/usr/bin/openssl enc -d -base64 -in /tmp_bt/v3c_up/up.b64 -out /tmp_bt/v3c_up/up.tgz && rm -f /tmp_bt/v3c_up/up.b64'
+            )
             must_cmd(
                 cam,
-                '/bin/busybox base64 -d /tmp_bt/v3c_up/up.b64 > /tmp_bt/v3c_up/up.tgz && rm -f /tmp_bt/v3c_up/up.b64',
+                b64_dec_cmd,
                 "B64_DECODE",
                 timeout=20.0,
             )
@@ -713,9 +748,10 @@ def main():
     except Exception as exc:
         if connected:
             print(f"\n[!] 已連線相機，但部署過程發生錯誤：{exc}\n", file=sys.stderr)
+            sys.exit(2)
         else:
             print(format_usb_help(exc, driver_hint=detect_windows_usb_driver_hint()), file=sys.stderr)
-        sys.exit(1)
+            sys.exit(1)
 
     if not deploy_ok:
         print(format_usb_help(driver_hint=detect_windows_usb_driver_hint()), file=sys.stderr)

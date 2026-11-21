@@ -179,11 +179,11 @@ def main():
         windrv.ensure_mass_storage_driver(wdi_exe)
 
     rc = run_deployer_argv(argv)
-    if rc != 0 and auto_driver:
+    if rc == 1 and auto_driver:
         print("[*] 偵測到切換服務模式後可能需要補綁 054C:0336 驅動，正在自動處理...", flush=True)
-        windrv.ensure_service_driver(wdi_exe)
-        time.sleep(3.0)
-        rc = run_deployer_argv(argv)
+        if windrv.ensure_service_driver(wdi_exe):
+            time.sleep(2.0)
+            rc = run_deployer_argv(argv)
     sys.exit(rc)
 
 

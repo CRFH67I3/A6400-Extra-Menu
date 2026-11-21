@@ -93,10 +93,10 @@ def find_connected_sony_pids():
             res = subprocess.run(
                 ["pnputil", "/enum-devices", "/connected"],
                 capture_output=True,
-                text=True,
                 check=False,
             )
-            pids.update(parse_pnputil_connected_sony_pids(res.stdout or ""))
+            out_txt = (res.stdout or b"").decode("utf-8", errors="replace")
+            pids.update(parse_pnputil_connected_sony_pids(out_txt))
         except Exception:
             pass
     if not pids:
@@ -218,8 +218,9 @@ def restore_default_drivers():
         print("restore_default_drivers only runs on Windows.", file=sys.stderr)
         return 1
     kill_stale_wdi_processes()
-    res = subprocess.run(["pnputil", "/enum-drivers"], capture_output=True, text=True, check=False)
-    infs = parse_pnputil_sony_libusb_infs(res.stdout or "")
+    res = subprocess.run(["pnputil", "/enum-drivers"], capture_output=True, check=False)
+    out_txt = (res.stdout or b"").decode("utf-8", errors="replace")
+    infs = parse_pnputil_sony_libusb_infs(out_txt)
     if not infs:
         print("[*] 未偵測到已安裝的 Sony libusb-win32 自訂驅動（可能已為原廠預設狀態）。", flush=True)
     for inf in infs:

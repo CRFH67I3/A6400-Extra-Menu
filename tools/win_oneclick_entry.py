@@ -156,10 +156,10 @@ def main():
         if auto_driver:
             windrv.ensure_mass_storage_driver(wdi_exe)
         rc = run_deployer_argv(argv)
-        if rc != 0 and auto_driver:
-            windrv.ensure_service_driver(wdi_exe)
-            time.sleep(2.0)
-            rc = run_deployer_argv(argv)
+        if rc == 1 and auto_driver:
+            if windrv.ensure_service_driver(wdi_exe):
+                time.sleep(2.0)
+                rc = run_deployer_argv(argv)
         sys.exit(rc)
 
     try:

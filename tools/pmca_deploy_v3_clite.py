@@ -279,8 +279,8 @@ def detect_camera_hash_algo(cam):
 
 def detect_camera_b64_mode(cam):
     """Return 'busybox' if /bin/busybox base64 works, else 'openssl' (/usr/bin/openssl enc -base64)."""
-    out, rc = run_cmd(cam, "echo -n A | /bin/busybox base64 2>&1", timeout=8.0)
-    if rc == 0 and "QQ==" in out:
+    out, rc = run_cmd(cam, "echo A | /bin/busybox base64 2>&1", timeout=8.0)
+    if rc == 0 and "QQo=" in out:
         return "busybox"
     return "openssl"
 
@@ -664,7 +664,9 @@ def main():
             )
             must_cmd(cam, "/bin/busybox mount -t tmpfs -o size=2048k tmpfs /tmp_bt/v3c_up", "MOUNT_UP_TMPFS")
             must_cmd(cam, ": > /tmp_bt/v3c_up/up.b64", "PREP_UP_FILE")
-            chunks = build_upload_chunks(b64, step=120)
+            # OpenSSL 1.0.x `enc -d -base64` expects <=64-char lines; busybox base64 accepts 120-char lines.
+            chunk_step = 120 if b64_mode == "busybox" else 64
+            chunks = build_upload_chunks(b64, step=chunk_step)
             total = len(chunks)
             print(f"Uploading {len(tgz_bytes)} B ({total} chunks)...", flush=True)
             upload_b64_chunks(cam, chunks)

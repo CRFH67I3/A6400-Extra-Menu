@@ -53,17 +53,33 @@ def parse_pnputil_connected_sony_pids(enum_devices_text):
     return pids
 
 
-def parse_pnputil_sony_libusb_infs(enum_drivers_text):
-    """Extract OEM .inf names installed for Sony Camera libusb-win32 from `pnputil /enum-drivers`."""
+def parse_pnputil_sony_libusb_infs(enum_drivers_text, role=None):
+    """Extract OEM .inf names installed for Sony Camera libusb-win32 from `pnputil /enum-drivers`.
+
+    role: None (all Sony libusb-win32 INFs), 'service' (service mode INFs only), or 'mass' (mass storage INFs only).
+    """
     blocks = re.split(r"\r?\n\s*\r?\n", enum_drivers_text)
     matches = []
     for blk in blocks:
         low = blk.lower()
         is_our_pkg = (
-            ("sony camera" in low or "sony_camera" in low or "libusb-win32" in low)
+            (
+                "sony camera" in low
+                or "sony_camera" in low
+                or "ilce-6400" in low
+                or "ilce-6100" in low
+                or "sony_dsc" in low
+                or "sony_a6400" in low
+                or "libusb-win32" in low
+            )
             and ("libusb" in low or "wdi" in low or "sony camera" in low)
         )
         if not is_our_pkg:
+            continue
+        is_service = "service" in low or "0336" in low
+        if role == "service" and not is_service:
+            continue
+        if role == "mass" and is_service:
             continue
         m = re.search(r"(oem\d+\.inf)", blk, re.IGNORECASE)
         if m:
@@ -73,12 +89,41 @@ def parse_pnputil_sony_libusb_infs(enum_drivers_text):
     return matches
 
 
+def deduplicate_sony_libusb_infs(role=None, keep_latest=1):
+    """Delete duplicate accumulated oemXX.inf packages for the given role so Windows never binds a stale INF."""
+    if sys.platform != "win32":
+        return []
+    try:
+        res = subprocess.run(["pnputil", "/enum-drivers"], capture_output=True, check=False)
+        out_txt = (res.stdout or b"").decode("utf-8", errors="replace")
+        infs = parse_pnputil_sony_libusb_infs(out_txt, role=role)
+    except Exception:
+        return []
+    if len(infs) <= keep_latest:
+        return []
+    # Sort numerically by oem<N>.inf so we keep the highest/newest N if keep_latest > 0.
+    def _oem_num(s):
+        m = re.search(r"oem(\d+)\.inf", s)
+        return int(m.group(1)) if m else 0
+    infs_sorted = sorted(infs, key=_oem_num)
+    to_remove = infs_sorted if keep_latest <= 0 else infs_sorted[:-keep_latest]
+    for inf in to_remove:
+        print(f"[*] 正在自動清理舊重複驅動包 {inf} (避免多包衝突導致 Bulk 通道超時)...", flush=True)
+        subprocess.run(["pnputil", "/delete-driver", inf, "/uninstall", "/force"], capture_output=True, check=False)
+    return to_remove
+
+
 def is_libusb_win32_ready(pid):
-    """Return True if 054C:pid is already bound to libusb-win32 (libusb0.sys) and visible to pyusb."""
+    """Return True if 054C:pid is already bound to libusb-win32 (libusb0.sys) and visible to pyusb libusb0."""
     try:
         import usb.core
         import usb.util
-        dev = usb.core.find(idVendor=SONY_VID, idProduct=pid)
+        try:
+            import usb.backend.libusb0 as b0
+            be = b0.get_backend()
+        except Exception:
+            be = None
+        dev = usb.core.find(idVendor=SONY_VID, idProduct=pid, backend=be) if be is not None else usb.core.find(idVendor=SONY_VID, idProduct=pid)
         if dev is not None:
             try:
                 usb.util.dispose_resources(dev)
@@ -152,11 +197,15 @@ def _print_wdi_troubleshoot_hint(pid):
     )
 
 
-def run_wdi_install(wdi_exe, pid, name):
-    if is_libusb_win32_ready(pid):
+def run_wdi_install(wdi_exe, pid, name, force=False):
+    role = "service" if pid == SERVICE_PID else "mass"
+    if not force and is_libusb_win32_ready(pid):
+        deduplicate_sony_libusb_infs(role=role, keep_latest=1)
         print(f"[+] 偵測到 libusb-win32 驅動已就緒 (054C:{pid:04X})，略過重複安裝", flush=True)
         return True
     kill_stale_wdi_processes()
+    # Delete old duplicate oemXX.inf packages for this role before installing so only 1 clean INF exists.
+    deduplicate_sony_libusb_infs(role=role, keep_latest=0)
     tmpdir = make_ascii_wdi_tmpdir()
     try:
         cmd = build_wdi_simple_cmd(wdi_exe, SONY_VID, pid, name, dest_dir=tmpdir)
@@ -181,16 +230,19 @@ def run_wdi_install(wdi_exe, pid, name):
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def ensure_mass_storage_driver(wdi_exe):
+def ensure_mass_storage_driver(wdi_exe, force=False):
     if sys.platform != "win32":
         return False
-    if is_libusb_win32_ready(SERVICE_PID):
-        print(f"[+] 偵測到相機已在服務模式 (054C:{SERVICE_PID:04X}) 且驅動已就緒，略過重複安裝", flush=True)
-        return True
-    for pid in MASS_STORAGE_PIDS:
-        if is_libusb_win32_ready(pid):
-            print(f"[+] 偵測到 libusb-win32 驅動已就緒 (054C:{pid:04X})，略過重複安裝", flush=True)
+    if not force:
+        if is_libusb_win32_ready(SERVICE_PID):
+            deduplicate_sony_libusb_infs(role="service", keep_latest=1)
+            print(f"[+] 偵測到相機已在服務模式 (054C:{SERVICE_PID:04X}) 且驅動已就緒，略過重複安裝", flush=True)
             return True
+        for pid in MASS_STORAGE_PIDS:
+            if is_libusb_win32_ready(pid):
+                deduplicate_sony_libusb_infs(role="mass", keep_latest=1)
+                print(f"[+] 偵測到 libusb-win32 驅動已就緒 (054C:{pid:04X})，略過重複安裝", flush=True)
+                return True
 
     pids = find_connected_sony_pids()
     if not pids:
@@ -200,7 +252,7 @@ def ensure_mass_storage_driver(wdi_exe):
             pids = find_connected_sony_pids()
 
     if SERVICE_PID in pids and not any(p in pids for p in MASS_STORAGE_PIDS):
-        return ensure_service_driver(wdi_exe)
+        return ensure_service_driver(wdi_exe, force=force)
 
     target_pids = [p for p in MASS_STORAGE_PIDS if p in pids]
     if not target_pids:
@@ -218,25 +270,35 @@ def ensure_mass_storage_driver(wdi_exe):
             if pid == 0x0CA8
             else "Sony Camera A6100 Mass Storage (libusb-win32)"
         )
-        if run_wdi_install(wdi_exe, pid, label):
+        if run_wdi_install(wdi_exe, pid, label, force=force):
             ok = True
     time.sleep(1.0)
     return ok
 
 
-def ensure_service_driver(wdi_exe):
+def ensure_service_driver(wdi_exe, force=False):
     if sys.platform != "win32":
         return False
-    if is_libusb_win32_ready(SERVICE_PID):
+    if not force and is_libusb_win32_ready(SERVICE_PID):
+        deduplicate_sony_libusb_infs(role="service", keep_latest=1)
         print(f"[+] 偵測到服務模式 libusb-win32 驅動已就緒 (054C:{SERVICE_PID:04X})，略過重複安裝", flush=True)
         return True
-    if not wait_for_sony_pid(SERVICE_PID, wait_sec=10.0):
+    if not wait_for_sony_pid(SERVICE_PID, wait_sec=12.0):
         print(
             "[!] 未偵測到服務模式裝置 (054C:0336)。若相機黑屏或卡死，請拔線 → 關機取電池 10 秒 → 裝回開機插線靜置 8 秒後重試。",
             flush=True,
         )
         return False
-    ok = run_wdi_install(wdi_exe, SERVICE_PID, "Sony Camera Service Mode (libusb-win32)")
+    # Give Windows PnP up to 4 seconds to finish starting existing libusb0.sys on 054C:0336 before invoking wdi-simple.
+    if not force:
+        deadline = time.monotonic() + 4.0
+        while time.monotonic() < deadline:
+            if is_libusb_win32_ready(SERVICE_PID):
+                deduplicate_sony_libusb_infs(role="service", keep_latest=1)
+                print(f"[+] 偵測到服務模式 libusb-win32 驅動已就緒 (054C:{SERVICE_PID:04X})，略過重複安裝", flush=True)
+                return True
+            time.sleep(0.4)
+    ok = run_wdi_install(wdi_exe, SERVICE_PID, "Sony Camera Service Mode (libusb-win32)", force=force)
     time.sleep(1.5)
     return ok
 

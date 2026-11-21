@@ -23,12 +23,13 @@ def use_safe_serial(safe_serial=None):
     return SAFE_SERIAL_MODE if safe_serial is None else bool(safe_serial)
 
 
-def run_cmd(cam, cmd, timeout=15.0, fast=False, retry_on_none=True, safe_serial=None):
+def run_cmd(cam, cmd, timeout=15.0, fast=False, retry_on_none=True, safe_serial=None, tag=None):
     dev = cam.dev
     attempts = 2 if retry_on_none else 1
     out_bytes = b""
     rc = None
-    pat = re.compile(rb"__PMCA_RC:(\d+)__")
+    marker_prefix = f"__PMCA_RC_{tag}:" if tag else "__PMCA_RC:"
+    pat = re.compile(re.escape(marker_prefix.encode()) + rb"(\d+)__")
     chunked_write = use_safe_serial(safe_serial)
     for attempt in range(attempts):
         if attempt > 0:
@@ -39,7 +40,7 @@ def run_cmd(cam, cmd, timeout=15.0, fast=False, retry_on_none=True, safe_serial=
                 dev.readTerminal()
             except Exception:
                 pass
-        payload = f"{cmd};R=$?;echo;echo __PMCA_RC:${{R}}__\n".encode()
+        payload = f"{cmd};R=$?;echo;echo {marker_prefix}${{R}}__\n".encode()
         out = bytearray()
         if chunked_write and len(payload) > 48:
             # SonySenserDevice.writeTerminal loops at 0x40 (64B) with 0ms delay.
@@ -186,18 +187,33 @@ def build_upload_chunks(b64_text, step=120):
 def upload_b64_chunks(cam, chunks, safe_serial=None, progress_cb=None):
     total = len(chunks)
     for idx, chunk_cmd in enumerate(chunks):
-        # Never blindly retry append (`>>`) chunks: if the chunk landed without echo/RC, re-sending corrupts up.tgz.
-        _, rc = run_cmd(cam, chunk_cmd, timeout=8.0, fast=True, retry_on_none=False, safe_serial=safe_serial)
+        # Use a unique per-chunk confirmation tag (C{idx}) so delayed echoes from earlier chunks never match.
+        tag = f"C{idx}"
+        _, rc = run_cmd(cam, chunk_cmd, timeout=8.0, fast=True, retry_on_none=False, safe_serial=safe_serial, tag=tag)
         if rc != 0:
-            diag = must_cmd(
-                cam,
-                'echo __L__; /bin/busybox wc -l < /tmp_bt/v3c_up/up.b64; echo __E__',
-                f'UP_DIAG_{idx}',
-                safe_serial=safe_serial,
-            )
-            m = re.search(r'__L__\s*(\d+)\s*__E__', diag)
-            lines = int(m.group(1)) if m else -1
-            if lines != idx + 1:
+            for retry in range(2):
+                diag = must_cmd(
+                    cam,
+                    'echo __L__; /bin/busybox wc -l < /tmp_bt/v3c_up/up.b64; echo __E__',
+                    f'UP_DIAG_{idx}',
+                    safe_serial=safe_serial,
+                )
+                m = re.search(r'__L__\s*(\d+)\s*__E__', diag)
+                lines = int(m.group(1)) if m else -1
+                if lines == idx + 1:
+                    break
+                if lines == idx and retry == 0:
+                    # Chunk did not land at all -> safe to re-send once without duplicate append.
+                    run_cmd(
+                        cam,
+                        chunk_cmd,
+                        timeout=8.0,
+                        fast=True,
+                        retry_on_none=False,
+                        safe_serial=safe_serial,
+                        tag=f"{tag}R",
+                    )
+                    continue
                 raise RuntimeError(
                     f"upload chunk {idx}/{total} failed rc={rc}, lines={lines}, expected={idx + 1}: {diag[-300:]}"
                 )

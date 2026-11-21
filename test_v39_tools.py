@@ -127,19 +127,25 @@ class V39ToolsTests(unittest.TestCase):
         self.assertEqual(len(cam_chunked.dev.writes), 2)
         self.assertTrue(all(len(w) <= 48 for w in cam_chunked.dev.writes))
 
-        # 2. upload_b64_chunks uses newline-delimited echo and accepts rc=None when wc -l matches idx+1
+        # 2. upload_b64_chunks uses unique per-chunk tag (__PMCA_RC_C{idx}:0__), accepts rc=None when wc -l == idx+1,
+        #    and safely re-sends once when wc -l == idx
         chunks = deployer.build_upload_chunks('QUJD' * 40, step=120)
         self.assertEqual(len(chunks), 2)
         self.assertTrue(all(c.startswith('echo ') for c in chunks))
         cam_up = FakeCam([
             [b'> '],
             [b'__B64_IGNORE__\n__L__\n1\n__E__\n__PMCA_RC:0__\n'],
-            [b'__PMCA_RC:0__\n'],
+            [b'__PMCA_RC_C0:0__\n'],  # stale C0 marker ignored by C1!
+            [b'__L__\n1\n__E__\n__PMCA_RC:0__\n'],  # C1 did not land yet (lines=1 == idx)
+            [b'__PMCA_RC_C1R:0__\n'],  # C1 safely re-sent once
+            [b'__L__\n2\n__E__\n__PMCA_RC:0__\n'],  # now lines=2 == idx+1
         ])
         deployer.upload_b64_chunks(cam_up, chunks, safe_serial=False)
 
-        # 3. upload_b64_chunks fails closed if wc -l does not match idx+1
+        # 3. upload_b64_chunks fails closed if wc -l still does not match idx+1 after safe retry
         cam_up_bad = FakeCam([
+            [b'> '],
+            [b'__L__\n0\n__E__\n__PMCA_RC:0__\n'],
             [b'> '],
             [b'__L__\n0\n__E__\n__PMCA_RC:0__\n'],
         ])
@@ -227,6 +233,8 @@ Provider Name :             libusb-win32
 Class Name :                libusb-win32 devices
 """
         self.assertEqual(windrv.parse_pnputil_sony_libusb_infs(sample_pnputil), ['oem14.inf', 'oem31.inf'])
+        self.assertEqual(windrv.parse_pnputil_sony_libusb_infs(sample_pnputil, role='mass'), ['oem14.inf'])
+        self.assertEqual(windrv.parse_pnputil_sony_libusb_infs(sample_pnputil, role='service'), ['oem31.inf'])
 
         from unittest import mock
         with mock.patch.object(windrv, 'is_libusb_win32_ready', return_value=True), \

@@ -401,9 +401,10 @@ function Parse-SonyUsbipdDevices([string]$UsbipdExe) {
 }
 
 function Attach-SonyDevicesOnce([string]$UsbipdExe) {
-    $devs = Parse-SonyUsbipdDevices $UsbipdExe
+    $devs = @(Parse-SonyUsbipdDevices $UsbipdExe)
     $attachedAny = $false
     foreach ($d in $devs) {
+        if ($null -eq $d) { continue }
         if ($d.State -eq "Not shared") {
             Invoke-Native -FilePath $UsbipdExe -Arguments @("bind", "--force", "--busid", $d.BusId) | Out-Null
         }
@@ -417,13 +418,14 @@ function Attach-SonyDevicesOnce([string]$UsbipdExe) {
             $attachedAny = $true
         }
     }
-    return ($devs.Count -gt 0 -and $attachedAny)
+    return $attachedAny
 }
 
 function Detach-SonyDevices([string]$UsbipdExe) {
     try {
-        $devs = Parse-SonyUsbipdDevices $UsbipdExe
+        $devs = @(Parse-SonyUsbipdDevices $UsbipdExe)
         foreach ($d in $devs) {
+            if ($null -eq $d) { continue }
             if ($d.State -eq "Attached") {
                 Invoke-Native -FilePath $UsbipdExe -Arguments @("detach", "--busid", $d.BusId) | Out-Null
             }
@@ -573,7 +575,7 @@ try {
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        & $wslExe -d $DistroName -- python3 @wslArgs
+        & $wslExe -d $DistroName -- python3 -u @wslArgs
         $rc = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $prev
@@ -587,7 +589,7 @@ try {
         $prev = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
-            & $wslExe -d $DistroName -- python3 @wslArgs
+            & $wslExe -d $DistroName -- python3 -u @wslArgs
             $rc = $LASTEXITCODE
         } finally {
             $ErrorActionPreference = $prev

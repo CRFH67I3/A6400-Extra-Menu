@@ -94,10 +94,13 @@ class V39ToolsTests(unittest.TestCase):
         self.assertNotIn('/tmp/a6400-autoexec.so', install)
         self.assertNotIn('\\etc', install)
         self.assertNotIn('\\tmp', install)
+        self.assertNotIn('printf', install)
 
         cam = FakeCam([[b'> '], [b'__PMCA_RC:0__\n']])
         out, rc = deployer.run_cmd(cam, 'echo ok', timeout=0.05, fast=True, retry_on_none=True)
         self.assertEqual(rc, 0, out)
+        self.assertNotIn(b'printf', cam.dev.writes[0])
+        self.assertIn(b'echo __PMCA_RC:$?__', cam.dev.writes[0])
         self.assertGreaterEqual(len(cam.dev.writes), 3)
         self.assertIn(b'\x03\n', cam.dev.writes)
 

@@ -39,7 +39,7 @@ def run_cmd(cam, cmd, timeout=15.0, fast=False, retry_on_none=True, safe_serial=
                 dev.readTerminal()
             except Exception:
                 pass
-        payload = f"{cmd}; printf '\\n__PMCA_RC:%s__\\n' $?\n".encode()
+        payload = f"{cmd}; echo; echo __PMCA_RC:$?__\n".encode()
         if chunked_write and len(payload) > 100:
             # Split long commands into 100-byte / 20ms slices to avoid serial drops on A6100 / Windows.
             for i in range(0, len(payload), 100):
@@ -130,7 +130,7 @@ def build_install_steps(has_hook, extra_entries):
     steps.extend(atomic_copy_steps(f"{d}/new-autoexec.sh", "/tmp/autoexec.sh", "755"))
     if has_hook:
         steps.extend([
-            f'printf "{HOOK_CAMERA_PATH}\\n" > /etc/ld.so.preload.new',
+            f'echo "{HOOK_CAMERA_PATH}" > /etc/ld.so.preload.new',
             '/bin/busybox chmod 644 /etc/ld.so.preload.new && /bin/busybox sync',
             '/bin/busybox mv /etc/ld.so.preload.new /etc/ld.so.preload && /bin/busybox sync',
         ])

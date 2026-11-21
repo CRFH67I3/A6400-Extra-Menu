@@ -32,14 +32,14 @@ def run_cmd(cam, cmd, timeout=15.0, fast=False, retry_on_none=True, safe_serial=
     chunked_write = use_safe_serial(safe_serial)
     for attempt in range(attempts):
         if attempt > 0:
-            # Recover from a potentially truncated line or open quote before retrying once.
+            # Recover from a potentially truncated line before retrying once.
             try:
-                dev.writeTerminal(b"\"\n'\n\x03\n")
-                time.sleep(0.15)
+                dev.writeTerminal(b"\x03\n")
+                time.sleep(0.2)
                 dev.readTerminal()
             except Exception:
                 pass
-        payload = f"{cmd};R=$?;echo;echo __PMCA_RC:$R__\n".encode()
+        payload = f"{cmd};R=$?;echo;echo __PMCA_RC:${{R}}__\n".encode()
         out = bytearray()
         if chunked_write and len(payload) > 48:
             # SonySenserDevice.writeTerminal loops at 0x40 (64B) with 0ms delay.

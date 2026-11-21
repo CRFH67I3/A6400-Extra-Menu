@@ -23,7 +23,7 @@ class FakeDev:
 
     def writeTerminal(self, data):
         self.writes.append(data)
-        if data not in (b'\x03\n', b'\"\n\'\n\x03\n') and self.script:
+        if data != b'\x03\n' and self.script:
             self.current = list(self.script.pop(0))
 
     def readTerminal(self):
@@ -100,9 +100,9 @@ class V39ToolsTests(unittest.TestCase):
         out, rc = deployer.run_cmd(cam, 'echo ok', timeout=0.05, fast=True, retry_on_none=True, safe_serial=False)
         self.assertEqual(rc, 0, out)
         self.assertNotIn(b'printf', cam.dev.writes[0])
-        self.assertIn(b'R=$?;echo;echo __PMCA_RC:$R__', cam.dev.writes[0])
+        self.assertIn(b'R=$?;echo;echo __PMCA_RC:${R}__', cam.dev.writes[0])
         self.assertGreaterEqual(len(cam.dev.writes), 3)
-        self.assertIn(b'\"\n\'\n\x03\n', cam.dev.writes)
+        self.assertIn(b'\x03\n', cam.dev.writes)
 
         msg = deployer.format_usb_help(RuntimeError('No devices found'), platform='win32')
         self.assertIn('不支援 WinUSB', msg)

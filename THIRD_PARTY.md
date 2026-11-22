@@ -17,6 +17,7 @@
 | --- | --- | --- |
 | `camera/native_freeze.h` | `tools/native_camera/native_freeze.h` | 原樣保留，MIT |
 | `camera/native_ui_load_guard.c` | `tools/native_camera/native_menu_touch_trace_guard.c` | 改編；來源部分保留 MIT，新修改依本專案 LICENSE |
+| `camera/mtf2_native_touch.h` | `mods/menu_touch_full/menu_touch_full.c` (`ivica00/bionz-x-research`, commit `ffa974b5045576b5ebc758c5c685dd6d3bd7f56d`) | 改編整合進原生 UI 執行緒輪詢並加入動態位址指紋閘門；來源部分保留 MIT，新修改依本專案 LICENSE |
 
 MIT 完整原文與版權聲明保存在 [licenses/ivica00-MIT.txt](licenses/ivica00-MIT.txt)。原本依 MIT 取得的部分仍可按 MIT 使用，包括商用；本專案的非商業條款不會抹除這些既有權利。
 

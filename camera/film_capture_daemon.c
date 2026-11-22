@@ -5,8 +5,14 @@
 #define _GNU_SOURCE
 #include "film_capture_daemon_build.h"
 #include "film_settings_maps.h"
+#include "film_preview_fmt.h"
 #include <dirent.h>
+#include <stddef.h>
 #include <stdio.h>
+#include <sys/stat.h>
+#ifdef __linux__
+#include <sys/mount.h>
+#endif
 #include "film_runtime_log.h"
 static struct film_log capture_log;
 #define printf(...) film_log_printf(&capture_log,__VA_ARGS__)
@@ -73,6 +79,9 @@ static struct film_log capture_log;
 #ifndef FILM_CAPTURE_DISABLE_CHARO
 #define FILM_CAPTURE_DISABLE_CHARO "/tmp/disable_charo"
 #endif
+#ifndef FILM_CAPTURE_PREVIEW_BIN
+#define FILM_CAPTURE_PREVIEW_BIN "/tmp_bt/a6400-film-preview.elf"
+#endif
 #define FILM_CHARO_PCM_BYTES 29760u
 #define JOB_LOG_BYTES 65536u
 #define METADATA_FAILURE_LIMIT 3u
@@ -91,6 +100,7 @@ static volatile sig_atomic_t daemon_signal;
 static int own_manifest,own_log,own_inflight,retain_lock;
 static pid_t job_pid;
 static const char *phase="startup";
+static char last_job_fail_hint[48];
 static int capture_log_bad(void) {
     return capture_log.io_error || capture_log.bad_record || !capture_log.trusted;
 }
@@ -307,6 +317,32 @@ static int read_job_receipt(const struct queued *q,int *retained,int status) {
     }
     close(fd);if(n<0)return -1;job_log[used]=0;
     *retained=scan_job_retained(job_log);
+    last_job_fail_hint[0]=0;
+#ifdef A6400_UI_LANG_SC
+    if(strstr(job_log,"RAM_JOB_FAIL stage=scratch_capacity"))
+        snprintf(last_job_fail_hint,sizeof(last_job_fail_hint),"原图超过15.9MB");
+    else if(strstr(job_log,"RAM_JOB_FAIL stage=settings_before_write-changed"))
+        snprintf(last_job_fail_hint,sizeof(last_job_fail_hint),"转档中更改了菜单");
+    else if(strstr(job_log,"RAM_JOB_FAIL stage=memory_budget"))
+        snprintf(last_job_fail_hint,sizeof(last_job_fail_hint),"内存不足");
+    else if(strstr(job_log,"RAM_JOB_FAIL stage=native_commit") ||
+            strstr(job_log,"Can't open file A:/A6400/TEST"))
+        snprintf(last_job_fail_hint,sizeof(last_job_fail_hint),"请建/A6400/TEST夹");
+    else if(strstr(job_log,"RAM_JOB_FAIL stage=render"))
+        snprintf(last_job_fail_hint,sizeof(last_job_fail_hint),"图像解码失败");
+#else
+    if(strstr(job_log,"RAM_JOB_FAIL stage=scratch_capacity"))
+        snprintf(last_job_fail_hint,sizeof(last_job_fail_hint),"原圖超過15.9MB");
+    else if(strstr(job_log,"RAM_JOB_FAIL stage=settings_before_write-changed"))
+        snprintf(last_job_fail_hint,sizeof(last_job_fail_hint),"轉檔中更改了選單");
+    else if(strstr(job_log,"RAM_JOB_FAIL stage=memory_budget"))
+        snprintf(last_job_fail_hint,sizeof(last_job_fail_hint),"記憶體不足");
+    else if(strstr(job_log,"RAM_JOB_FAIL stage=native_commit") ||
+            strstr(job_log,"Can't open file A:/A6400/TEST"))
+        snprintf(last_job_fail_hint,sizeof(last_job_fail_hint),"請建/A6400/TEST夾");
+    else if(strstr(job_log,"RAM_JOB_FAIL stage=render"))
+        snprintf(last_job_fail_hint,sizeof(last_job_fail_hint),"影像解碼失敗");
+#endif
     /* Preserve a bounded diagnostic before the next job reuses its log. Hex
      * prevents child output from injecting records or terminal controls. */
     unsigned first=used>512u?used-512u:0u;char tail[1025];
@@ -451,11 +487,178 @@ static int read_ui_hires(void) {
     if(fd<0)return 0;
     uint32_t val=0;ssize_t pr=pread(fd,&val,4,(off_t)addr);
     close(fd);
-    return (pr==4 && val==1u)?1:0;
+    return (pr==4 && val<=2u)?(int)val:0;
 #else
     return 0;
 #endif
 }
+#if defined(FILM_DAEMON_TOAST_RVA) && defined(FILM_DAEMON_V4_RVA)
+static pid_t preview_pid;
+static struct {
+    int initialized;
+    uint32_t latest_seq;
+    uint32_t album_count;
+    uint32_t album_head;
+    uint32_t session_shots;
+    int8_t shot_slots[A6400_SESSION_SHOTS_CAP];
+    char slot_labels[A6400_ALBUM_SLOTS][48];
+} v4_ring;
+
+static void v4_ring_init(void) {
+    if(v4_ring.initialized)return;
+    memset(&v4_ring,0,sizeof(v4_ring));
+    for(unsigned i=0;i<A6400_SESSION_SHOTS_CAP;++i)v4_ring.shot_slots[i]=-1;
+    v4_ring.initialized=1;
+}
+
+static int copy_fd_exact(int src_fd,const char *dst_tmp,const char *dst_final,size_t bytes) {
+    static unsigned char chunk[16384];
+    int dfd=open(dst_tmp,O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW,0600);
+    if(dfd<0)return -1;
+    size_t left=bytes;
+    while(left) {
+        size_t want=left<sizeof(chunk)?left:sizeof(chunk);
+        ssize_t r=read(src_fd,chunk,want);
+        if(r<0 && errno==EINTR)continue;
+        if(r<=0){close(dfd);unlink(dst_tmp);return -1;}
+        size_t off=0;
+        while(off<(size_t)r) {
+            ssize_t w=write(dfd,chunk+off,(size_t)r-off);
+            if(w<0 && errno==EINTR)continue;
+            if(w<=0){close(dfd);unlink(dst_tmp);return -1;}
+            off+=(size_t)w;
+        }
+        left-=(size_t)r;
+    }
+    if(close(dfd)!=0 || rename(dst_tmp,dst_final)!=0){unlink(dst_tmp);return -1;}
+    return 0;
+}
+
+static void push_v4_ring_to_ui(int bump_latest_seq) {
+    uint32_t base=0;
+    int fd=open_ui_region(FILM_DAEMON_V4_RVA,sizeof(struct a6400_ui_v4_v1),1,&base);
+    if(fd<0)return;
+    uint32_t hdr[2]={0,0};
+    if(pread(fd,hdr,sizeof(hdr),(off_t)base)==(ssize_t)sizeof(hdr) &&
+       hdr[0]==A6400_V4_MAGIC && hdr[1]==A6400_V4_VERSION) {
+        struct a6400_ui_v4_v1 img;
+        memset(&img,0,sizeof(img));
+        img.latest_seq=v4_ring.latest_seq;
+        img.album_count=v4_ring.album_count;
+        img.album_head=v4_ring.album_head;
+        img.session_shots=v4_ring.session_shots;
+        memcpy(img.shot_slots,v4_ring.shot_slots,sizeof(img.shot_slots));
+        memcpy(img.slot_labels,v4_ring.slot_labels,sizeof(img.slot_labels));
+        size_t tail_off=offsetof(struct a6400_ui_v4_v1,album_count);
+        size_t tail_len=sizeof(img)-tail_off;
+        (void)pwrite(fd,((const unsigned char *)&img)+tail_off,tail_len,(off_t)(base+tail_off));
+        if(bump_latest_seq) {
+            size_t seq_off=offsetof(struct a6400_ui_v4_v1,latest_seq);
+            (void)pwrite(fd,&img.latest_seq,4u,(off_t)(base+seq_off));
+        }
+    }
+    close(fd);
+}
+
+static void start_preview_subsystem(void) {
+    v4_ring_init();
+#ifdef __linux__
+    if(mkdir(A6400_PV_DIR,0700)==0 || errno==EEXIST) {
+        int mounted=0;
+        FILE *mf=fopen("/proc/mounts","r");
+        if(mf) {
+            char line[256];
+            while(fgets(line,sizeof(line),mf)) {
+                if(strstr(line," " A6400_PV_DIR " tmpfs ")){mounted=1;break;}
+            }
+            fclose(mf);
+        }
+        if(!mounted) {
+            if(mount("a6400-pv",A6400_PV_DIR,"tmpfs",
+                     MS_NOSUID|MS_NODEV|MS_NOEXEC,"size=10485760,nr_inodes=64,mode=700")==0) {
+                printf("FILM_PREVIEW_TMPFS_READY dir=%s bytes=10485760\n",A6400_PV_DIR);
+            } else {
+                printf("FILM_PREVIEW_TMPFS_SKIP errno=%d\n",errno);
+            }
+        }
+    }
+#endif
+    if(access(FILM_CAPTURE_PREVIEW_BIN,X_OK)!=0)return;
+    pid_t me=getpid();
+    pid_t pid=fork();
+    if(pid==0) {
+        int null=open("/dev/null",O_RDWR);
+        if(null>=0){dup2(null,0);dup2(null,1);dup2(null,2);if(null>2)close(null);}
+        char pbuf[24];
+        snprintf(pbuf,sizeof(pbuf),"%ld",(long)me);
+        execl(FILM_CAPTURE_PREVIEW_BIN,FILM_CAPTURE_PREVIEW_BIN,"watch",pbuf,(char *)0);
+        _exit(127);
+    }
+    if(pid>0) {
+        preview_pid=pid;
+        printf("FILM_PREVIEW_HELPER_STARTED pid=%u\n",(unsigned)pid);
+    }
+}
+
+static void stop_preview_subsystem(void) {
+    if(preview_pid>0) {
+        reap_readonly(preview_pid);
+        preview_pid=0;
+    }
+}
+
+static void publish_v4_shot(int applied,const char *settings,const char *target,int hires) {
+    v4_ring_init();
+    if(!applied) {
+        v4_ring.shot_slots[v4_ring.session_shots%A6400_SESSION_SHOTS_CAP]=-1;
+        v4_ring.session_shots+=1u;
+        push_v4_ring_to_ui(0);
+        return;
+    }
+    int sfd=open(A6400_PV_STAGED,O_RDONLY|O_NOFOLLOW);
+    if(sfd<0) {
+        v4_ring.shot_slots[v4_ring.session_shots%A6400_SESSION_SHOTS_CAP]=-1;
+        v4_ring.session_shots+=1u;
+        push_v4_ring_to_ui(0);
+        return;
+    }
+    unsigned slot=(v4_ring.album_count==0u)?0u:((v4_ring.album_head+1u)%A6400_ALBUM_SLOTS);
+    char slot_tmp[160],slot_dst[160];
+    snprintf(slot_tmp,sizeof(slot_tmp),"%s/slot_%02u.bin.tmp",A6400_PV_DIR,slot);
+    snprintf(slot_dst,sizeof(slot_dst),"%s/slot_%02u.bin",A6400_PV_DIR,slot);
+    int ok=(copy_fd_exact(sfd,A6400_PV_POPUP ".tmp",A6400_PV_POPUP,A6400_PV_POPUP_FILE_BYTES)==0 &&
+            copy_fd_exact(sfd,slot_tmp,slot_dst,A6400_PV_ALBUM_FILE_BYTES)==0);
+    close(sfd);
+    unlink(A6400_PV_STAGED);
+    if(!ok) {
+        v4_ring.shot_slots[v4_ring.session_shots%A6400_SESSION_SHOTS_CAP]=-1;
+        v4_ring.session_shots+=1u;
+        push_v4_ring_to_ui(0);
+        return;
+    }
+    char preset[24];
+    toast_preset_name(settings?settings:"",preset,sizeof(preset));
+    const char *base=target?strrchr(target,'/'):NULL;
+    base=base?base+1:(target?target:"");
+    const char *qstr=(hires==2)?"12MP":(hires==1?"6MP":"1.7MP");
+    snprintf(v4_ring.slot_labels[slot],sizeof(v4_ring.slot_labels[slot]),
+             "%.18s %s (%.14s)",preset,qstr,base);
+    v4_ring.shot_slots[v4_ring.session_shots%A6400_SESSION_SHOTS_CAP]=(int8_t)slot;
+    v4_ring.session_shots+=1u;
+    v4_ring.album_head=slot;
+    if(v4_ring.album_count<A6400_ALBUM_SLOTS)v4_ring.album_count+=1u;
+    v4_ring.latest_seq+=1u;
+    push_v4_ring_to_ui(1);
+    printf("FILM_PREVIEW_PUBLISHED seq=%u slot=%u count=%u shots=%u\n",
+           (unsigned)v4_ring.latest_seq,slot,(unsigned)v4_ring.album_count,(unsigned)v4_ring.session_shots);
+}
+#else
+static void start_preview_subsystem(void) {}
+static void stop_preview_subsystem(void) {}
+static void publish_v4_shot(int applied,const char *settings,const char *target,int hires) {
+    (void)applied;(void)settings;(void)target;(void)hires;
+}
+#endif
 static unsigned count_active_queue(void) {
     unsigned n=0;
     for(unsigned i=0;i<queue_count;++i)
@@ -481,12 +684,27 @@ static void push_toast_status(uint32_t kind,uint32_t duration_ms,const char *set
     char preset[24],qtag[16]="",msg[64];
     toast_preset_name(settings,preset,sizeof(preset));
     if(qtot>1u)snprintf(qtag,sizeof(qtag)," (%u/%u)",qpos%1000u,qtot%1000u);
-    if(kind==1u)snprintf(msg,sizeof(msg),"處理中%.12s: %.20s%s...",qtag,preset,hires?" 6MP":"");
+#ifdef A6400_UI_LANG_SC
+    if(kind==1u)snprintf(msg,sizeof(msg),"处理中%.12s: %.20s%s...",qtag,preset,
+                         hires==2?" 12MP":(hires==1?" 6MP":""));
     else if(kind==2u) {
         const char *base=target?strrchr(target,'/'):NULL;
         base=base?base+1:(target?target:"");
         snprintf(msg,sizeof(msg),"OK%.12s: %.16s (%.16s)",qtot>1u?qtag:" 已存SD",preset,base);
+    } else if(last_job_fail_hint[0]) {
+        snprintf(msg,sizeof(msg),"处理失败: %.42s",last_job_fail_hint);
+    } else snprintf(msg,sizeof(msg),"处理失败%.12s: %.20s",qtag,preset);
+#else
+    if(kind==1u)snprintf(msg,sizeof(msg),"處理中%.12s: %.20s%s...",qtag,preset,
+                         hires==2?" 12MP":(hires==1?" 6MP":""));
+    else if(kind==2u) {
+        const char *base=target?strrchr(target,'/'):NULL;
+        base=base?base+1:(target?target:"");
+        snprintf(msg,sizeof(msg),"OK%.12s: %.16s (%.16s)",qtot>1u?qtag:" 已存SD",preset,base);
+    } else if(last_job_fail_hint[0]) {
+        snprintf(msg,sizeof(msg),"處理失敗: %.42s",last_job_fail_hint);
     } else snprintf(msg,sizeof(msg),"處理失敗%.12s: %.20s",qtag,preset);
+#endif
     push_ui_toast(kind,duration_ms,msg);
 }
 static void update_latest_dir(char *latest_dir,size_t cap,const struct catalogue *c) {
@@ -512,7 +730,8 @@ static int run_job(struct queued *q,const char *settings,int hires) {
         close(log);char source[40],bytes[16];
         if(source_path(&q->entry,source,sizeof(source)))_exit(124);
         snprintf(bytes,sizeof(bytes),"%u",q->entry.size);
-        execl("/bin/sh","sh",FILM_CAPTURE_SCRIPT,"apply",source,bytes,q->target,hires?"hires":(char *)0,(char *)0);_exit(127);
+        const char *qarg=(hires==2)?"ultra12m":(hires==1?"hires":(char *)0);
+        execl("/bin/sh","sh",FILM_CAPTURE_SCRIPT,"apply",source,bytes,q->target,qarg,(char *)0);_exit(127);
     }
     close(log);close(gate[0]);phase="job";
     if(save_inflight(q,settings) || save_manifest()) {
@@ -855,6 +1074,7 @@ int main(int argc,char **argv) {
     if(save_manifest()){reason="manifest";goto done;}
     printf("FILM_CAPTURE_BASELINE count=%u\n",queue_count);
     sync_custom_charo(&transport);
+    start_preview_subsystem();
     push_ui_status(0u);
 #if CAPTURE_WAIT_MS > 0u
     uint32_t waiting=now_ms();
@@ -990,6 +1210,7 @@ int main(int argc,char **argv) {
                  * the rest of this already observed OFF batch into jobs. */
                 for(unsigned i=0;i<queue_count;++i)if(queue[i].present && queue[i].state==PENDING) {
                     queue[i].state=OFF;++off_jobs;
+                    publish_v4_shot(0,NULL,NULL,0);
                     printf("FILM_CAPTURE_SKIP_OFF path=%s\n",queue[i].entry.path);
                 }
             } else if(gate) {
@@ -1003,19 +1224,25 @@ int main(int argc,char **argv) {
                 next_output=(next_output+1u)%1000u;
                 printf("FILM_CAPTURE_DISPATCH path=%s target=%s %s hires=%d q=%u/%u uptime_ms=%u\n",
                        q->entry.path,q->target,settings,hires,bpos,btot,(unsigned)now_ms());
-                push_toast_status(1u,hires?45000u:15000u,settings,NULL,bpos,btot,hires);
+                push_toast_status(1u,hires==2?75000u:(hires==1?45000u:15000u),settings,NULL,bpos,btot,hires);
                 push_ui_status(active?active:1u);
                 early_toast_sent=0;
                 unsigned prev_applied=applied_jobs;
                 if(run_job(q,settings,hires)) {
+#ifdef A6400_UI_LANG_SC
+                    push_ui_toast(3u,3000u,"处理失败 (未确认)");
+#else
                     push_ui_toast(3u,3000u,"處理失敗 (未確認)");
+#endif
                     push_ui_status(0u);
                     result=21;retain_lock=1;reason="job_uncertain";break;
                 }
-                push_toast_status(applied_jobs>prev_applied?2u:3u,
-                                  applied_jobs>prev_applied?3500u:3000u,settings,q->target,bpos,btot,hires);
+                int did_apply=(applied_jobs>prev_applied);
+                publish_v4_shot(did_apply,settings,q->target,hires);
+                push_toast_status(did_apply?2u:3u,
+                                  did_apply?3500u:3500u,settings,q->target,bpos,btot,hires);
                 push_ui_status(count_active_queue());
-                if(applied_jobs>prev_applied)++batch_done;
+                if(did_apply)++batch_done;
                 if(count_active_queue()==0u)batch_done=0;
                 /* Recheck promptly in case another shutter press arrived during render. */
                 post_trigger_follow=1;
@@ -1039,6 +1266,7 @@ int main(int argc,char **argv) {
         wait_before_scan(start,&post_trigger_follow);
     }
 done:
+    stop_preview_subsystem();
     transport_stop(&transport);
     phase=retain_lock?"uncertain":reason;
     if(own_manifest && save_manifest()){result=21;retain_lock=1;}

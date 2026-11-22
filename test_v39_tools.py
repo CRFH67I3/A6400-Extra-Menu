@@ -391,7 +391,7 @@ Class Name :                libusb-win32 devices
         root = Path(__file__).resolve().parent
         tpl = (root / 'host-tests/film-runtime-v2-templates/bootstrap-local.sh').read_text()
         self.assertIn('mount -t tmpfs -o size=2048k tmpfs "$RAM"', tpl)
-        self.assertIn('version=V3.9-SSLF', tpl)
+        self.assertIn('version=V4.0', tpl)
 
         with tempfile.TemporaryDirectory() as td:
             d = Path(td)

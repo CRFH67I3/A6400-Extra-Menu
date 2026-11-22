@@ -7,8 +7,12 @@
 #ifndef A6400_AUTHOR_FAST_JPEG_H
 #define A6400_AUTHOR_FAST_JPEG_H
 
+#include "film_preview_fmt.h"
+
 #define AUTHOR_SCAN_BYTES 1500000u
 #define AUTHOR_RGB_BYTES (24u*1024u*1024u)
+#define AUTHOR_12M_TARGET_PIXELS 12000000ULL
+#define AUTHOR_12M_PASSTHROUGH_MAX 12500000ULL
 
 static unsigned film_clock_ms() {
 #ifdef A6400_FILM_HOST
@@ -120,7 +124,7 @@ static inline int author_fast_memory_ok(const char *text,unsigned size,unsigned 
     const char *names[]={"MemFree:","Buffers:","Cached:","Shmem:"};
     unsigned values[4]={0,0,0,0},seen=0;
     *available=0;*required=0;
-    if (rgb_bytes>AUTHOR_RGB_BYTES || strip_bytes>393216u || mask_bytes>1048576u) return 0;
+    if (rgb_bytes>AUTHOR_RGB_BYTES || strip_bytes>524288u || mask_bytes>2097152u) return 0;
     for (unsigned at=0;at<size;) {
         unsigned end=at;
         while (end<size && text[end]!='\n') ++end;
@@ -291,8 +295,453 @@ static void author_metadata_size(unsigned char *metadata,unsigned size,unsigned 
     }
 }
 
+static unsigned author_metadata_orientation(const unsigned char *metadata,unsigned size) {
+    for (unsigned at=0;at+4<=size;) {
+        unsigned length=((unsigned)metadata[at+2]<<8)|metadata[at+3];
+        if (length<2 || length>size-at-2) return 1u;
+        if (metadata[at]==0xff && metadata[at+1]==0xe1 && length>=16 &&
+            metadata[at+4]=='E' && metadata[at+5]=='x' && metadata[at+6]=='i' &&
+            metadata[at+7]=='f' && metadata[at+8]==0 && metadata[at+9]==0) {
+            const unsigned char *tiff=metadata+at+10;
+            unsigned available=length-8;
+            int little=tiff[0]=='I' && tiff[1]=='I';
+            if ((little || (tiff[0]=='M' && tiff[1]=='M')) && author_u16(tiff+2,little)==42) {
+                unsigned ifd=author_u32(tiff+4,little);
+                if (ifd>=8 && ifd<=available && available-ifd>=2) {
+                    unsigned count=author_u16(tiff+ifd,little);
+                    if (count<=(available-ifd-2)/12u) {
+                        for (unsigned i=0;i<count;++i) {
+                            const unsigned char *e=tiff+ifd+2+i*12u;
+                            if (author_u16(e,little)==274u && author_u16(e+2,little)==3u &&
+                                author_u32(e+4,little)==1u) {
+                                unsigned v=author_u16(e+8,little);
+                                return (v==3u || v==6u || v==8u)?v:1u;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        at+=length+2;
+    }
+    return 1u;
+}
+
+static void author_pack_preview_box(const unsigned char *rgb,int img_w,int img_h,
+                                    unsigned orient,uint16_t *dst,
+                                    unsigned box_w,unsigned box_h,int border) {
+    const uint16_t bg_px=0x112Fu;     /* dark charcoal #111122 opaque */
+    const uint16_t gold_px=0xEA3Fu;   /* warm accent outer border */
+    const uint16_t frame_px=0x223Fu;  /* inner hairline */
+    for (unsigned i=0;i<box_w*box_h;++i) dst[i]=bg_px;
+    if (border && box_w>=8 && box_h>=8) {
+        for (unsigned x=0;x<box_w;++x) {
+            dst[x]=gold_px;
+            dst[(box_h-1u)*box_w+x]=gold_px;
+            if (x>0 && x+1<box_w) {
+                dst[box_w+x]=frame_px;
+                dst[(box_h-2u)*box_w+x]=frame_px;
+            }
+        }
+        for (unsigned y=1;y+1<box_h;++y) {
+            dst[y*box_w]=gold_px;
+            dst[y*box_w+box_w-1u]=gold_px;
+            if (y>1 && y+2<box_h) {
+                dst[y*box_w+1u]=frame_px;
+                dst[y*box_w+box_w-2u]=frame_px;
+            }
+        }
+    }
+    if (!rgb || img_w<1 || img_h<1) return;
+    unsigned pad=border?2u:0u;
+    unsigned avail_w=box_w>pad*2u?box_w-pad*2u:box_w;
+    unsigned avail_h=box_h>pad*2u?box_h-pad*2u:box_h;
+    unsigned rot_w=(orient==6u || orient==8u)?(unsigned)img_h:(unsigned)img_w;
+    unsigned rot_h=(orient==6u || orient==8u)?(unsigned)img_w:(unsigned)img_h;
+    unsigned fit_w,fit_h;
+    if (rot_w*avail_h >= rot_h*avail_w) {
+        fit_w=avail_w;
+        fit_h=(avail_w*rot_h+rot_w/2u)/rot_w;
+    } else {
+        fit_h=avail_h;
+        fit_w=(avail_h*rot_w+rot_h/2u)/rot_h;
+    }
+    if (fit_w<1u) fit_w=1u;
+    if (fit_h<1u) fit_h=1u;
+    if (fit_w>avail_w) fit_w=avail_w;
+    if (fit_h>avail_h) fit_h=avail_h;
+    unsigned off_x=pad+(avail_w-fit_w)/2u;
+    unsigned off_y=pad+(avail_h-fit_h)/2u;
+    int do_avg=(rot_w>=fit_w*2u && rot_h>=fit_h*2u);
+    for (unsigned y=0;y<fit_h;++y) {
+        unsigned ly=(y*rot_h)/fit_h;
+        if (ly>=rot_h) ly=rot_h-1u;
+        uint16_t *out_row=dst+(off_y+y)*box_w+off_x;
+        for (unsigned x=0;x<fit_w;++x) {
+            unsigned lx=(x*rot_w)/fit_w;
+            if (lx>=rot_w) lx=rot_w-1u;
+            unsigned sx,sy;
+            if (orient==6u) { sx=ly; sy=(unsigned)img_h-1u-lx; }
+            else if (orient==8u) { sx=(unsigned)img_w-1u-ly; sy=lx; }
+            else if (orient==3u) { sx=(unsigned)img_w-1u-lx; sy=(unsigned)img_h-1u-ly; }
+            else { sx=lx; sy=ly; }
+            if (sx>=(unsigned)img_w) sx=(unsigned)img_w-1u;
+            if (sy>=(unsigned)img_h) sy=(unsigned)img_h-1u;
+            unsigned r,g,b;
+            if (do_avg && sx+1u<(unsigned)img_w && sy+1u<(unsigned)img_h) {
+                const unsigned char *p0=rgb+((unsigned long)sy*(unsigned)img_w+sx)*3u;
+                const unsigned char *p1=p0+(unsigned)img_w*3u;
+                r=((unsigned)p0[0]+p0[3]+p1[0]+p1[3]+2u)>>2;
+                g=((unsigned)p0[1]+p0[4]+p1[1]+p1[4]+2u)>>2;
+                b=((unsigned)p0[2]+p0[5]+p1[2]+p1[5]+2u)>>2;
+            } else {
+                const unsigned char *p=rgb+((unsigned long)sy*(unsigned)img_w+sx)*3u;
+                r=p[0]; g=p[1]; b=p[2];
+            }
+            out_row[x]=a6400_rgb_to_rgba4444_dither(r,g,b,x,y);
+        }
+    }
+}
+
+static int author_write_all(int fd,const void *buf,unsigned bytes) {
+    const unsigned char *p=(const unsigned char *)buf;
+    unsigned left=bytes;
+    while (left) {
+        long w=sys_write(fd,p,left);
+        if (w<=0) return -1;
+        p+=(unsigned)w;
+        left-=(unsigned)w;
+    }
+    return 0;
+}
+
+static void author_emit_preview_pkg(const char *preview_path,const unsigned char *rgb,
+                                    int img_w,int img_h,unsigned orient) {
+    if (!preview_path || !preview_path[0] || !rgb || img_w<1 || img_h<1) return;
+    unsigned pop_bytes=A6400_POPUP_BYTES;
+    unsigned alb_bytes=A6400_ALBUM_BYTES;
+    uint16_t *pop=(uint16_t *)xalloc(pop_bytes);
+    uint16_t *alb=(uint16_t *)xalloc(alb_bytes);
+    if (!pop || !alb) {
+        if (pop) xfree(pop,pop_bytes);
+        if (alb) xfree(alb,alb_bytes);
+        printf("FILM_PREVIEW_SKIP reason=alloc\n");
+        return;
+    }
+    author_pack_preview_box(rgb,img_w,img_h,orient,pop,A6400_POPUP_W,A6400_POPUP_H,1);
+    author_pack_preview_box(rgb,img_w,img_h,orient,alb,A6400_ALBUM_W,A6400_ALBUM_H,0);
+    struct a6400_preview_hdr h_pop,h_alb;
+    memset(&h_pop,0,sizeof(h_pop));
+    memset(&h_alb,0,sizeof(h_alb));
+    h_pop.magic=A6400_PV_MAGIC; h_pop.width=A6400_POPUP_W; h_pop.height=A6400_POPUP_H;
+    h_alb.magic=A6400_PV_MAGIC; h_alb.width=A6400_ALBUM_W; h_alb.height=A6400_ALBUM_H;
+    int pfd=sys_open(preview_path,O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW,0600);
+    int ok=0;
+    if (pfd>=0) {
+        ok=!author_write_all(pfd,&h_pop,(unsigned)sizeof(h_pop)) &&
+           !author_write_all(pfd,pop,pop_bytes) &&
+           !author_write_all(pfd,&h_alb,(unsigned)sizeof(h_alb)) &&
+           !author_write_all(pfd,alb,alb_bytes);
+        if (sys_close(pfd)) ok=0;
+        if (!ok) sys_unlink(preview_path);
+    }
+    xfree(pop,pop_bytes);
+    xfree(alb,alb_bytes);
+    if (ok) printf("FILM_PREVIEW_OK bytes=%u orient=%u\n",(unsigned)A6400_PV_PKG_BYTES,orient);
+    else printf("FILM_PREVIEW_SKIP reason=io\n");
+}
+
+static unsigned author_isqrt32(unsigned n) {
+    if (!n) return 0u;
+    unsigned x=1u<<30;
+    while (x>n) x>>=2;
+    unsigned res=0u;
+    while (x) {
+        if (n>=res+x) { n-=res+x; res=(res>>1)+x; }
+        else res>>=1;
+        x>>=2;
+    }
+    return res;
+}
+
+static void author_12m_dims(int src_w,int src_h,int *dst_w,int *dst_h) {
+    unsigned pixels=(unsigned)src_w*(unsigned)src_h;
+    if (pixels<=12500000u) {
+        *dst_w=src_w; *dst_h=src_h;
+        return;
+    }
+    unsigned w2_k=(12000u*(unsigned)src_w)/(unsigned)src_h;
+    unsigned w=(author_isqrt32(w2_k*1000u)+8u)&~15u;
+    if (w<64u) w=64u;
+    if (w>(unsigned)src_w) w=(unsigned)src_w;
+    unsigned h=((w*(unsigned)src_h)/(unsigned)src_w)&~1u;
+    if (h<64u) h=64u;
+    if (h>(unsigned)src_h) h=(unsigned)src_h;
+    *dst_w=(int)w; *dst_h=(int)h;
+}
+
+/* Streaming strip-based 12MP renderer:
+ *  - Optional Pass 1 uses picojpeg reduce=1 (1/8 DC-only) to build the 1/4-res halation mask
+ *    in ~0.15s without decoding 24MP twice.
+ *  - Single full-res Pass 2 decodes MCU row strips into a rolling (MCUHeight+1) ring buffer,
+ *    applies pure-integer bilinear resize to ~12MP (4240x2826 for 6000x4000), runs film_pixels
+ *    and film_halo_apply, and streams scanlines directly to jpge (peak RAM ~2.5 MiB).
+ *  - Simultaneously samples a 600x400 RGB thumbnail for V4.0 instant popup & album preview.
+ */
+static int render_author_ultra12m(int fd,unsigned length,const char *path,
+                                  int preset,int grain,int halo,
+                                  unsigned char *metadata,unsigned metadata_size,
+                                  const char *preview_path,unsigned orient) {
+    unsigned begin=film_clock_ms();
+    if (!length || sys_lseek(fd,0,0)!=0) return 4;
+    author_input input; input.fd=fd; input.failed=0; input.left=length; input.pos=0; input.end=0;
+    pjpeg_image_info_t info={};
+    unsigned status=pjpeg_decode_init(&info,author_read,&input,0);
+    if (status || input.failed || info.m_width<64 || info.m_height<64 ||
+        (unsigned)info.m_width>MAX_IMAGE_DIMENSION ||
+        (unsigned)info.m_height>MAX_IMAGE_DIMENSION ||
+        (unsigned long)info.m_width*(unsigned long)info.m_height>MAX_PIXELS ||
+        info.m_MCUHeight<1 || info.m_MCUHeight>16 ||
+        (info.m_comps!=1 && info.m_comps!=3)) return 4;
+
+    int src_w=info.m_width, src_h=info.m_height, mcu_h=info.m_MCUHeight;
+    int dst_w=0, dst_h=0;
+    author_12m_dims(src_w,src_h,&dst_w,&dst_h);
+    int use_halo=(halo && preset!=4 && preset!=8 && (dst_w>>2)>=8 && (dst_h>>2)>=8);
+    int gw=dst_w>>2, gh=dst_h>>2;
+    unsigned mask_size=use_halo?(unsigned)gw*(unsigned)gh:0u;
+    unsigned src_pitch=(unsigned)src_w*3u;
+    unsigned strip_bytes=src_pitch*(unsigned)(mcu_h+1);
+    unsigned out_row_bytes=(unsigned)dst_w*3u;
+    unsigned pv_w=A6400_ALBUM_W, pv_h=A6400_ALBUM_H;
+    unsigned pv_bytes=(preview_path && preview_path[0])?(pv_w*pv_h*3u):0u;
+    unsigned table_bytes=(unsigned)dst_w*(unsigned)(sizeof(uint16_t)+sizeof(uint16_t));
+    unsigned working_rgb=pv_bytes+out_row_bytes+table_bytes;
+    if (!author_memory_ready(working_rgb,strip_bytes,mask_size*2u)) return 5;
+
+    unsigned char *mask=NULL;
+    if (use_halo) {
+        if (sys_lseek(fd,0,0)!=0) return 4;
+        author_input rinput; rinput.fd=fd; rinput.failed=0; rinput.left=length; rinput.pos=0; rinput.end=0;
+        pjpeg_image_info_t rinfo={};
+        if (pjpeg_decode_init(&rinfo,author_read,&rinput,1) || rinput.failed) return 4;
+        int bx_per_mcu=rinfo.m_MCUWidth>>3;
+        int by_per_mcu=rinfo.m_MCUHeight>>3;
+        int red_w=rinfo.m_MCUSPerRow*bx_per_mcu;
+        int red_h=rinfo.m_MCUSPerCol*by_per_mcu;
+        if (red_w<1 || red_h<1) return 4;
+        unsigned red_bytes=(unsigned)red_w*(unsigned)red_h;
+        unsigned char *red_lum=(unsigned char *)xalloc(red_bytes);
+        if (!red_lum) return 5;
+        for (int my=0;my<rinfo.m_MCUSPerCol;++my) {
+            for (int mx=0;mx<rinfo.m_MCUSPerRow;++mx) {
+                if (pjpeg_decode_mcu() || rinput.failed) {xfree(red_lum,red_bytes);return 8;}
+                for (int by=0;by<by_per_mcu;++by) {
+                    int ry=my*by_per_mcu+by;
+                    for (int bx=0;bx<bx_per_mcu;++bx) {
+                        int rx=mx*bx_per_mcu+bx;
+                        unsigned idx=(unsigned)by*128u+(unsigned)bx*64u;
+                        unsigned lum;
+                        if (rinfo.m_comps==1) lum=rinfo.m_pMCUBufR[idx];
+                        else lum=(77u*rinfo.m_pMCUBufR[idx]+150u*rinfo.m_pMCUBufG[idx]+29u*rinfo.m_pMCUBufB[idx])>>8;
+                        red_lum[(unsigned)ry*(unsigned)red_w+(unsigned)rx]=
+                            (unsigned char)(lum>195u?(lum-195u)*4u:0u);
+                    }
+                }
+            }
+        }
+        mask=(unsigned char *)xalloc(mask_size);
+        unsigned char *scratch=(unsigned char *)xalloc(mask_size);
+        if (!mask || !scratch) {
+            if (mask) xfree(mask,mask_size);
+            if (scratch) xfree(scratch,mask_size);
+            xfree(red_lum,red_bytes);
+            return 5;
+        }
+        for (int gy=0;gy<gh;++gy) {
+            int ry=(int)(((unsigned)gy*(unsigned)red_h)/(unsigned)gh);
+            if (ry>=red_h) ry=red_h-1;
+            const unsigned char *rrow=red_lum+(unsigned)ry*(unsigned)red_w;
+            unsigned char *mrow=mask+(unsigned)gy*(unsigned)gw;
+            for (int gx=0;gx<gw;++gx) {
+                int rx=(int)(((unsigned)gx*(unsigned)red_w)/(unsigned)gw);
+                if (rx>=red_w) rx=red_w-1;
+                mrow[gx]=rrow[rx];
+            }
+        }
+        xfree(red_lum,red_bytes);
+        film_mask_blur(mask,scratch,gw,gh);
+        xfree(scratch,mask_size);
+        /* Re-init full-resolution Pass 2 decoder. */
+        if (sys_lseek(fd,0,0)!=0) {xfree(mask,mask_size);return 4;}
+        input.fd=fd; input.failed=0; input.left=length; input.pos=0; input.end=0;
+        memset(&info,0,sizeof(info));
+        if (pjpeg_decode_init(&info,author_read,&input,0) || input.failed ||
+            info.m_width!=src_w || info.m_height!=src_h) {
+            xfree(mask,mask_size);
+            return 4;
+        }
+    }
+    unsigned mask_done=film_clock_ms();
+
+    unsigned char *ring=(unsigned char *)xalloc(strip_bytes);
+    unsigned char *out_row=(unsigned char *)xalloc(out_row_bytes);
+    uint16_t *hx0=(uint16_t *)xalloc((unsigned)dst_w*sizeof(uint16_t));
+    uint16_t *hfx=(uint16_t *)xalloc((unsigned)dst_w*sizeof(uint16_t));
+    unsigned char *pv_rgb=pv_bytes?(unsigned char *)xalloc(pv_bytes):NULL;
+    if (!ring || !out_row || !hx0 || !hfx || (pv_bytes && !pv_rgb)) {
+        if (mask) xfree(mask,mask_size);
+        if (ring) xfree(ring,strip_bytes);
+        if (out_row) xfree(out_row,out_row_bytes);
+        if (hx0) xfree(hx0,(unsigned)dst_w*sizeof(uint16_t));
+        if (hfx) xfree(hfx,(unsigned)dst_w*sizeof(uint16_t));
+        if (pv_rgb) xfree(pv_rgb,pv_bytes);
+        return 5;
+    }
+
+    int same_size=(dst_w==src_w && dst_h==src_h);
+    if (!same_size) {
+        unsigned denom_x=(unsigned)(dst_w-1);
+        for (int dx=0;dx<dst_w;++dx) {
+            unsigned num=(unsigned)dx*(unsigned)(src_w-1);
+            unsigned x0=num/denom_x;
+            unsigned rem=num-x0*denom_x;
+            unsigned fx=(rem*256u)/denom_x;
+            if (x0+1u>=(unsigned)src_w) { x0=(unsigned)(src_w-2); fx=256u; }
+            hx0[dx]=(uint16_t)x0;
+            hfx[dx]=(uint16_t)fx;
+        }
+    }
+
+    author_metadata_size(metadata,metadata_size,(unsigned)dst_w,(unsigned)dst_h);
+    int out_fd=sys_open(path,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW,0600);
+    if (out_fd<0) {
+        if (mask) xfree(mask,mask_size);
+        xfree(ring,strip_bytes); xfree(out_row,out_row_bytes);
+        xfree(hx0,(unsigned)dst_w*sizeof(uint16_t));
+        xfree(hfx,(unsigned)dst_w*sizeof(uint16_t));
+        if (pv_rgb) xfree(pv_rgb,pv_bytes);
+        printf("FILM_ERROR output_open=%d\n",out_fd);
+        return 6;
+    }
+    output_stream output(out_fd,metadata,metadata_size);
+    jpge::params settings; settings.m_quality=88; settings.m_subsampling=jpge::H2V2;
+    jpge::jpeg_encoder encoder;
+    int result=encoder.init(&output,dst_w,dst_h,3,settings)?0:7;
+    film_state film; film_init(&film,preset,grain);
+
+    /* Rolling buffer: slot 0 holds last row of previous MCU strip (y = strip_y0 - 1),
+     * slots 1..mcu_h hold current MCU strip rows (y = strip_y0 .. strip_y0 + mcu_h - 1). */
+    int strip_y0=-mcu_h;
+    int mcu_row=0;
+    unsigned next_pv_y=0;
+    for (int dy=0;!result && dy<dst_h;++dy) {
+        int sy0,sy1;
+        unsigned fy=0u;
+        if (same_size) {
+            sy0=sy1=dy;
+        } else {
+            unsigned denom_y=(unsigned)(dst_h-1);
+            unsigned num=(unsigned)dy*(unsigned)(src_h-1);
+            unsigned u0=num/denom_y;
+            unsigned rem=num-u0*denom_y;
+            sy0=(int)u0;
+            fy=(rem*256u)/denom_y;
+            if (sy0+1>=src_h) { sy0=src_h-2; fy=256u; }
+            sy1=sy0+1;
+        }
+        while (sy1>=strip_y0+mcu_h) {
+            if (mcu_row>=info.m_MCUSPerCol) { result=8; break; }
+            if (mcu_row>0) memcpy(ring,ring+(size_t)mcu_h*src_pitch,src_pitch);
+            if (fill_strip(&info,ring+src_pitch) || input.failed) { result=8; break; }
+            strip_y0=mcu_row*mcu_h;
+            if (mcu_row==0) memcpy(ring,ring+src_pitch,src_pitch);
+            ++mcu_row;
+        }
+        if (result) break;
+        const unsigned char *r0=ring+(size_t)(sy0-strip_y0+1)*src_pitch;
+        const unsigned char *r1=ring+(size_t)(sy1-strip_y0+1)*src_pitch;
+        if (same_size) {
+            memcpy(out_row,r0,out_row_bytes);
+        } else {
+            unsigned ify=256u-fy;
+            unsigned char *op=out_row;
+            for (int dx=0;dx<dst_w;++dx,op+=3) {
+                unsigned x0=hx0[dx];
+                unsigned fx=hfx[dx];
+                unsigned ifx=256u-fx;
+                const unsigned char *p0=r0+x0*3u;
+                const unsigned char *p1=r1+x0*3u;
+                unsigned t0=p0[0]*ifx+p0[3]*fx;
+                unsigned t1=p1[0]*ifx+p1[3]*fx;
+                op[0]=(unsigned char)((t0*ify+t1*fy+32768u)>>16);
+                t0=p0[1]*ifx+p0[4]*fx;
+                t1=p1[1]*ifx+p1[4]*fx;
+                op[1]=(unsigned char)((t0*ify+t1*fy+32768u)>>16);
+                t0=p0[2]*ifx+p0[5]*fx;
+                t1=p1[2]*ifx+p1[5]*fx;
+                op[2]=(unsigned char)((t0*ify+t1*fy+32768u)>>16);
+            }
+        }
+        film_pixels(&film,out_row,(unsigned long)dst_w);
+        if (mask) film_halo_apply(out_row,dst_w,1,dy,mask,gw,gh,preset);
+        if (!encoder.process_scanline(out_row)) { result=10; break; }
+        if (pv_rgb) {
+            while (next_pv_y<pv_h) {
+                int want_y=(int)((next_pv_y*(unsigned)dst_h)/pv_h);
+                if (want_y>dy) break;
+                unsigned char *pvd=pv_rgb+(size_t)next_pv_y*pv_w*3u;
+                for (unsigned px=0;px<pv_w;++px) {
+                    unsigned sx=(px*(unsigned)dst_w)/pv_w;
+                    const unsigned char *sp=out_row+sx*3u;
+                    pvd[px*3u]=sp[0]; pvd[px*3u+1u]=sp[1]; pvd[px*3u+2u]=sp[2];
+                }
+                ++next_pv_y;
+            }
+        }
+    }
+    if (!result && !encoder.process_scanline(NULL)) result=11;
+    encoder.deinit();
+    int flushed=film_fsync(out_fd), closed=sys_close(out_fd);
+    if (mask) xfree(mask,mask_size);
+    xfree(ring,strip_bytes); xfree(out_row,out_row_bytes);
+    xfree(hx0,(unsigned)dst_w*sizeof(uint16_t));
+    xfree(hfx,(unsigned)dst_w*sizeof(uint16_t));
+    if (result || input.failed || output.failed || flushed || closed || !output.bytes) {
+        if (pv_rgb) xfree(pv_rgb,pv_bytes);
+        sys_unlink(path);
+        printf("FILM_ERROR ultra12m_render=%d output_failed=%d\n",result,output.failed);
+        return result?result:12;
+    }
+    if (pv_rgb) {
+        author_emit_preview_pkg(preview_path,pv_rgb,(int)pv_w,(int)pv_h,orient);
+        xfree(pv_rgb,pv_bytes);
+    }
+    unsigned finished=film_clock_ms();
+    printf("FILM_SOURCE kind=ultra12m source_width=%d source_height=%d width=%d height=%d offset=0 bytes=%u decode_passes=%d decode_attempts=1\n",
+        src_w,src_h,dst_w,dst_h,length,use_halo?2:1);
+    printf("FILM_TIMING select_ms=0 decode_ms=%u film_ms=0 encode_ms=%u total_ms=%u\n",
+        mask_done-begin,finished-mask_done,finished-begin);
+    printf("FILM_DONE width=%d height=%d bytes=%u rgb_kib=%u mask_kib=%u preset=%d grain=%d halation=%d\n",
+        dst_w,dst_h,output.bytes,(strip_bytes+out_row_bytes+1023u)/1024u,
+        (mask_size+1023u)/1024u,preset,grain,halo);
+    return 0;
+}
+
 static int render_author_fast(int fd,const char *path,int preset,int grain,int halo,
-                              unsigned char *metadata,unsigned metadata_size,int hires=0) {
+                              unsigned char *metadata,unsigned metadata_size,int hires=0,
+                              const char *preview_path=NULL) {
+    unsigned orient=author_metadata_orientation(metadata,metadata_size);
+    if (hires==2) {
+        long size=sys_lseek(fd,0,2);
+        if (size>=4 && (unsigned long)size<=MAX_INPUT_BYTES) {
+            int r12=render_author_ultra12m(fd,(unsigned)size,path,preset,grain,halo,
+                                           metadata,metadata_size,preview_path,orient);
+            if (!r12) return 0;
+            printf("FILM_ULTRA12M_FALLBACK result=%d\n",r12);
+        }
+        hires=1;
+    }
     unsigned begin=film_clock_ms(),offset=0,length=0;
     int found=0;
     unsigned selected=0,attempts=1;
@@ -361,6 +810,9 @@ static int render_author_fast(int fd,const char *path,int preset,int grain,int h
     int flushed=film_fsync(out),closed=sys_close(out);
     if (result || output.failed || flushed || closed || !output.bytes) {
         sys_unlink(path);printf("FILM_ERROR render=%d output_failed=%d\n",result,output.failed);return 12;
+    }
+    if (preview_path && preview_path[0]) {
+        author_emit_preview_pkg(preview_path,image.pixels,image.width,image.height,orient);
     }
     unsigned finished=film_clock_ms();
     printf("FILM_TIMING select_ms=%u decode_ms=%u film_ms=%u encode_ms=%u total_ms=%u\n",

@@ -65,6 +65,7 @@ if ui_dir:
     assert len(tm) == 1, f'expected unique a6400_ui_toast_v1 symbol, got {tm}'
     hm = sorted(set(re.findall(r'^\s*\d+:\s+([0-9a-f]+)\s+\d+\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+a6400_ui_hires_v1$', syms, re.M)))
     sm = sorted(set(re.findall(r'^\s*\d+:\s+([0-9a-f]+)\s+\d+\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+a6400_ui_status_v1$', syms, re.M)))
+    vm = sorted(set(re.findall(r'^\s*\d+:\s+([0-9a-f]+)\s+\d+\s+OBJECT\s+GLOBAL\s+DEFAULT\s+\d+\s+a6400_ui_v4_v1$', syms, re.M)))
     text += [
         '#define FILM_DAEMON_UI_MODULE "/tmp_bt/a6400-film-ui-v3-persist.so"\n',
         f'#define FILM_DAEMON_TOAST_RVA 0x{int(tm[0], 16):x}u\n',
@@ -73,6 +74,10 @@ if ui_dir:
         text += [f'#define FILM_DAEMON_HIRES_RVA 0x{int(hm[0], 16):x}u\n']
     if len(sm) == 1:
         text += [f'#define FILM_DAEMON_STATUS_RVA 0x{int(sm[0], 16):x}u\n']
+    if len(vm) == 1:
+        text += [f'#define FILM_DAEMON_V4_RVA 0x{int(vm[0], 16):x}u\n']
+if os.environ.get('A6400_UI_LANG_SC', '0') == '1':
+    text += ['#define A6400_UI_LANG_SC 1\n']
 if persistent=='1':
     text += ['#define MAX_FILES 1024u\n',
              '#define CAPTURE_STOP_GRACE_MS 500u\n',

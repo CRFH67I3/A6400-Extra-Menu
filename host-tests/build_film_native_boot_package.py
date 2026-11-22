@@ -14,7 +14,7 @@ import tarfile
 import build_film_runtime_package as base
 
 BUNDLE_PATH = 'A6400/RUNTIME/BOOT0014.TAR'
-MAX_BUNDLE = 196608
+MAX_BUNDLE = 262144
 TEMPLATE_NAMES = ('bootstrap-native-sd.sh', 'prepare.sh', 'runtime-start.sh')
 
 

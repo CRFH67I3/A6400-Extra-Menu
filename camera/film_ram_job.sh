@@ -22,6 +22,8 @@ WORKER_SHA=__WORKER_SHA__
 SETTINGS_SHA=__SETTINGS_SHA__
 INPUT=$RAM/input.jpg
 OUTPUT=$RAM/output.jpg
+PREVIEW=$RAM/preview.bin
+PV_DIR=/tmp_bt/a6400-pv
 MODE=${1:-}
 SOURCE=${2:-}
 EXPECTED_BYTES=${3:-}
@@ -158,7 +160,7 @@ cleanup() {
         cleanup_mount=$?
         if test "$cleanup_mount" = 0; then
             # Only these fixed files belong to this job; never delete by glob.
-            "$BB" rm -f "$INPUT" "$OUTPUT" || return 1
+            "$BB" rm -f "$INPUT" "$OUTPUT" "$PREVIEW" || return 1
             "$BB" umount "$RAM" || return 1
             ram_mount_state
             test "$?" = 1 || return 1
@@ -474,7 +476,12 @@ HIRES_ARG=
 case "$MODE:$#" in
     render:6) PRESET=$4;GRAIN=$5;HALATION=$6;;
     apply:4) TARGET=$4;;
-    apply:5) TARGET=$4;test "$5" = hires && HIRES_ARG=--hires || fail arguments;;
+    apply:5) TARGET=$4
+        case "$5" in
+            hires) HIRES_ARG=--hires;;
+            ultra12m) HIRES_ARG=--ultra12m;;
+            *) fail arguments;;
+        esac;;
     *) fail arguments;;
 esac
 case "$EXPECTED_BYTES" in ''|0|0*|*[!0-9]*) fail expected_size;; esac
@@ -545,7 +552,11 @@ echo "RAM_JOB_RENDER_START preset=$PRESET grain=$GRAIN halation=$HALATION"
 worker_inflight=1
 clock_ms || :
 render_started=$CLOCK_MS
-"$WORKER" "$PRESET" "$INPUT" "$OUTPUT" "$GRAIN" "$HALATION" $HIRES_ARG > "$LOCK/render.log" 2>&1 &
+PREVIEW_ARGS=
+if test "$MODE" = apply && test -d "$PV_DIR" && test ! -L "$PV_DIR"; then
+    PREVIEW_ARGS="--preview $PREVIEW"
+fi
+"$WORKER" "$PRESET" "$INPUT" "$OUTPUT" "$GRAIN" "$HALATION" $HIRES_ARG $PREVIEW_ARGS > "$LOCK/render.log" 2>&1 &
 worker_pid=$!
 manifest || fail manifest_worker
 wait "$worker_pid"
@@ -571,6 +582,9 @@ if test "$MODE" = apply; then
     retain=1
     native_run commit "$TARGET"
     TARGET_VERIFIED=1
+    if test -f "$PREVIEW" && test ! -L "$PREVIEW" && test -d "$PV_DIR" && test ! -L "$PV_DIR"; then
+        "$BB" cp "$PREVIEW" "$PV_DIR/latest.pkg.tmp" && "$BB" mv -f "$PV_DIR/latest.pkg.tmp" "$PV_DIR/latest.pkg" || :
+    fi
     PHASE=verified_target
     manifest || fail manifest_verified_target
     PHASE=applied

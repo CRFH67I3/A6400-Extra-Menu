@@ -9,6 +9,9 @@ static int film_input_path(const char *p) {
 static int film_output_path(const char *p) {
     return !strcmp(p,"/tmp_bt/a6400-film-job/output.jpg");
 }
+static int film_preview_path(const char *p) {
+    return !strcmp(p,"/tmp_bt/a6400-film-job/preview.bin");
+}
 #else
 /* Keep the ARM worker in our scratch/test/output directories. */
 static int film_components(const char *p, int nested) {
@@ -32,6 +35,10 @@ static int film_input_path(const char *p) {
 static int film_output_path(const char *p) {
     if (!strncmp(p,"/tmp_bt/",8)) return film_components(p+8,0);
     if (!strncmp(p,"/mnt/RITUAL/",12)) return film_components(p+12,0);
+    return 0;
+}
+static int film_preview_path(const char *p) {
+    if (!strncmp(p,"/tmp_bt/",8)) return film_components(p+8,0);
     return 0;
 }
 #endif

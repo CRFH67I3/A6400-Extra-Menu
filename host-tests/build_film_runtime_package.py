@@ -13,7 +13,7 @@ DESTS={
  'ram_job':'a6400-film-ram-job.sh','capture_daemon':'a6400-film-capture-daemon.elf',
  'guard':'a6400-ui-load-guard.elf','check':'a6400-check-persist.req',
  'install':'a6400-install-persist.req','remove':'a6400-remove-persist.req'}
-OPTIONAL={'ui_stop':'a6400-film-ui-stop.elf'}
+OPTIONAL={'ui_stop':'a6400-film-ui-stop.elf','preview':'a6400-film-preview.elf'}
 
 def digest(data):return hashlib.sha256(data).hexdigest()
 def fnv(data):

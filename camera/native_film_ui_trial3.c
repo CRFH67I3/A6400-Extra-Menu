@@ -4,6 +4,7 @@
  */
 #define _GNU_SOURCE
 #include "film_native_view.h"
+#include "film_preview_fmt.h"
 #include <dlfcn.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -14,6 +15,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "ui_trial_trace.h"
+#include "mtf2_native_touch.h"
 #ifdef A6400_INPUT_DIAGNOSTIC
 #include "ui_input_journal.h"
 static volatile struct ui_input_journal a6400_ui_input_journal_v1;
@@ -72,6 +74,81 @@ typedef void (*mouse_position_fn)(const void *,unsigned char,short *,short *);
 typedef int (*mouse_state_fn)(const void *,unsigned char,unsigned char);
 typedef int (*key_fn)(void *,int,void *);
 typedef void (*font_fn)(void *,uint32_t);
+typedef uint32_t (*pb_base_fn)(void);
+#define A6400_KEY_LEFT      0x0015
+#define A6400_KEY_RIGHT     0x01af
+#define A6400_KEY_CENTER    0x01ac
+#define A6400_KEY_MENU      0x01ab
+#define A6400_KEY_SHUTTER   0x00a7
+#define A6400_KEY_TRASH     0x01f8
+#define A6400_KEY_PLAY      0x01f4
+#define A6400_KEY_WHEEL_CCW 0x10000000
+#define A6400_KEY_WHEEL_CW  0x10000001
+#define A6400_POPUP_SHOW_MS 3500u
+
+#ifdef A6400_UI_LANG_SC
+#define UI_S_ON                 "开启"
+#define UI_S_OFF                "关闭"
+#define UI_S_QUAL_12M           "画质: 12MP 超清"
+#define UI_S_QUAL_6M            "画质: 6MP 高清"
+#define UI_S_QUAL_1M7           "画质: 1.7MP 极速"
+#define UI_S_HDR_BUSY           "V4.0 | %s | 转档:%u 已转:%u"
+#define UI_S_HDR_IDLE           "V4.0 | %s | 已转:%u (%u/%u)"
+#define UI_S_HDR_INIT           "A6400 V4.0 | %s"
+#define UI_S_HDR_BOOT           "A6400 V4.0 | 关闭"
+#define UI_S_POPUP_FMT          "即时预览小窗: %s"
+#define UI_S_ALBUM_FMT          "机内相册预览: %s"
+#define UI_S_TOUCH_FMT          "原生MENU触控: %s"
+#define UI_S_TOUCH_UNSUP        "此机型不支持"
+#define UI_S_BROWSE_FMT         "浏览套色相册 (%u张)"
+#define UI_S_ALB_LUT_TOP        "[LUT相册] %s"
+#define UI_S_ALB_LUT_DEF        "已套滤镜"
+#define UI_S_ALB_LUT_BOT        "◀/▶ 换张 | 轻触屏幕: 切换原图对比"
+#define UI_S_ALB_ORIG_TOP       "[原图对比] %s"
+#define UI_S_ALB_ORIG_DEF       "原始照片"
+#define UI_S_ALB_ORIG_BOT       "◀/▶ 换张 | 轻触屏幕: 切回 LUT 套色"
+#define UI_S_ALB_NONE_TOP       "[原图] 本张未套滤镜"
+#define UI_S_ALB_NONE_BOT       "◀/▶ 换张 | 按播放键/快门退出"
+#define UI_S_ALB_DIR_TOP        "[套色相册 %u/%u] %s"
+#define UI_S_ALB_DIR_BOT        "< 上一张 | 点中间或按快门退出 | 下一张 >"
+#define UI_S_HINT_COMBO         "MENU + 放大镜"
+#define UI_S_HINT_COMBO_RAM     "MENU + 放大镜 | RAM"
+#define UI_S_HINT_AUTO20        "20秒自动隐藏"
+#else
+#define UI_S_ON                 "開啟"
+#define UI_S_OFF                "關閉"
+#define UI_S_QUAL_12M           "畫質: 12MP 超清"
+#define UI_S_QUAL_6M            "畫質: 6MP 高清"
+#define UI_S_QUAL_1M7           "畫質: 1.7MP 極速"
+#define UI_S_HDR_BUSY           "V4.0 | %s | 轉檔:%u 已轉:%u"
+#define UI_S_HDR_IDLE           "V4.0 | %s | 已轉:%u (%u/%u)"
+#define UI_S_HDR_INIT           "A6400 V4.0 | %s"
+#define UI_S_HDR_BOOT           "A6400 V4.0 | 關閉"
+#define UI_S_POPUP_FMT          "即時預覽小窗: %s"
+#define UI_S_ALBUM_FMT          "機內相冊預覽: %s"
+#define UI_S_TOUCH_FMT          "原生MENU觸控: %s"
+#define UI_S_TOUCH_UNSUP        "此機型不支援"
+#define UI_S_BROWSE_FMT         "瀏覽套色相冊 (%u張)"
+#define UI_S_ALB_LUT_TOP        "[LUT相冊] %s"
+#define UI_S_ALB_LUT_DEF        "已套濾鏡"
+#define UI_S_ALB_LUT_BOT        "◀/▶ 換張 | 輕觸螢幕: 切換原圖對比"
+#define UI_S_ALB_ORIG_TOP       "[原圖對比] %s"
+#define UI_S_ALB_ORIG_DEF       "原始照片"
+#define UI_S_ALB_ORIG_BOT       "◀/▶ 換張 | 輕觸螢幕: 切回 LUT 套色"
+#define UI_S_ALB_NONE_TOP       "[原圖] 本張未套濾鏡"
+#define UI_S_ALB_NONE_BOT       "◀/▶ 換張 | 按播放鍵/快門退出"
+#define UI_S_ALB_DIR_TOP        "[套色相冊 %u/%u] %s"
+#define UI_S_ALB_DIR_BOT        "< 上一張 | 點中間或按快門退出 | 下一張 >"
+#define UI_S_HINT_COMBO         "MENU + 放大鏡"
+#define UI_S_HINT_COMBO_RAM     "MENU + 放大鏡 | RAM"
+#define UI_S_HINT_AUTO20        "20秒自動隱藏"
+#endif
+
+static const char *quality_label(uint32_t q) {
+    if(q==2u)return UI_S_QUAL_12M;
+    if(q==1u)return UI_S_QUAL_6M;
+    return UI_S_QUAL_1M7;
+}
 #ifdef A6400_CHARO_SHUTTER
 typedef void (*beep_play_fn)(void *,int);
 #define A6400_CHARO_SHUTTER_KEY 0xa7
@@ -95,6 +172,17 @@ static int charo_sound_id(int mode) {
 #endif
 }
 static const char *charo_mode_label(int mode,int custom) {
+#ifdef A6400_UI_LANG_SC
+#if defined(A6400_CHARO_MULTI) && A6400_CHARO_MULTI
+    if(mode==1)return "快门声: 日文 Charo";
+    if(mode==2)return custom?"快门声: SD自定义":"快门声: Bling Bling";
+    if(mode==3)return "快门声: iPhone 快门";
+    return "快门声: 关闭";
+#else
+    if(!mode)return "快门声: 关闭";
+    return custom?"快门声: Charo (SD自定义)":"快门声: Charo (开启)";
+#endif
+#else
 #if defined(A6400_CHARO_MULTI) && A6400_CHARO_MULTI
     if(mode==1)return "快門聲: 日文 Charo";
     if(mode==2)return custom?"快門聲: SD自訂":"快門聲: Bling Bling";
@@ -103,6 +191,7 @@ static const char *charo_mode_label(int mode,int custom) {
 #else
     if(!mode)return "快門聲: 關閉";
     return custom?"快門聲: Charo (SD自訂)":"快門聲: Charo (開啟)";
+#endif
 #endif
 }
 #endif
@@ -180,6 +269,32 @@ struct a6400_ui_status_v1 {
 };
 __attribute__((visibility("default")))
 volatile struct a6400_ui_status_v1 a6400_ui_status_v1 = { 0x53544156u, 0u, 0u, 0u, 1024u, 0u, 0u };
+
+__attribute__((visibility("default")))
+volatile struct a6400_ui_v4_v1 a6400_ui_v4_v1 = {
+    A6400_V4_MAGIC, A6400_V4_VERSION,
+    1u, 1u, 1u,          /* preview_popup_en, album_preview_en, native_touch_en default ON */
+    A6400_DISP_NONE, 0u, 0u,
+    0u, 0u,
+    0u, 0u, 0u, 0u,
+    {0}, {{0}}
+};
+
+static struct {
+    pb_base_fn get_pb_base;
+    struct mtf2_ctx mtf2;
+    uint32_t seen_latest_seq;
+    int popup_active;
+    uint32_t popup_until_ms;
+    int album_mode;          /* 0=off, 1=playback-synced, 2=direct-menu-browser */
+    int album_compare_orig;
+    unsigned album_idx;      /* pb_offset in mode 1, or 0..album_count-1 in mode 2 */
+    int last_pb_active;
+    int last_nav_left, last_nav_right, last_nav_center, last_nav_exit;
+    int album_touch_down;
+    short album_touch_x, album_touch_y;
+    int mtf2_wait_release;
+} ui_v4;
 
 static struct {
     void *bg, *accent, *label;
@@ -261,6 +376,9 @@ static __attribute__((noinline)) int resolve(void) {
     ui_theme.beep_play=(beep_play_fn)api("_ZN13AppWidgetBase8beepPlayEi",0);
     if(!ui_theme.beep_play)return -1;
 #endif
+    /* Optional playback detector: absent on non-matching models is non-fatal. */
+    ui_v4.get_pb_base=(pb_base_fn)dlsym(RTLD_DEFAULT,
+        "_ZN27CmnForUseMultipleViewStatus20getCurrentViewPbBaseEv");
 #undef API
     return 0;
 }
@@ -307,6 +425,105 @@ static void hide_toast_widgets(void) {
     ui_toast.text[0]=0;
     place(ui_toast.label,1,0,0,0,0);ui.set_text(ui_toast.label,ui_toast.text);
 }
+static void v4_publish_display(uint32_t mode,uint32_t slot) {
+    a6400_ui_v4_v1.album_slot=slot;
+    a6400_ui_v4_v1.display_mode=mode;
+    __sync_synchronize();
+    a6400_ui_v4_v1.display_seq+=1u;
+}
+static void v4_dismiss_popup(void) {
+    if(!ui_v4.popup_active)return;
+    ui_v4.popup_active=0;
+    ui_v4.popup_until_ms=0;
+    if(!ui_v4.album_mode)v4_publish_display(A6400_DISP_NONE,0u);
+}
+static void v4_draw_album_hud(const char *top_text,const char *bot_text,int show_lut) {
+    static const unsigned char bar_lut[4]={18,22,29,232};
+    static const unsigned char bar_orig[4]={38,44,54,224};
+    static const unsigned char accent_c[4]={234,140,42,255};
+    hide_menu_widgets();
+    hide_toast_widgets();
+    ui_toast.visible=0;
+    place(ui.panels[0],0,0,0,640,34);
+    ui.set_color(ui.panels[0],show_lut?bar_lut:bar_orig);
+    place(ui_theme.header_accent,0,0,34,640,2);
+    ui.set_color(ui_theme.header_accent,accent_c);
+    place(ui.panels[1],0,0,444,640,36);
+    ui.set_color(ui.panels[1],bar_lut);
+    snprintf(ui.texts[0],sizeof(ui.texts[0]),"%s",top_text?top_text:"");
+    snprintf(ui.texts[7],sizeof(ui.texts[7]),"%s",bot_text?bot_text:"");
+    place(ui.labels[0],1,14,3,612,28);
+    ui.set_text(ui.labels[0],ui.texts[0]);
+    place(ui.labels[7],1,14,448,612,28);
+    ui.set_text(ui.labels[7],ui.texts[7]);
+    ui.move_last(ui.layer);
+    ui.layer_active(ui.layer,1);
+}
+static void v4_album_sync_view(void) {
+    if(!ui_v4.album_mode)return;
+    char top[80],bot[80];
+    if(ui_v4.album_mode==1) {
+        uint32_t total_shots=a6400_ui_v4_v1.session_shots;
+        int slot=-1;
+        if(total_shots>0u && ui_v4.album_idx<total_shots && ui_v4.album_idx<A6400_SESSION_SHOTS_CAP) {
+            uint32_t pos=(total_shots-1u-ui_v4.album_idx)%A6400_SESSION_SHOTS_CAP;
+            slot=(int)a6400_ui_v4_v1.shot_slots[pos];
+        }
+        if(slot>=0 && (unsigned)slot<A6400_ALBUM_SLOTS) {
+            char cap[48];
+            for(unsigned i=0;i<47u;i++)cap[i]=a6400_ui_v4_v1.slot_labels[slot][i];
+            cap[47]=0;
+            if(!ui_v4.album_compare_orig) {
+                snprintf(top,sizeof(top),UI_S_ALB_LUT_TOP,cap[0]?cap:UI_S_ALB_LUT_DEF);
+                snprintf(bot,sizeof(bot),UI_S_ALB_LUT_BOT);
+                v4_draw_album_hud(top,bot,1);
+                v4_publish_display(A6400_DISP_ALBUM,(uint32_t)slot);
+            } else {
+                snprintf(top,sizeof(top),UI_S_ALB_ORIG_TOP,cap[0]?cap:UI_S_ALB_ORIG_DEF);
+                snprintf(bot,sizeof(bot),UI_S_ALB_ORIG_BOT);
+                v4_draw_album_hud(top,bot,0);
+                v4_publish_display(A6400_DISP_NONE,0u);
+            }
+        } else {
+            snprintf(top,sizeof(top),UI_S_ALB_NONE_TOP);
+            snprintf(bot,sizeof(bot),UI_S_ALB_NONE_BOT);
+            v4_draw_album_hud(top,bot,0);
+            v4_publish_display(A6400_DISP_NONE,0u);
+        }
+    } else {
+        uint32_t cnt=a6400_ui_v4_v1.album_count;
+        if(cnt==0u) {
+            ui_v4.album_mode=0;
+            v4_publish_display(A6400_DISP_NONE,0u);
+            ui.layer_active(ui.layer,0);
+            return;
+        }
+        if(cnt>A6400_ALBUM_SLOTS)cnt=A6400_ALBUM_SLOTS;
+        if(ui_v4.album_idx>=cnt)ui_v4.album_idx=cnt-1u;
+        uint32_t head=a6400_ui_v4_v1.album_head%A6400_ALBUM_SLOTS;
+        uint32_t slot=(head+A6400_ALBUM_SLOTS-(ui_v4.album_idx%A6400_ALBUM_SLOTS))%A6400_ALBUM_SLOTS;
+        char cap[48];
+        for(unsigned i=0;i<47u;i++)cap[i]=a6400_ui_v4_v1.slot_labels[slot][i];
+        cap[47]=0;
+        snprintf(top,sizeof(top),UI_S_ALB_DIR_TOP,
+                 (unsigned)(ui_v4.album_idx+1u),(unsigned)cnt,cap[0]?cap:UI_S_ALB_LUT_DEF);
+        snprintf(bot,sizeof(bot),UI_S_ALB_DIR_BOT);
+        v4_draw_album_hud(top,bot,1);
+        v4_publish_display(A6400_DISP_ALBUM,slot);
+    }
+}
+static void v4_exit_album(void) {
+    if(!ui_v4.album_mode)return;
+    ui_v4.album_mode=0;
+    ui_v4.album_compare_orig=0;
+    ui_v4.album_touch_down=0;
+    v4_publish_display(A6400_DISP_NONE,0u);
+    if(!ui.view.menu.visible) {
+        hide_menu_widgets();
+        ui.layer_active(ui.layer,0);
+    }
+    record("ALBUM_EXIT",0,0);
+}
 static void visibility(void *unused,int active) {
     (void)unused;
     input_snapshot(active?3:5);
@@ -323,6 +540,13 @@ static void visibility(void *unused,int active) {
 static void draw(void *unused,const struct film_menu *menu) {
     (void)unused;
     record("DRAW_BEGIN",menu->page,menu->selected);
+    v4_dismiss_popup();
+    if(ui_v4.album_mode) {
+        ui_v4.album_mode=0;
+        ui_v4.album_compare_orig=0;
+        ui_v4.album_touch_down=0;
+        v4_publish_display(A6400_DISP_NONE,0u);
+    }
     hide_toast_widgets();
     ui_toast.visible=0;
     show_menu_chrome();
@@ -339,17 +563,17 @@ static void draw(void *unused,const struct film_menu *menu) {
         ui_theme.status_seq=a6400_ui_status_v1.seq;
         unsigned qmax=a6400_ui_status_v1.max_files?(unsigned)a6400_ui_status_v1.max_files:1024u;
         if(a6400_ui_status_v1.active_jobs>0u) {
-            snprintf(ui.texts[0],sizeof(ui.texts[0]),"V3.9 SSLF | %s | 轉檔:%u 已轉:%u",
-                     menu->settings.enabled?"開啟":"關閉",
+            snprintf(ui.texts[0],sizeof(ui.texts[0]),UI_S_HDR_BUSY,
+                     menu->settings.enabled?UI_S_ON:UI_S_OFF,
                      (unsigned)a6400_ui_status_v1.active_jobs,(unsigned)a6400_ui_status_v1.applied);
         } else {
-            snprintf(ui.texts[0],sizeof(ui.texts[0]),"V3.9 SSLF | %s | 已轉:%u (%u/%u)",
-                     menu->settings.enabled?"開啟":"關閉",
+            snprintf(ui.texts[0],sizeof(ui.texts[0]),UI_S_HDR_IDLE,
+                     menu->settings.enabled?UI_S_ON:UI_S_OFF,
                      (unsigned)a6400_ui_status_v1.applied,(unsigned)a6400_ui_status_v1.scanned,qmax);
         }
     } else {
-        snprintf(ui.texts[0],sizeof(ui.texts[0]),"A6400 V3.9 SSLF | %s",
-                 menu->settings.enabled?"開啟":"關閉");
+        snprintf(ui.texts[0],sizeof(ui.texts[0]),UI_S_HDR_INIT,
+                 menu->settings.enabled?UI_S_ON:UI_S_OFF);
     }
     ui.set_text(ui.labels[0],ui.texts[0]);
     for(unsigned row=0;row<6;row++) {
@@ -363,18 +587,35 @@ static void draw(void *unused,const struct film_menu *menu) {
                      charo_mode_label(ui_theme.shutter_sound_enabled,custom));
         }
 #endif
+        else if(menu->page==FILM_MENU_V4) {
+            if(row==0)snprintf(ui.texts[row+1],sizeof(ui.texts[0]),UI_S_POPUP_FMT,
+                               a6400_ui_v4_v1.preview_popup_en?UI_S_ON:UI_S_OFF);
+            else if(row==1)snprintf(ui.texts[row+1],sizeof(ui.texts[0]),UI_S_ALBUM_FMT,
+                                    a6400_ui_v4_v1.album_preview_en?UI_S_ON:UI_S_OFF);
+            else if(row==2)snprintf(ui.texts[row+1],sizeof(ui.texts[0]),UI_S_TOUCH_FMT,
+                                    !a6400_ui_v4_v1.native_touch_ok?UI_S_TOUCH_UNSUP:
+                                    (a6400_ui_v4_v1.native_touch_en?UI_S_ON:UI_S_OFF));
+            else if(row==3)snprintf(ui.texts[row+1],sizeof(ui.texts[0]),UI_S_BROWSE_FMT,
+                                    (unsigned)a6400_ui_v4_v1.album_count);
+        }
         record("ROW_PANEL_GEOMETRY",row,used);
         place(ui.panels[row],0,x,y,w,h);
         int stocks_page=(menu->page==FILM_MENU_STOCKS || menu->page==FILM_MENU_STOCKS_P2);
         int details_page=(menu->page==FILM_MENU_DETAILS);
+        int v4_page=(menu->page==FILM_MENU_V4);
         int stock_idx=(menu->page==FILM_MENU_STOCKS_P2?5:0)+(int)row;
-        int is_dismiss=(menu->page==FILM_MENU_HOME && row==2) || (stocks_page && row==5) || (details_page && row==5);
+        int is_dismiss=(menu->page==FILM_MENU_HOME && row==2) || (stocks_page && row==5) ||
+                       (details_page && row==5) || (v4_page && row==5);
         int is_active=(menu->page==FILM_MENU_HOME && row==0 && menu->settings.enabled) ||
                       (menu->page==FILM_MENU_HOME && row==4 && (menu->settings.grain!=2 || !menu->settings.halation)) ||
 #ifdef A6400_CHARO_SHUTTER
                       (menu->page==FILM_MENU_HOME && row==3 && ui_theme.shutter_sound_enabled) ||
 #endif
                       (details_page && ((row==0 && menu->settings.grain>0) || (row==1 && menu->settings.halation))) ||
+                      (v4_page && ((row==0 && a6400_ui_v4_v1.preview_popup_en) ||
+                                   (row==1 && a6400_ui_v4_v1.album_preview_en) ||
+                                   (row==2 && a6400_ui_v4_v1.native_touch_ok && a6400_ui_v4_v1.native_touch_en) ||
+                                   (row==3 && a6400_ui_v4_v1.album_count>0u))) ||
                       (stocks_page && row<5 && stock_idx==menu->settings.stock);
         const unsigned char *panel_color=row_plain;
         if(menu->selected==(int)row)panel_color=is_dismiss?pill_pressed:row_pressed;
@@ -385,7 +626,8 @@ static void draw(void *unused,const struct film_menu *menu) {
         if(used>0 && !is_dismiss) {
             place(ui_theme.row_accents[row],0,x,y,5,h);
             const unsigned char *stripe=is_active?accent_orange:
-                (menu->page==FILM_MENU_HOME && (row==1 || row==4)?accent_gold:accent_muted);
+                ((menu->page==FILM_MENU_HOME && (row==1 || row==4 || row==3)) ||
+                 (v4_page && row==3)?accent_gold:accent_muted);
             ui.set_color(ui_theme.row_accents[row],stripe);
         } else {
             place(ui_theme.row_accents[row],0,0,0,0,0);
@@ -400,23 +642,14 @@ static void draw(void *unused,const struct film_menu *menu) {
     int px=0,py=0,pw=0,ph=0;
     if(film_native_view_row(menu,6,ui.texts[7],sizeof(ui.texts[0]),&px,&py,&pw,&ph)>0) {
         place(ui_theme.page_btn,0,px,py,pw,ph);
-        ui.set_color(ui_theme.page_btn,menu->selected==6?pill_pressed:pill_plain);
+        ui.set_color(ui_theme.page_btn,menu->selected==6?pill_pressed:
+                     (menu->page==FILM_MENU_DETAILS?row_active:pill_plain));
         place(ui.labels[7],1,px+16,py+6,pw>32?pw-32:0,ph>12?ph-12:0);
     } else if(menu->page==FILM_MENU_HOME) {
         place(ui_theme.page_btn,0,76,386,264,42);
         ui.set_color(ui_theme.page_btn,
                      menu->selected==7?pill_pressed:(a6400_ui_hires_v1?row_active:pill_plain));
-        snprintf(ui.texts[7],sizeof(ui.texts[0]),"%s",
-                 a6400_ui_hires_v1?"畫質: 6MP 高清":"畫質: 1.7MP 極速");
-        place(ui.labels[7],1,92,392,232,30);
-    } else if(menu->page==FILM_MENU_DETAILS) {
-        place(ui_theme.page_btn,0,76,386,264,42);
-        ui.set_color(ui_theme.page_btn,pill_plain);
-        unsigned qmax=(a6400_ui_status_v1.magic==0x53544156u && a6400_ui_status_v1.max_files)
-                      ?(unsigned)a6400_ui_status_v1.max_files:1024u;
-        unsigned qcur=a6400_ui_status_v1.magic==0x53544156u?(unsigned)a6400_ui_status_v1.scanned:0u;
-        snprintf(ui.texts[7],sizeof(ui.texts[0]),"佇列:%u/%u | %s",
-                 qcur,qmax,a6400_ui_hires_v1?"6MP":"1.7MP");
+        snprintf(ui.texts[7],sizeof(ui.texts[0]),"%s",quality_label(a6400_ui_hires_v1));
         place(ui.labels[7],1,92,392,232,30);
     } else {
         place(ui_theme.page_btn,0,0,0,0,0);
@@ -434,6 +667,8 @@ static void settings(void *unused,const struct film_settings *s) {
 }
 static void stop_trial(const char *why) {
     record("STOP_BEGIN",0,0);
+    v4_dismiss_popup();
+    v4_exit_album();
     film_native_view_hide(&ui.view);
     record("STOP_MENU_HIDDEN",0,0);
     if(ui.layer)ui.layer_active(ui.layer,0);
@@ -512,7 +747,7 @@ static void animate(void *self) {
     if(now-ui.last_tick<15u)return;
     ui.last_tick=now;
     if(ui_toast.bg && ui.layer) {
-        if(ui.view.menu.visible) {
+        if(ui.view.menu.visible || ui_v4.album_mode) {
             ui_toast.visible=0;
         } else {
             uint32_t seq=a6400_ui_toast_v1.seq;
@@ -609,12 +844,161 @@ static void animate(void *self) {
     if(touch==5 && film_menu_hit(ui.view.menu.page,x,y)!=2)x=y=32767;
 #endif
 #endif
+    int v4_busy_before=(ui.view.menu.visible || ui_v4.album_mode || ui_v4.popup_active);
     unsigned change=film_native_view_step(&ui.view,now,menu,zoom,other,touch,x,y);
     if(change&FILM_MENU_SETTINGS_CHANGED)record("FILM_TAP",x,y);
     if(change&FILM_MENU_HIRES_TOGGLED) {
-        a6400_ui_hires_v1^=1u;
+        a6400_ui_hires_v1=(a6400_ui_hires_v1+1u)%3u;
         draw(0,&ui.view.menu);
         record("FILM_HIRES_TOGGLE",(int)a6400_ui_hires_v1,0);
+    }
+    if(change&FILM_MENU_POPUP_TOGGLED) {
+        a6400_ui_v4_v1.preview_popup_en^=1u;
+        if(!a6400_ui_v4_v1.preview_popup_en)v4_dismiss_popup();
+        draw(0,&ui.view.menu);
+        record("V4_POPUP_TOGGLE",(int)a6400_ui_v4_v1.preview_popup_en,0);
+    }
+    if(change&FILM_MENU_ALBUM_TOGGLED) {
+        a6400_ui_v4_v1.album_preview_en^=1u;
+        if(!a6400_ui_v4_v1.album_preview_en && ui_v4.album_mode==1)v4_exit_album();
+        draw(0,&ui.view.menu);
+        record("V4_ALBUM_TOGGLE",(int)a6400_ui_v4_v1.album_preview_en,0);
+    }
+    if(change&FILM_MENU_TOUCH_TOGGLED) {
+        if(a6400_ui_v4_v1.native_touch_ok)a6400_ui_v4_v1.native_touch_en^=1u;
+        draw(0,&ui.view.menu);
+        record("V4_TOUCH_TOGGLE",(int)a6400_ui_v4_v1.native_touch_en,(int)a6400_ui_v4_v1.native_touch_ok);
+    }
+    if(change&FILM_MENU_ALBUM_BROWSE) {
+        if(a6400_ui_v4_v1.album_count>0u) {
+            film_native_view_hide(&ui.view);
+            v4_dismiss_popup();
+            ui_v4.album_mode=2;
+            ui_v4.album_compare_orig=0;
+            ui_v4.album_idx=0u;
+            ui_v4.album_touch_down=0;
+            v4_album_sync_view();
+            record("V4_ALBUM_BROWSE_OPEN",(int)a6400_ui_v4_v1.album_count,0);
+        } else {
+            draw(0,&ui.view.menu);
+        }
+    }
+    /* V4.0 Poll #5: Instant filter preview pop-up card after shot finishes. */
+    if(a6400_ui_v4_v1.magic==A6400_V4_MAGIC && a6400_ui_v4_v1.latest_seq!=ui_v4.seen_latest_seq) {
+        ui_v4.seen_latest_seq=a6400_ui_v4_v1.latest_seq;
+        if(a6400_ui_v4_v1.preview_popup_en && !ui.view.menu.visible && !ui_v4.album_mode) {
+            ui_v4.popup_active=1;
+            ui_v4.popup_until_ms=now+A6400_POPUP_SHOW_MS;
+            v4_publish_display(A6400_DISP_POPUP,a6400_ui_v4_v1.album_head);
+            record("V4_POPUP_SHOW",(int)ui_v4.seen_latest_seq,0);
+        }
+    }
+    if(ui_v4.popup_active) {
+        if((int32_t)(now-ui_v4.popup_until_ms)>=0 || touch==5 || other || menu==1 ||
+           ui.view.menu.visible || ui_v4.album_mode) {
+            v4_dismiss_popup();
+            record("V4_POPUP_HIDE",0,0);
+        }
+    }
+    /* V4.0 Poll #2: In-camera graded album preview (Playback auto-sync + direct browser). */
+    int pb_now=(ui_v4.get_pb_base && ui_v4.get_pb_base()!=0u)?1:0;
+    if(pb_now && !ui_v4.last_pb_active) {
+        if(a6400_ui_v4_v1.album_preview_en && !ui.view.menu.visible &&
+           a6400_ui_v4_v1.album_count>0u && a6400_ui_v4_v1.session_shots>0u) {
+            v4_dismiss_popup();
+            ui_v4.album_mode=1;
+            ui_v4.album_compare_orig=0;
+            ui_v4.album_idx=0u;
+            ui_v4.album_touch_down=0;
+            v4_album_sync_view();
+            record("V4_PB_ALBUM_ENTER",(int)a6400_ui_v4_v1.session_shots,(int)a6400_ui_v4_v1.album_count);
+        }
+    } else if(!pb_now && ui_v4.last_pb_active && ui_v4.album_mode==1) {
+        v4_exit_album();
+    }
+    ui_v4.last_pb_active=pb_now;
+    if(ui_v4.album_mode && !ui.view.menu.visible) {
+        int nav_left=(ui.key(ui.keys,A6400_KEY_LEFT,0)==1 || ui.key(ui.keys,A6400_KEY_WHEEL_CCW,0)==1);
+        int nav_right=(ui.key(ui.keys,A6400_KEY_RIGHT,0)==1 || ui.key(ui.keys,A6400_KEY_WHEEL_CW,0)==1);
+        int nav_center=(ui.key(ui.keys,A6400_KEY_CENTER,0)==1);
+        int nav_exit=(menu==1 || ui.key(ui.keys,A6400_KEY_SHUTTER,0)==1 ||
+                      ui.key(ui.keys,A6400_KEY_TRASH,0)==1 ||
+                      (ui_v4.album_mode==2 && ui.key(ui.keys,A6400_KEY_PLAY,0)==1));
+        int dirty=0;
+        if(nav_exit && !ui_v4.last_nav_exit) {
+            v4_exit_album();
+        } else {
+            if(nav_left && !ui_v4.last_nav_left) {
+                unsigned limit=(ui_v4.album_mode==1)?a6400_ui_v4_v1.session_shots:a6400_ui_v4_v1.album_count;
+                if(ui_v4.album_mode==1 && limit>A6400_SESSION_SHOTS_CAP)limit=A6400_SESSION_SHOTS_CAP;
+                if(ui_v4.album_mode==2 && limit>A6400_ALBUM_SLOTS)limit=A6400_ALBUM_SLOTS;
+                if(limit>0u && ui_v4.album_idx+1u<limit) {
+                    ui_v4.album_idx+=1u;
+                    ui_v4.album_compare_orig=0;
+                    dirty=1;
+                }
+            }
+            if(nav_right && !ui_v4.last_nav_right) {
+                if(ui_v4.album_idx>0u) {
+                    ui_v4.album_idx-=1u;
+                    ui_v4.album_compare_orig=0;
+                    dirty=1;
+                }
+            }
+            if(nav_center && !ui_v4.last_nav_center && ui_v4.album_mode==1) {
+                ui_v4.album_compare_orig^=1;
+                dirty=1;
+            }
+            if(touch==5) {
+                if(!ui_v4.album_touch_down && x>=0 && x<640 && y>=0 && y<480) {
+                    ui_v4.album_touch_down=1;
+                    ui_v4.album_touch_x=x;
+                    ui_v4.album_touch_y=y;
+                }
+            } else if(touch==6 && ui_v4.album_touch_down) {
+                short tx=ui_v4.album_touch_x;
+                ui_v4.album_touch_down=0;
+                if(ui_v4.album_mode==1) {
+                    ui_v4.album_compare_orig^=1;
+                    dirty=1;
+                } else {
+                    unsigned limit=a6400_ui_v4_v1.album_count;
+                    if(limit>A6400_ALBUM_SLOTS)limit=A6400_ALBUM_SLOTS;
+                    if(tx<200) {
+                        if(limit>0u && ui_v4.album_idx+1u<limit){ui_v4.album_idx+=1u;dirty=1;}
+                    } else if(tx>440) {
+                        if(ui_v4.album_idx>0u){ui_v4.album_idx-=1u;dirty=1;}
+                    } else {
+                        v4_exit_album();
+                    }
+                }
+            }
+            if(dirty && ui_v4.album_mode)v4_album_sync_view();
+        }
+        ui_v4.last_nav_left=nav_left;
+        ui_v4.last_nav_right=nav_right;
+        ui_v4.last_nav_center=nav_center;
+        ui_v4.last_nav_exit=nav_exit;
+    } else {
+        ui_v4.last_nav_left=ui_v4.last_nav_right=ui_v4.last_nav_center=ui_v4.last_nav_exit=0;
+        ui_v4.album_touch_down=0;
+    }
+    /* V4.0 Native MENU Full Touch (MTF2, credit: ivica00). Suppressed whenever our
+     * Film Menu, Album Preview, or Instant Pop-up is active (or until the finger
+     * lifts after closing one of them), or when toggled OFF. */
+    int v4_busy_now=(ui.view.menu.visible || ui_v4.album_mode || ui_v4.popup_active);
+    if(v4_busy_now) {
+        ui_v4.mtf2_wait_release=1;
+    } else if(v4_busy_before) {
+        ui_v4.mtf2_wait_release=(touch==5)?1:0;
+    } else if(ui_v4.mtf2_wait_release && touch==6) {
+        ui_v4.mtf2_wait_release=0;
+    }
+    int allow_mtf2=(a6400_ui_v4_v1.native_touch_en!=0u) &&
+                   !v4_busy_before && !v4_busy_now && !ui_v4.mtf2_wait_release;
+    if(mtf2_on_touch_poll(&ui_v4.mtf2,allow_mtf2,touch,x,y)!=MTF2_ACT_NONE) {
+        a6400_ui_v4_v1.native_touch_hits=ui_v4.mtf2.hits;
+        record("MTF2_ACT",(int)ui_v4.mtf2.last_action,(int)ui_v4.mtf2.hits);
     }
 #ifdef A6400_CHARO_SHUTTER
     if(change&FILM_MENU_SOUND_TOGGLED) {
@@ -762,22 +1146,23 @@ int a6400_ui_attach_v1(void *system,unsigned tid) {
     ui_theme.shutter_pending=0;
     ui_theme.shutter_arm_ms=0;
     ui_theme.last_shutter_beep_ms=0;
-    strcpy(ui.texts[0],"A6400 V3.9 SSLF | 關閉");
-#else
-    strcpy(ui.texts[0],"A6400 V3.9 SSLF | 關閉");
 #endif
+    strcpy(ui.texts[0],UI_S_HDR_BOOT);
+    for(unsigned i=0;i<A6400_SESSION_SHOTS_CAP;i++)a6400_ui_v4_v1.shot_slots[i]=-1;
+    a6400_ui_v4_v1.native_touch_ok=(uint32_t)mtf2_probe_and_init(&ui_v4.mtf2);
+    record("V4_MTF2_INIT",(int)a6400_ui_v4_v1.native_touch_ok,(int)(ui_v4.get_pb_base!=0));
 #ifdef A6400_UI_SETTINGS_DIAGNOSTIC
-    strcpy(ui.texts[7],"MENU + 放大鏡 | RAM");
+    strcpy(ui.texts[7],UI_S_HINT_COMBO_RAM);
 #elif defined(A6400_UI_COMBO_DIAGNOSTIC)
-    strcpy(ui.texts[7],"MENU + 放大鏡");
+    strcpy(ui.texts[7],UI_S_HINT_COMBO);
 #elif defined(A6400_UI_TOUCH_CLOSE_DIAGNOSTIC)
-    strcpy(ui.texts[7],"20秒自動隱藏");
+    strcpy(ui.texts[7],UI_S_HINT_AUTO20);
 #elif defined(A6400_UI_RENDER_DIAGNOSTIC) && A6400_UI_DISPLAY_MS % 1000 == 0
     snprintf(ui.texts[7],sizeof(ui.texts[7]),"%u second display test",A6400_UI_DISPLAY_MS/1000u);
 #elif defined(A6400_UI_RENDER_DIAGNOSTIC)
     snprintf(ui.texts[7],sizeof(ui.texts[7]),"%u ms display test",(unsigned)A6400_UI_DISPLAY_MS);
 #else
-    strcpy(ui.texts[7],"MENU + 放大鏡");
+    strcpy(ui.texts[7],UI_S_HINT_COMBO);
 #endif
     record("TITLE_TEXT_BEFORE",0,0);
     place(ui.labels[0],1,76,48,488,34);ui.set_text(ui.labels[0],ui.texts[0]);

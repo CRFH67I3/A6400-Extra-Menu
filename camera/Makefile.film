@@ -35,7 +35,7 @@ $(TARGET): $(OBJECTS)
 	$(CXX) $(LINK) $^ $(if $(RUNTIME),-lgcc,) -o $@
 $(BUILD):
 	mkdir -p $@
-$(BUILD)/film_jpeg.o: film_jpeg.cpp author_film.h author_fast_jpeg.h film_paths.h rt.h host/film_rt.h jpeg_frame.h ../vendor/jpge.h ../vendor/picojpeg.h | $(BUILD)
+$(BUILD)/film_jpeg.o: film_jpeg.cpp author_film.h author_fast_jpeg.h film_preview_fmt.h film_paths.h rt.h host/film_rt.h jpeg_frame.h ../vendor/jpge.h ../vendor/picojpeg.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 $(BUILD)/author_film.o: author_film.c author_film.h author_curves.h | $(BUILD)
 	$(CC) $(CFLAGS) -O3 -c $< -o $@

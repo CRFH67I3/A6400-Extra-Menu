@@ -17,7 +17,7 @@ static unsigned tap(struct film_menu *m, int row) {
     int stocks_page = m->page == FILM_MENU_STOCKS || m->page == FILM_MENU_STOCKS_P2;
     int is_dismiss = (m->page == FILM_MENU_HOME && row == 2) ||
                      ((stocks_page || m->page == FILM_MENU_DETAILS) && row == 5);
-    int is_pager = stocks_page && row == 6;
+    int is_pager = (stocks_page || m->page == FILM_MENU_DETAILS || m->page == FILM_MENU_V4) && row == 6;
     int x = is_dismiss ? 480 : 120;
     int y = (is_dismiss || is_pager) ? 405 :
             (m->page == FILM_MENU_HOME
@@ -106,6 +106,25 @@ int main(void) {
     assert(m.settings.halation == 0);
     assert(tap(&m, 2) & FILM_MENU_SETTINGS_CHANGED);
     assert(m.settings.grain == 2 && m.settings.halation == 1);
+    assert(tap(&m, 6) & FILM_MENU_REDRAW);
+    assert(m.page == FILM_MENU_V4);
+    assert(film_menu_hit(FILM_MENU_V4, 120, 120) == 0);
+    assert(film_menu_hit(FILM_MENU_V4, 120, 185) == 1);
+    assert(film_menu_hit(FILM_MENU_V4, 120, 250) == 2);
+    assert(film_menu_hit(FILM_MENU_V4, 120, 315) == 3);
+    assert(film_menu_hit(FILM_MENU_V4, 120, 405) == 6);
+    assert(film_menu_hit(FILM_MENU_V4, 480, 405) == 5);
+    assert(film_menu_touch(&m, now += 20, 1, 120, 120) & FILM_MENU_REDRAW);
+    assert(film_menu_touch(&m, now += 20, 0, 32767, 32767) & FILM_MENU_POPUP_TOGGLED);
+    assert(film_menu_touch(&m, now += 20, 1, 120, 185) & FILM_MENU_REDRAW);
+    assert(film_menu_touch(&m, now += 20, 0, 32767, 32767) & FILM_MENU_ALBUM_TOGGLED);
+    assert(film_menu_touch(&m, now += 20, 1, 120, 250) & FILM_MENU_REDRAW);
+    assert(film_menu_touch(&m, now += 20, 0, 32767, 32767) & FILM_MENU_TOUCH_TOGGLED);
+    assert(film_menu_touch(&m, now += 20, 1, 120, 315) & FILM_MENU_REDRAW);
+    assert(film_menu_touch(&m, now += 20, 0, 32767, 32767) & FILM_MENU_ALBUM_BROWSE);
+    assert(film_menu_touch(&m, now += 20, 1, 120, 405) & FILM_MENU_REDRAW);
+    assert(film_menu_touch(&m, now += 20, 0, 32767, 32767) & FILM_MENU_REDRAW);
+    assert(m.page == FILM_MENU_DETAILS);
     assert(tap(&m, 5) & FILM_MENU_REDRAW);
     assert(m.page == FILM_MENU_HOME);
     chord(&m); assert(!m.visible); chord(&m); assert(m.visible);

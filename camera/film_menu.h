@@ -4,10 +4,12 @@
 /* Portable control/state only. The camera adapter must supply a verified native
  * display transaction and input handoff; this module never writes camera RAM. */
 struct film_settings { int enabled, stock, grain, halation; };
-enum film_menu_page { FILM_MENU_HOME, FILM_MENU_STOCKS, FILM_MENU_STOCKS_P2, FILM_MENU_DETAILS };
+enum film_menu_page { FILM_MENU_HOME, FILM_MENU_STOCKS, FILM_MENU_STOCKS_P2, FILM_MENU_DETAILS, FILM_MENU_V4 };
 enum film_menu_change {
     FILM_MENU_REDRAW = 1, FILM_MENU_OPENED = 2, FILM_MENU_CLOSED = 4,
-    FILM_MENU_SETTINGS_CHANGED = 8, FILM_MENU_SOUND_TOGGLED = 16, FILM_MENU_HIRES_TOGGLED = 32
+    FILM_MENU_SETTINGS_CHANGED = 8, FILM_MENU_SOUND_TOGGLED = 16, FILM_MENU_HIRES_TOGGLED = 32,
+    FILM_MENU_POPUP_TOGGLED = 64, FILM_MENU_ALBUM_TOGGLED = 128,
+    FILM_MENU_TOUCH_TOGGLED = 256, FILM_MENU_ALBUM_BROWSE = 512
 };
 struct film_menu {
     struct film_settings settings;

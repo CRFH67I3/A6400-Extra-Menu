@@ -78,9 +78,7 @@ int film_menu_hit(int page, int x, int y) {
             if (y >= 98 && y < 158) return 0;
             if (y >= 168 && y < 228) return 1;
             if (y >= 238 && y < 298) return 4;
-#ifdef A6400_CHARO_SHUTTER
             if (y >= 308 && y < 368) return 3;
-#endif
         }
         if (x >= 76 && x < 340 && y >= 386 && y < 428) return 7;
         if (x >= 404 && x < 564 && y >= 386 && y < 428) return 2;
@@ -92,6 +90,18 @@ int film_menu_hit(int page, int x, int y) {
             if (y >= 198 && y < 274) return 1;
             if (y >= 290 && y < 366) return 2;
         }
+        if (x >= 76 && x < 340 && y >= 386 && y < 428) return 6;
+        if (x >= 404 && x < 564 && y >= 386 && y < 428) return 5;
+        return -1;
+    }
+    if (page == FILM_MENU_V4) {
+        if (x >= 76 && x < 564) {
+            if (y >= 98 && y < 154) return 0;
+            if (y >= 162 && y < 218) return 1;
+            if (y >= 226 && y < 282) return 2;
+            if (y >= 290 && y < 346) return 3;
+        }
+        if (x >= 76 && x < 260 && y >= 386 && y < 428) return 6;
         if (x >= 404 && x < 564 && y >= 386 && y < 428) return 5;
         return -1;
     }
@@ -124,9 +134,11 @@ static unsigned activate(struct film_menu *m, int row) {
             return film_menu_close(m);
         } else if (row == 7) {
             change |= FILM_MENU_HIRES_TOGGLED;
-#ifdef A6400_CHARO_SHUTTER
         } else if (row == 3) {
+#ifdef A6400_CHARO_SHUTTER
             change |= FILM_MENU_SOUND_TOGGLED;
+#else
+            m->page = FILM_MENU_V4;
 #endif
         }
     } else if (m->page == FILM_MENU_DETAILS) {
@@ -142,9 +154,18 @@ static unsigned activate(struct film_menu *m, int row) {
                 m->settings.halation = 1;
                 change |= FILM_MENU_SETTINGS_CHANGED;
             }
+        } else if (row == 6) {
+            m->page = FILM_MENU_V4;
         } else if (row == 5) {
             m->page = FILM_MENU_HOME;
         }
+    } else if (m->page == FILM_MENU_V4) {
+        if (row == 0) change |= FILM_MENU_POPUP_TOGGLED;
+        else if (row == 1) change |= FILM_MENU_ALBUM_TOGGLED;
+        else if (row == 2) change |= FILM_MENU_TOUCH_TOGGLED;
+        else if (row == 3) change |= FILM_MENU_ALBUM_BROWSE;
+        else if (row == 6) m->page = FILM_MENU_DETAILS;
+        else if (row == 5) m->page = FILM_MENU_HOME;
     } else if (row == 5) {
         m->page = FILM_MENU_HOME;
     } else if (row == 6) {

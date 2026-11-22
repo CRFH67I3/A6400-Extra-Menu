@@ -18,7 +18,7 @@ static void draw(void *p,const struct film_menu *m) {
         assert(used>=0);
         if(used)assert((x==76 && w==488 && y>=98 && y+h<=380) ||
                        (x==404 && w==160 && y==386 && h==42) ||
-                       (x==76 && w==160 && y==386 && h==42));
+                       (x==76 && (w==160 || w==184 || w==264) && y==386 && h==42));
         strcpy(labels[i],used?text:"");
     }
 }
@@ -76,6 +76,13 @@ int main(void) {
     tap(&v,120,230);assert(v.menu.settings.halation==0 && persistence==6 && saved.halation==0);
     assert(!strcmp(labels[1],"底片光暈: 關閉 (加速)"));
     tap(&v,120,320);assert(v.menu.settings.grain==2 && v.menu.settings.halation==1 && persistence==7);
+    tap(&v,160,405);assert(v.menu.page==FILM_MENU_V4);
+    assert(!strcmp(labels[0],"即時預覽小窗: 開啟"));
+    assert(!strcmp(labels[1],"機內相冊預覽: 開啟"));
+    assert(!strcmp(labels[2],"原生MENU觸控: 開啟"));
+    tap(&v,120,405);assert(v.menu.page==FILM_MENU_DETAILS);
+    tap(&v,480,405);assert(v.menu.page==FILM_MENU_HOME);
+    tap(&v,120,338);assert(v.menu.page==FILM_MENU_V4);
     tap(&v,480,405);assert(v.menu.page==FILM_MENU_HOME);
     tap(&v,480,405);assert(!visible && !v.menu.visible);
     chord(&v);assert(visible);

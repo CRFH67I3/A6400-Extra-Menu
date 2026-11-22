@@ -280,20 +280,31 @@ int main(int argc,char **argv) {
     }
 #endif
     int preset=argc>=2?preset_index(argv[1]):-1,grain=2,halo=1,hires=0;
-    if(argc>=6) {
-        grain=strlen(argv[4])==1?argv[4][0]-'0':-1;
-        halo=strlen(argv[5])==1?argv[5][0]-'0':-1;
+    const char *preview_path=NULL;
+    int argi=4, bad_args=0;
+    if(argc<4) bad_args=1;
+    else {
+        if(argi+1<argc && strlen(argv[argi])==1 && argv[argi][0]>='0' && argv[argi][0]<='3' &&
+           strlen(argv[argi+1])==1 && (argv[argi+1][0]=='0' || argv[argi+1][0]=='1')) {
+            grain=argv[argi][0]-'0';
+            halo=argv[argi+1][0]-'0';
+            argi+=2;
+        }
+        while(argi<argc) {
+            if(!strcmp(argv[argi],"--hires") && !hires) { hires=1; ++argi; }
+            else if(!strcmp(argv[argi],"--ultra12m") && !hires) { hires=2; ++argi; }
+            else if(!strcmp(argv[argi],"--preview") && !preview_path && argi+1<argc) {
+                preview_path=argv[argi+1]; argi+=2;
+            } else { bad_args=1; break; }
+        }
     }
-    if(argc==5 && !strcmp(argv[4],"--hires")) hires=1;
-    if(argc==7 && !strcmp(argv[6],"--hires")) hires=1;
-    if((argc!=4 && argc!=5 && argc!=6 && argc!=7)||
-       (argc==5 && !hires)||(argc==7 && !hires)||
-       preset<0||grain<0||grain>3||halo<0||halo>1) {
-        printf("usage: film_jpeg PRESET INPUT NEW_OUTPUT [GRAIN_0_TO_3 HALATION_0_OR_1] [--hires]\n");return 1;
+    if(bad_args||preset<0||grain<0||grain>3||halo<0||halo>1) {
+        printf("usage: film_jpeg PRESET INPUT NEW_OUTPUT [GRAIN_0_TO_3 HALATION_0_OR_1] [--hires|--ultra12m] [--preview PATH]\n");return 1;
     }
     if(!strcmp(argv[2],argv[3])) return 1;
 #ifndef A6400_FILM_HOST
-    if(!film_input_path(argv[2]) || !film_output_path(argv[3])) {
+    if(!film_input_path(argv[2]) || !film_output_path(argv[3]) ||
+       (preview_path && !film_preview_path(preview_path))) {
         printf("FILM_ERROR path_policy\n");return 1;
     }
 #endif
@@ -304,8 +315,9 @@ int main(int argc,char **argv) {
         sys_close(fd);printf("FILM_ERROR input_markers_or_size\n");return 3;
     }
 #ifdef A6400_FILM_JOB
-    int result=render_author_fast(fd,argv[3],preset,grain,halo,metadata,(unsigned)metadata_size,hires);
+    int result=render_author_fast(fd,argv[3],preset,grain,halo,metadata,(unsigned)metadata_size,hires,preview_path);
 #else
+    (void)preview_path;
     int result=render(fd,argv[3],preset,grain,halo,metadata,(unsigned)metadata_size);
 #endif
     sys_close(fd);return result;

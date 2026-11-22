@@ -54,12 +54,13 @@ if [ -f "$ROOT/assets/a6400-charo-shutter.pcm" ]; then
     fi
 fi
 
-echo "[2/9] Building persistent V3.9 SSLF UI (charo=$CHARO_ENABLE multi=$CHARO_MULTI)..."
+echo "[2/9] Building persistent V4.0 UI (charo=$CHARO_ENABLE multi=$CHARO_MULTI sc=${A6400_UI_LANG_SC:-0})..."
 rm -rf "$OUT/ui"
 A6400_TRIAL_MS=0 \
 A6400_DISPLAY_MS=20000 \
 A6400_CHARO_SHUTTER="$CHARO_ENABLE" \
 A6400_CHARO_MULTI="$CHARO_MULTI" \
+A6400_UI_LANG_SC="${A6400_UI_LANG_SC:-0}" \
 UI_MODULE_PATH=/tmp_bt/a6400-film-ui-v3-persist.so \
     sh "$ROOT/host-tests/build_ui_trial3.sh" "$OUT/ui" "$LIBS"
 
@@ -88,10 +89,11 @@ FILM_SETTINGS_PERSISTENT=1 \
 UI_MODULE_PATH=/tmp_bt/a6400-film-ui-v3-persist.so \
     sh "$ROOT/host-tests/build_film_menu_job_cli.sh" "$OUT/menu" "$LIBS" "$OUT/ui"
 
-echo "[4/9] Building UI stop CLI..."
-rm -rf "$OUT/ui-stop"
+echo "[4/9] Building UI stop CLI and V4.0 OSD preview helper..."
+rm -rf "$OUT/ui-stop" "$OUT/preview"
 UI_MODULE_PATH=/tmp_bt/a6400-film-ui-v3-persist.so \
     sh "$ROOT/host-tests/build_film_ui_stop_cli.sh" "$OUT/ui-stop" "$LIBS" "$OUT/ui"
+sh "$ROOT/host-tests/build_film_preview_osd.sh" "$OUT/preview" "$LIBS" "$OUT/ui"
 
 echo "[5/9] Building native command bridge..."
 rm -rf "$OUT/native"
@@ -151,6 +153,7 @@ PY
 echo "[8/9] Building persistent capture daemon..."
 rm -rf "$OUT/daemon"
 FILM_CAPTURE_PERSISTENT=1 \
+A6400_UI_LANG_SC="${A6400_UI_LANG_SC:-0}" \
 FILM_UI_DIR="$OUT/ui" \
     sh "$ROOT/host-tests/build_film_capture_daemon.sh" \
     "$OUT/daemon" "$LIBS" "$OUT/a6400-film-ram-job.sh" "$OUT/menu/a6400-film-menu-job.elf"
@@ -172,6 +175,7 @@ items = [
     ('install', out / 'guard/install-persist.req', 'a6400-install-persist.req'),
     ('remove', out / 'guard/remove-persist.req', 'a6400-remove-persist.req'),
     ('ui_stop', out / 'ui-stop/a6400-film-ui-stop.elf', 'a6400-film-ui-stop.elf'),
+    ('preview', out / 'preview/a6400-film-preview.elf', 'a6400-film-preview.elf'),
     ('capture_daemon', out / 'daemon/a6400-film-capture-daemon.elf', 'a6400-film-capture-daemon.elf'),
 ]
 spec = {

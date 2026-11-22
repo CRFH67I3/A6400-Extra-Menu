@@ -277,7 +277,7 @@ call :run_python_deployer
 set "DEPLOY_RC=!errorlevel!"
 
 if "!DEPLOY_RC!"=="1" (
-    echo [*] Camera switched to Service Mode (054c:0336), re-attaching and retrying...
+    echo [*] Camera switched to Service Mode [054c:0336], re-attaching and retrying...
     ping -n 4 127.0.0.1 >nul
     call :attach_sony_once
     ping -n 2 127.0.0.1 >nul

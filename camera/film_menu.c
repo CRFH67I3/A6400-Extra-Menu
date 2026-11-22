@@ -73,44 +73,60 @@ unsigned film_menu_input(struct film_menu *m, unsigned now, int menu, int zoom, 
     return FILM_MENU_OPENED | FILM_MENU_REDRAW;
 }
 int film_menu_hit(int page, int x, int y) {
-    if (page == FILM_MENU_HOME) {
-        if (x >= 76 && x < 564) {
-            if (y >= 98 && y < 158) return 0;
-            if (y >= 168 && y < 228) return 1;
-            if (y >= 238 && y < 298) return 4;
-            if (y >= 308 && y < 368) return 3;
-        }
-        if (x >= 76 && x < 340 && y >= 386 && y < 428) return 7;
-        if (x >= 404 && x < 564 && y >= 386 && y < 428) return 2;
+    /* Persistent Hasselblad Swiss top 4-tab bar + top-right close button. */
+    if (y >= 28 && y < 66) {
+        if (x >= 42 && x < 150) return FILM_HIT_TAB_HOME;
+        if (x >= 156 && x < 264) return FILM_HIT_TAB_STOCKS;
+        if (x >= 270 && x < 378) return FILM_HIT_TAB_DETAILS;
+        if (x >= 384 && x < 492) return FILM_HIT_TAB_V4;
+        if (x >= 506 && x < 596) return FILM_HIT_CLOSE;
         return -1;
     }
+    /* Persistent bottom-right quick graded album action button. */
+    if (x >= 420 && x < 596 && y >= 411 && y < 449) {
+        return FILM_HIT_ALBUM_QUICK;
+    }
+    if (page == FILM_MENU_HOME) {
+        /* 3x2 Hasselblad precision cell grid. */
+        int col = (x >= 40 && x < 218) ? 0 :
+                  ((x >= 231 && x < 409) ? 1 :
+                  ((x >= 423 && x < 601) ? 2 : -1));
+        int row = (y >= 82 && y < 230) ? 0 :
+                  ((y >= 245 && y < 393) ? 1 : -1);
+        if (col < 0 || row < 0) return -1;
+        static const int home_map[2][3] = {
+            {0, 1, 7},
+            {4, 3, FILM_HIT_TAB_V4}
+        };
+        return home_map[row][col];
+    }
+    if (page == FILM_MENU_STOCKS || page == FILM_MENU_STOCKS_P2) {
+        /* Single-page 2x5 10-film Swiss palette matrix. */
+        int col = (x >= 42 && x < 312) ? 0 : ((x >= 328 && x < 598) ? 1 : -1);
+        if (col < 0 || y < 84 || y >= 84 + 5 * 63) return -1;
+        int dy = y - 84;
+        if (dy % 63 >= 55) return -1;
+        int row = dy / 63;
+        return FILM_HIT_STOCK_BASE + row * 2 + col;
+    }
     if (page == FILM_MENU_DETAILS) {
-        if (x >= 76 && x < 564) {
-            if (y >= 106 && y < 182) return 0;
-            if (y >= 198 && y < 274) return 1;
-            if (y >= 290 && y < 366) return 2;
+        if (x >= 42 && x < 598) {
+            if (y >= 88 && y < 180) return 0;
+            if (y >= 192 && y < 284) return 1;
+            if (y >= 296 && y < 388) return 5;
         }
-        if (x >= 76 && x < 340 && y >= 386 && y < 428) return 6;
-        if (x >= 404 && x < 564 && y >= 386 && y < 428) return 5;
         return -1;
     }
     if (page == FILM_MENU_V4) {
-        if (x >= 76 && x < 564) {
-            if (y >= 98 && y < 154) return 0;
-            if (y >= 162 && y < 218) return 1;
-            if (y >= 226 && y < 282) return 2;
-            if (y >= 290 && y < 346) return 3;
-        }
-        if (x >= 76 && x < 260 && y >= 386 && y < 428) return 6;
-        if (x >= 404 && x < 564 && y >= 386 && y < 428) return 5;
-        return -1;
-    }
-    if (x >= 76 && x < 564 && y >= 98 && y < 98 + 5 * 54) {
-        return (y - 98) % 54 < 46 ? (y - 98) / 54 : -1;
-    }
-    if (y >= 386 && y < 428) {
-        if (x >= 404 && x < 564) return 5;
-        if (x >= 76 && x < 236) return 6;
+        /* 2x2 Hasselblad V4 control grid. */
+        int col = (x >= 42 && x < 312) ? 0 : ((x >= 328 && x < 598) ? 1 : -1);
+        int row = (y >= 82 && y < 230) ? 0 : ((y >= 245 && y < 393) ? 1 : -1);
+        if (col < 0 || row < 0) return -1;
+        static const int v4_map[2][2] = {
+            {0, 1},
+            {3, 4}
+        };
+        return v4_map[row][col];
     }
     return -1;
 }
@@ -122,16 +138,20 @@ int film_menu_set_stock(struct film_menu *m, int stock) {
 }
 static unsigned activate(struct film_menu *m, int row) {
     unsigned change = FILM_MENU_REDRAW;
+    if (row == FILM_HIT_CLOSE) return film_menu_close(m);
+    if (row == FILM_HIT_TAB_HOME) { m->page = FILM_MENU_HOME; return change; }
+    if (row == FILM_HIT_TAB_STOCKS) { m->page = FILM_MENU_STOCKS; return change; }
+    if (row == FILM_HIT_TAB_DETAILS) { m->page = FILM_MENU_DETAILS; return change; }
+    if (row == FILM_HIT_TAB_V4) { m->page = FILM_MENU_V4; return change; }
+    if (row == FILM_HIT_ALBUM_QUICK) return change | FILM_MENU_ALBUM_BROWSE;
     if (m->page == FILM_MENU_HOME) {
         if (row == 0) {
             m->settings.enabled ^= 1;
             change |= FILM_MENU_SETTINGS_CHANGED;
         } else if (row == 1) {
-            m->page = m->settings.stock >= 5 ? FILM_MENU_STOCKS_P2 : FILM_MENU_STOCKS;
+            m->page = FILM_MENU_STOCKS;
         } else if (row == 4) {
             m->page = FILM_MENU_DETAILS;
-        } else if (row == 2) {
-            return film_menu_close(m);
         } else if (row == 7) {
             change |= FILM_MENU_HIRES_TOGGLED;
         } else if (row == 3) {
@@ -148,30 +168,20 @@ static unsigned activate(struct film_menu *m, int row) {
         } else if (row == 1) {
             m->settings.halation ^= 1;
             change |= FILM_MENU_SETTINGS_CHANGED;
-        } else if (row == 2) {
+        } else if (row == 5) {
             if (m->settings.grain != 2 || m->settings.halation != 1) {
                 m->settings.grain = 2;
                 m->settings.halation = 1;
                 change |= FILM_MENU_SETTINGS_CHANGED;
             }
-        } else if (row == 6) {
-            m->page = FILM_MENU_V4;
-        } else if (row == 5) {
-            m->page = FILM_MENU_HOME;
         }
     } else if (m->page == FILM_MENU_V4) {
         if (row == 0) change |= FILM_MENU_POPUP_TOGGLED;
         else if (row == 1) change |= FILM_MENU_ALBUM_TOGGLED;
-        else if (row == 2) change |= FILM_MENU_TOUCH_TOGGLED;
-        else if (row == 3) change |= FILM_MENU_ALBUM_BROWSE;
-        else if (row == 6) m->page = FILM_MENU_DETAILS;
-        else if (row == 5) m->page = FILM_MENU_HOME;
-    } else if (row == 5) {
-        m->page = FILM_MENU_HOME;
-    } else if (row == 6) {
-        m->page = m->page == FILM_MENU_STOCKS ? FILM_MENU_STOCKS_P2 : FILM_MENU_STOCKS;
-    } else if (row >= 0 && row < 5) {
-        int stock = (m->page == FILM_MENU_STOCKS_P2 ? 5 : 0) + row;
+        else if (row == 3) change |= FILM_MENU_TOUCH_TOGGLED;
+        else if (row == 4) change |= FILM_MENU_ALBUM_BROWSE;
+    } else if (row >= FILM_HIT_STOCK_BASE && row < FILM_HIT_STOCK_BASE + 10) {
+        int stock = row - FILM_HIT_STOCK_BASE;
         change |= (unsigned)film_menu_set_stock(m, stock);
         m->page = FILM_MENU_HOME;
     }

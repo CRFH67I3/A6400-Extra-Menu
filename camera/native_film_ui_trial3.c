@@ -89,9 +89,16 @@ typedef uint32_t (*pb_base_fn)(void);
 #ifdef A6400_UI_LANG_SC
 #define UI_S_ON                 "开启"
 #define UI_S_OFF                "关闭"
-#define UI_S_QUAL_12M           "画质: 12MP 超清"
-#define UI_S_QUAL_6M            "画质: 6MP 高清"
-#define UI_S_QUAL_1M7           "画质: 1.7MP 极速"
+#define UI_S_TAB0               "01 总览"
+#define UI_S_TAB1               "02 胶片"
+#define UI_S_TAB2               "03 细节"
+#define UI_S_TAB3               "04 V4"
+#define UI_S_CLOSE_BTN          "✕ 关闭"
+#define UI_S_QUICK_ALBUM        "相册预览 (%u) →"
+#define UI_S_V4_CNT_FMT         "V4 (%u/3) >"
+#define UI_S_QUAL_12M           "12MP 超清"
+#define UI_S_QUAL_6M            "6MP 高清"
+#define UI_S_QUAL_1M7           "1.7MP 极速"
 #define UI_S_HDR_BUSY           "V4.0 | %s | 转档:%u 已转:%u"
 #define UI_S_HDR_IDLE           "V4.0 | %s | 已转:%u (%u/%u)"
 #define UI_S_HDR_INIT           "A6400 V4.0 | %s"
@@ -99,7 +106,7 @@ typedef uint32_t (*pb_base_fn)(void);
 #define UI_S_POPUP_FMT          "即时预览小窗: %s"
 #define UI_S_ALBUM_FMT          "机内相册预览: %s"
 #define UI_S_TOUCH_FMT          "原生MENU触控: %s"
-#define UI_S_TOUCH_UNSUP        "此机型不支持"
+#define UI_S_TOUCH_UNSUP        "不支持"
 #define UI_S_BROWSE_FMT         "浏览套色相册 (%u张)"
 #define UI_S_ALB_LUT_TOP        "[LUT相册] %s"
 #define UI_S_ALB_LUT_DEF        "已套滤镜"
@@ -117,9 +124,16 @@ typedef uint32_t (*pb_base_fn)(void);
 #else
 #define UI_S_ON                 "開啟"
 #define UI_S_OFF                "關閉"
-#define UI_S_QUAL_12M           "畫質: 12MP 超清"
-#define UI_S_QUAL_6M            "畫質: 6MP 高清"
-#define UI_S_QUAL_1M7           "畫質: 1.7MP 極速"
+#define UI_S_TAB0               "01 總覽"
+#define UI_S_TAB1               "02 膠片"
+#define UI_S_TAB2               "03 細節"
+#define UI_S_TAB3               "04 V4"
+#define UI_S_CLOSE_BTN          "✕ 關閉"
+#define UI_S_QUICK_ALBUM        "相冊預覽 (%u) →"
+#define UI_S_V4_CNT_FMT         "V4 (%u/3) >"
+#define UI_S_QUAL_12M           "12MP 超清"
+#define UI_S_QUAL_6M            "6MP 高清"
+#define UI_S_QUAL_1M7           "1.7MP 極速"
 #define UI_S_HDR_BUSY           "V4.0 | %s | 轉檔:%u 已轉:%u"
 #define UI_S_HDR_IDLE           "V4.0 | %s | 已轉:%u (%u/%u)"
 #define UI_S_HDR_INIT           "A6400 V4.0 | %s"
@@ -127,7 +141,7 @@ typedef uint32_t (*pb_base_fn)(void);
 #define UI_S_POPUP_FMT          "即時預覽小窗: %s"
 #define UI_S_ALBUM_FMT          "機內相冊預覽: %s"
 #define UI_S_TOUCH_FMT          "原生MENU觸控: %s"
-#define UI_S_TOUCH_UNSUP        "此機型不支援"
+#define UI_S_TOUCH_UNSUP        "不支援"
 #define UI_S_BROWSE_FMT         "瀏覽套色相冊 (%u張)"
 #define UI_S_ALB_LUT_TOP        "[LUT相冊] %s"
 #define UI_S_ALB_LUT_DEF        "已套濾鏡"
@@ -174,23 +188,23 @@ static int charo_sound_id(int mode) {
 static const char *charo_mode_label(int mode,int custom) {
 #ifdef A6400_UI_LANG_SC
 #if defined(A6400_CHARO_MULTI) && A6400_CHARO_MULTI
-    if(mode==1)return "快门声: 日文 Charo";
-    if(mode==2)return custom?"快门声: SD自定义":"快门声: Bling Bling";
-    if(mode==3)return "快门声: iPhone 快门";
-    return "快门声: 关闭";
+    if(mode==1)return "日文 Charo";
+    if(mode==2)return custom?"SD自定义":"Bling Bling";
+    if(mode==3)return "iPhone 快门";
+    return "静音";
 #else
-    if(!mode)return "快门声: 关闭";
-    return custom?"快门声: Charo (SD自定义)":"快门声: Charo (开启)";
+    if(!mode)return "静音";
+    return custom?"Charo (SD)":"Charo (开启)";
 #endif
 #else
 #if defined(A6400_CHARO_MULTI) && A6400_CHARO_MULTI
-    if(mode==1)return "快門聲: 日文 Charo";
-    if(mode==2)return custom?"快門聲: SD自訂":"快門聲: Bling Bling";
-    if(mode==3)return "快門聲: iPhone 快門";
-    return "快門聲: 關閉";
+    if(mode==1)return "日文 Charo";
+    if(mode==2)return custom?"SD自訂":"Bling Bling";
+    if(mode==3)return "iPhone 快門";
+    return "靜音";
 #else
-    if(!mode)return "快門聲: 關閉";
-    return custom?"快門聲: Charo (SD自訂)":"快門聲: Charo (開啟)";
+    if(!mode)return "靜音";
+    return custom?"Charo (SD)":"Charo (開啟)";
 #endif
 #endif
 }
@@ -306,7 +320,15 @@ static struct {
 /* Decorative theme panels kept outside `ui` so the 1120-byte snapshot ABI stays exact. */
 static struct {
     void *card_border, *card_panel, *header_accent, *header_divider, *page_btn;
+    void *footer_divider, *status_dot, *page_btn_accent;
+    void *grid_h, *grid_v1, *grid_v2, *grid_vc;
+    void *tab_bg[4], *tab_bar[4], *tab_lbl[4];
+    void *close_bg, *close_lbl;
     void *row_accents[6];
+    void *extra_panels[4], *extra_accents[4], *extra_labels[4];
+    void *sub_labels[6];
+    void *chips[10][3];
+    char extra_texts[4][48];
     uint32_t status_seq;
 #ifdef A6400_CHARO_SHUTTER
     beep_play_fn beep_play;
@@ -383,38 +405,166 @@ static __attribute__((noinline)) int resolve(void) {
     return 0;
 }
 static void place(void *widget,int label,int x,int y,int w,int h) {
+    if(!widget)return;
     const float xy[2]={(float)x,(float)y};
     ui.set_position(widget,xy);
     (label?ui.label_size:ui.panel_size)(widget,(float)w,(float)h);
 }
-static void show_menu_chrome(void) {
-    static const unsigned char background[4]={8,10,14,148};
-    static const unsigned char card_border[4]={84,92,106,224};
-    static const unsigned char card_panel[4]={18,22,29,230};
-    static const unsigned char header_accent[4]={234,106,28,255};
-    static const unsigned char header_divider[4]={58,66,78,200};
-    place(ui.background,0,0,0,640,480);ui.set_color(ui.background,background);
-    place(ui_theme.card_border,0,54,34,532,412);ui.set_color(ui_theme.card_border,card_border);
-    place(ui_theme.card_panel,0,56,36,528,408);ui.set_color(ui_theme.card_panel,card_panel);
-    place(ui_theme.header_accent,0,56,36,528,4);ui.set_color(ui_theme.header_accent,header_accent);
-    place(ui_theme.header_divider,0,76,86,488,1);ui.set_color(ui_theme.header_divider,header_divider);
+static void paint(void *panel,const unsigned char *c) {
+    if(panel)ui.set_color(panel,c);
+}
+static void write_lbl(void *label,const char *s) {
+    if(label)ui.set_text(label,s);
+}
+static void *tile_panel(unsigned i) { return i<6u?ui.panels[i]:(i<10u?ui_theme.extra_panels[i-6u]:0); }
+static void *tile_accent(unsigned i) { return i<6u?ui_theme.row_accents[i]:(i<10u?ui_theme.extra_accents[i-6u]:0); }
+static void *tile_label(unsigned i) { return i<6u?ui.labels[i+1u]:(i<10u?ui_theme.extra_labels[i-6u]:0); }
+static char *tile_text_buf(unsigned i,unsigned *cap) {
+    if(i<6u){*cap=(unsigned)sizeof(ui.texts[0]);return ui.texts[i+1u];}
+    *cap=(unsigned)sizeof(ui_theme.extra_texts[0]);return ui_theme.extra_texts[i-6u];
+}
+/* Signature 3-color RGBA palette triads for all 10 built-in film stocks. */
+static const unsigned char stock_palettes[10][3][4] = {
+    { {236,186,134,255}, {214,148,128,255}, {156,166,132,255} }, /* 0 Portra 400 */
+    { {232, 68, 56,255}, { 72,184,198,255}, { 44, 68,122,255} }, /* 1 CineStill 800T */
+    { { 56,168,124,255}, { 78,152,214,255}, {226,178, 92,255} }, /* 2 Fuji Provia */
+    { {242,192, 58,255}, {214,118, 64,255}, {156,108, 72,255} }, /* 3 Kodak Gold */
+    { {236,236,234,255}, {124,124,128,255}, { 44, 44, 48,255} }, /* 4 Tri-X 400 */
+    { { 88,134,136,255}, {184,132, 86,255}, { 62, 74, 86,255} }, /* 5 Classic Chrome */
+    { {228, 66, 86,255}, { 58,118,224,255}, {238,184, 48,255} }, /* 6 Agfa Ultra 100 */
+    { {228,214,184,255}, {118,168,162,255}, {146,114, 96,255} }, /* 7 Polaroid 669 */
+    { {244,246,248,255}, {148,154,162,255}, { 52, 56, 62,255} }, /* 8 Fuji Acros */
+    { {226,174, 94,255}, {136,184,166,255}, {118, 86,112,255} }, /* 9 Polaroid PX680+ */
+};
+static void clear_chips(unsigned slot) {
+    static const unsigned char clear_c[4]={0,0,0,0};
+    if(slot>=10u)return;
+    for(unsigned k=0;k<3u;k++){
+        place(ui_theme.chips[slot][k],0,0,0,0,0);
+        paint(ui_theme.chips[slot][k],clear_c);
+    }
+}
+static void draw_swiss_toggle(unsigned slot,int x,int y,int on,const unsigned char *on_c) {
+    static const unsigned char track_off[4]={44,48,54,255};
+    static const unsigned char knob_on[4]={250,252,255,255};
+    static const unsigned char knob_off[4]={148,154,164,255};
+    static const unsigned char clear_c[4]={0,0,0,0};
+    if(slot>=10u)return;
+    place(ui_theme.chips[slot][0],0,x,y,52,26);
+    paint(ui_theme.chips[slot][0],on?on_c:track_off);
+    place(ui_theme.chips[slot][1],0,on?(x+29):(x+3),y+3,20,20);
+    paint(ui_theme.chips[slot][1],on?knob_on:knob_off);
+    place(ui_theme.chips[slot][2],0,0,0,0,0);
+    paint(ui_theme.chips[slot][2],clear_c);
+}
+static void draw_swiss_bar3(unsigned slot,int x,int y,int w_each,int h,int gap,int level,const unsigned char *lit_c) {
+    static const unsigned char dim_c[4]={42,45,52,240};
+    if(slot>=10u)return;
+    for(unsigned k=0;k<3u;k++){
+        place(ui_theme.chips[slot][k],0,x+(int)k*(w_each+gap),y,w_each,h);
+        paint(ui_theme.chips[slot][k],((int)k<level)?lit_c:dim_c);
+    }
+}
+static void draw_film_swatch(unsigned slot,int x,int y,int stock,int horiz_strip) {
+    if(slot>=10u)return;
+    if(stock<0 || stock>=10)stock=0;
+    for(unsigned k=0;k<3u;k++){
+        if(horiz_strip)place(ui_theme.chips[slot][k],0,x+(int)k*52,y,48,8);
+        else place(ui_theme.chips[slot][k],0,x+(int)k*10,y,8,31);
+        paint(ui_theme.chips[slot][k],stock_palettes[stock][k]);
+    }
+}
+static void draw_v4_segments(unsigned slot,int x,int y) {
+    static const unsigned char c_orange[4]={245,86,18,255};
+    static const unsigned char c_white[4]={232,236,242,255};
+    static const unsigned char c_sky[4]={76,186,238,255};
+    static const unsigned char c_off[4]={42,45,52,240};
+    if(slot>=10u)return;
+    place(ui_theme.chips[slot][0],0,x,y,48,8);
+    paint(ui_theme.chips[slot][0],a6400_ui_v4_v1.preview_popup_en?c_orange:c_off);
+    place(ui_theme.chips[slot][1],0,x+52,y,48,8);
+    paint(ui_theme.chips[slot][1],a6400_ui_v4_v1.album_preview_en?c_white:c_off);
+    place(ui_theme.chips[slot][2],0,x+104,y,48,8);
+    paint(ui_theme.chips[slot][2],(a6400_ui_v4_v1.native_touch_ok && a6400_ui_v4_v1.native_touch_en)?c_sky:c_off);
+}
+static void draw_gallery_icon(unsigned slot,int x,int y,int has_photos) {
+    static const unsigned char back_c[4]={98,104,114,235};
+    static const unsigned char frame_on[4]={250,252,255,255};
+    static const unsigned char frame_off[4]={74,78,88,235};
+    static const unsigned char inner_on[4]={232,76,16,255};
+    static const unsigned char inner_off[4]={18,20,24,255};
+    if(slot>=10u)return;
+    place(ui_theme.chips[slot][0],0,x+8,y,34,24);
+    paint(ui_theme.chips[slot][0],back_c);
+    place(ui_theme.chips[slot][1],0,x,y+6,34,24);
+    paint(ui_theme.chips[slot][1],has_photos?frame_on:frame_off);
+    place(ui_theme.chips[slot][2],0,x+3,y+9,28,18);
+    paint(ui_theme.chips[slot][2],has_photos?inner_on:inner_off);
+}
+static void show_menu_chrome(int page) {
+    static const unsigned char background[4]={0,0,0,152};
+    static const unsigned char swiss_border[4]={218,222,228,222};
+    static const unsigned char swiss_bg[4]={14,15,18,246};
+    static const unsigned char hairline_main[4]={84,90,100,220};
+    static const unsigned char hairline_grid[4]={54,58,66,220};
+    static const unsigned char clear_c[4]={0,0,0,0};
+    place(ui.background,0,0,0,640,480);paint(ui.background,background);
+    place(ui_theme.card_border,0,32,20,576,440);paint(ui_theme.card_border,swiss_border);
+    place(ui_theme.card_panel,0,33,21,574,438);paint(ui_theme.card_panel,swiss_bg);
+    place(ui_theme.header_accent,0,0,0,0,0);paint(ui_theme.header_accent,clear_c);
+    place(ui_theme.header_divider,0,33,74,574,1);paint(ui_theme.header_divider,hairline_main);
+    place(ui_theme.footer_divider,0,33,402,574,1);paint(ui_theme.footer_divider,hairline_main);
+    int is_home=(page==FILM_MENU_HOME);
+    int is_stocks=(page==FILM_MENU_STOCKS || page==FILM_MENU_STOCKS_P2);
+    int is_v4=(page==FILM_MENU_V4);
+    place(ui_theme.grid_h,0,(is_home||is_v4)?33:0,(is_home||is_v4)?238:0,(is_home||is_v4)?574:0,(is_home||is_v4)?1:0);
+    paint(ui_theme.grid_h,(is_home||is_v4)?hairline_grid:clear_c);
+    place(ui_theme.grid_v1,0,is_home?224:0,is_home?75:0,is_home?1:0,is_home?327:0);
+    paint(ui_theme.grid_v1,is_home?hairline_grid:clear_c);
+    place(ui_theme.grid_v2,0,is_home?416:0,is_home?75:0,is_home?1:0,is_home?327:0);
+    paint(ui_theme.grid_v2,is_home?hairline_grid:clear_c);
+    place(ui_theme.grid_vc,0,(is_stocks||is_v4)?320:0,(is_stocks||is_v4)?75:0,(is_stocks||is_v4)?1:0,(is_stocks||is_v4)?327:0);
+    paint(ui_theme.grid_vc,(is_stocks||is_v4)?hairline_grid:clear_c);
 }
 static void hide_menu_widgets(void) {
     static const unsigned char clear_c[4]={0,0,0,0};
-    place(ui.background,0,0,0,0,0);ui.set_color(ui.background,clear_c);
-    place(ui_theme.card_border,0,0,0,0,0);ui.set_color(ui_theme.card_border,clear_c);
-    place(ui_theme.card_panel,0,0,0,0,0);ui.set_color(ui_theme.card_panel,clear_c);
-    place(ui_theme.header_accent,0,0,0,0,0);ui.set_color(ui_theme.header_accent,clear_c);
-    place(ui_theme.header_divider,0,0,0,0,0);ui.set_color(ui_theme.header_divider,clear_c);
-    place(ui_theme.page_btn,0,0,0,0,0);ui.set_color(ui_theme.page_btn,clear_c);
-    for(unsigned i=0;i<6;i++){
-        place(ui.panels[i],0,0,0,0,0);ui.set_color(ui.panels[i],clear_c);
-        place(ui_theme.row_accents[i],0,0,0,0,0);ui.set_color(ui_theme.row_accents[i],clear_c);
+    place(ui.background,0,0,0,0,0);paint(ui.background,clear_c);
+    place(ui_theme.card_border,0,0,0,0,0);paint(ui_theme.card_border,clear_c);
+    place(ui_theme.card_panel,0,0,0,0,0);paint(ui_theme.card_panel,clear_c);
+    place(ui_theme.header_accent,0,0,0,0,0);paint(ui_theme.header_accent,clear_c);
+    place(ui_theme.header_divider,0,0,0,0,0);paint(ui_theme.header_divider,clear_c);
+    place(ui_theme.footer_divider,0,0,0,0,0);paint(ui_theme.footer_divider,clear_c);
+    place(ui_theme.status_dot,0,0,0,0,0);paint(ui_theme.status_dot,clear_c);
+    place(ui_theme.page_btn,0,0,0,0,0);paint(ui_theme.page_btn,clear_c);
+    place(ui_theme.page_btn_accent,0,0,0,0,0);paint(ui_theme.page_btn_accent,clear_c);
+    place(ui_theme.grid_h,0,0,0,0,0);paint(ui_theme.grid_h,clear_c);
+    place(ui_theme.grid_v1,0,0,0,0,0);paint(ui_theme.grid_v1,clear_c);
+    place(ui_theme.grid_v2,0,0,0,0,0);paint(ui_theme.grid_v2,clear_c);
+    place(ui_theme.grid_vc,0,0,0,0,0);paint(ui_theme.grid_vc,clear_c);
+    place(ui_theme.close_bg,0,0,0,0,0);paint(ui_theme.close_bg,clear_c);
+    place(ui_theme.close_lbl,1,0,0,0,0);write_lbl(ui_theme.close_lbl,"");
+    for(unsigned t=0;t<4u;t++){
+        place(ui_theme.tab_bg[t],0,0,0,0,0);paint(ui_theme.tab_bg[t],clear_c);
+        place(ui_theme.tab_bar[t],0,0,0,0,0);paint(ui_theme.tab_bar[t],clear_c);
+        place(ui_theme.tab_lbl[t],1,0,0,0,0);write_lbl(ui_theme.tab_lbl[t],"");
     }
-    for(unsigned i=0;i<8;i++){
+    for(unsigned i=0;i<6u;i++){
+        place(ui_theme.sub_labels[i],1,0,0,0,0);write_lbl(ui_theme.sub_labels[i],"");
+    }
+    for(unsigned i=0;i<10u;i++){
+        place(tile_panel(i),0,0,0,0,0);paint(tile_panel(i),clear_c);
+        place(tile_accent(i),0,0,0,0,0);paint(tile_accent(i),clear_c);
+        clear_chips(i);
+    }
+    for(unsigned i=0;i<8u;i++){
         ui.texts[i][0]=0;
         place(ui.labels[i],1,0,0,0,0);
-        ui.set_text(ui.labels[i],ui.texts[i]);
+        write_lbl(ui.labels[i],ui.texts[i]);
+    }
+    for(unsigned i=0;i<4u;i++){
+        ui_theme.extra_texts[i][0]=0;
+        place(ui_theme.extra_labels[i],1,0,0,0,0);
+        write_lbl(ui_theme.extra_labels[i],ui_theme.extra_texts[i]);
     }
 }
 static void hide_toast_widgets(void) {
@@ -438,18 +588,18 @@ static void v4_dismiss_popup(void) {
     if(!ui_v4.album_mode)v4_publish_display(A6400_DISP_NONE,0u);
 }
 static void v4_draw_album_hud(const char *top_text,const char *bot_text,int show_lut) {
-    static const unsigned char bar_lut[4]={18,22,29,232};
-    static const unsigned char bar_orig[4]={38,44,54,224};
-    static const unsigned char accent_c[4]={234,140,42,255};
+    static const unsigned char bar_lut[4]={14,15,18,242};
+    static const unsigned char bar_orig[4]={32,34,40,236};
+    static const unsigned char accent_c[4]={245,86,18,255};
     hide_menu_widgets();
     hide_toast_widgets();
     ui_toast.visible=0;
     place(ui.panels[0],0,0,0,640,34);
-    ui.set_color(ui.panels[0],show_lut?bar_lut:bar_orig);
+    paint(ui.panels[0],show_lut?bar_lut:bar_orig);
     place(ui_theme.header_accent,0,0,34,640,2);
-    ui.set_color(ui_theme.header_accent,accent_c);
+    paint(ui_theme.header_accent,accent_c);
     place(ui.panels[1],0,0,444,640,36);
-    ui.set_color(ui.panels[1],bar_lut);
+    paint(ui.panels[1],bar_lut);
     snprintf(ui.texts[0],sizeof(ui.texts[0]),"%s",top_text?top_text:"");
     snprintf(ui.texts[7],sizeof(ui.texts[7]),"%s",bot_text?bot_text:"");
     place(ui.labels[0],1,14,3,612,28);
@@ -549,16 +699,46 @@ static void draw(void *unused,const struct film_menu *menu) {
     }
     hide_toast_widgets();
     ui_toast.visible=0;
-    show_menu_chrome();
-    place(ui.labels[0],1,76,48,488,34);
-    const unsigned char row_plain[4]={30,36,46,226};
-    const unsigned char row_active[4]={58,44,24,236};
-    const unsigned char row_pressed[4]={234,114,36,245};
-    const unsigned char pill_plain[4]={42,49,62,232};
-    const unsigned char pill_pressed[4]={92,104,122,248};
-    const unsigned char accent_orange[4]={234,140,42,255};
-    const unsigned char accent_gold[4]={212,162,58,220};
-    const unsigned char accent_muted[4]={68,76,90,200};
+    show_menu_chrome(menu->page);
+
+    static const unsigned char clear_c[4]={0,0,0,0};
+    static const unsigned char h_orange[4]={234,78,16,255};
+    static const unsigned char h_orange_bright[4]={250,96,24,255};
+    static const unsigned char h_ember[4]={42,20,12,248};
+    static const unsigned char h_cell[4]={22,24,28,248};
+    static const unsigned char h_tab_idle[4]={20,22,26,236};
+    static const unsigned char h_tab_active[4]={34,36,42,250};
+    static const unsigned char h_close_idle[4]={38,34,38,245};
+    static const unsigned char h_close_press[4]={216,52,44,255};
+    static const unsigned char h_white[4]={244,246,250,255};
+    static const unsigned char h_silver[4]={142,148,158,240};
+    static const unsigned char h_muted[4]={58,62,70,220};
+    static const unsigned char h_sky[4]={76,186,238,255};
+    static const unsigned char h_dock_idle[4]={26,28,34,248};
+    static const unsigned char h_dock_active[4]={46,24,14,250};
+
+    /* 1. Top Hasselblad Swiss 4-Tab Bar + Close Pill */
+    static const char *const tab_names[4]={UI_S_TAB0,UI_S_TAB1,UI_S_TAB2,UI_S_TAB3};
+    int cur_tab=(menu->page==FILM_MENU_STOCKS || menu->page==FILM_MENU_STOCKS_P2)?1:
+                (menu->page==FILM_MENU_DETAILS?2:(menu->page==FILM_MENU_V4?3:0));
+    for(unsigned t=0;t<4u;t++){
+        int tx=42+(int)t*114;
+        int hit_id=FILM_HIT_TAB_HOME+(int)t;
+        int is_cur=((int)t==cur_tab);
+        int is_sel=(menu->selected==hit_id);
+        place(ui_theme.tab_bg[t],0,tx,28,108,38);
+        paint(ui_theme.tab_bg[t],is_sel?h_orange:(is_cur?h_tab_active:h_tab_idle));
+        place(ui_theme.tab_bar[t],0,tx,63,108,3);
+        paint(ui_theme.tab_bar[t],is_cur?h_orange:clear_c);
+        place(ui_theme.tab_lbl[t],1,tx+8,33,90,28);
+        write_lbl(ui_theme.tab_lbl[t],tab_names[t]);
+    }
+    place(ui_theme.close_bg,0,506,28,90,38);
+    paint(ui_theme.close_bg,menu->selected==FILM_HIT_CLOSE?h_close_press:h_close_idle);
+    place(ui_theme.close_lbl,1,512,33,76,28);
+    write_lbl(ui_theme.close_lbl,UI_S_CLOSE_BTN);
+
+    /* 2. Bottom Swiss Telemetry Bar */
     if(a6400_ui_status_v1.magic==0x53544156u && a6400_ui_status_v1.seq>0u) {
         ui_theme.status_seq=a6400_ui_status_v1.seq;
         unsigned qmax=a6400_ui_status_v1.max_files?(unsigned)a6400_ui_status_v1.max_files:1024u;
@@ -575,88 +755,180 @@ static void draw(void *unused,const struct film_menu *menu) {
         snprintf(ui.texts[0],sizeof(ui.texts[0]),UI_S_HDR_INIT,
                  menu->settings.enabled?UI_S_ON:UI_S_OFF);
     }
-    ui.set_text(ui.labels[0],ui.texts[0]);
-    for(unsigned row=0;row<6;row++) {
+    place(ui_theme.status_dot,0,46,425,10,10);
+    paint(ui_theme.status_dot,
+          (a6400_ui_status_v1.magic==0x53544156u && a6400_ui_status_v1.active_jobs>0u)?h_white:
+          (menu->settings.enabled?h_orange:h_muted));
+    place(ui.labels[0],1,64,416,342,28);
+    write_lbl(ui.labels[0],ui.texts[0]);
+
+    /* Clear sub_labels before populating active page */
+    for(unsigned i=0;i<6u;i++){
+        place(ui_theme.sub_labels[i],1,0,0,0,0);
+        write_lbl(ui_theme.sub_labels[i],"");
+    }
+
+    /* 3. Content Cells across all 4 Hasselblad Swiss Pages */
+    int stocks_page=(menu->page==FILM_MENU_STOCKS || menu->page==FILM_MENU_STOCKS_P2);
+    int details_page=(menu->page==FILM_MENU_DETAILS);
+    int v4_page=(menu->page==FILM_MENU_V4);
+    unsigned v4_on_cnt=(a6400_ui_v4_v1.preview_popup_en?1u:0u)+
+                       (a6400_ui_v4_v1.album_preview_en?1u:0u)+
+                       ((a6400_ui_v4_v1.native_touch_ok && a6400_ui_v4_v1.native_touch_en)?1u:0u);
+    static const char *const home_subs[6]={
+        "01 / LUT","02 / STOCK","03 / RES","04 / FX",
+#ifdef A6400_CHARO_SHUTTER
+        "05 / AUDIO",
+#else
+        "05 / V4",
+#endif
+        "06 / V4"
+    };
+    static const char *const v4_subs[4]={"01 / POPUP","02 / ALBUM","03 / TOUCH","04 / GALLERY"};
+
+    for(unsigned slot=0;slot<10u;slot++) {
         int x=0,y=0,w=0,h=0;
-        int used=film_native_view_row(menu,row,ui.texts[row+1],sizeof(ui.texts[0]),&x,&y,&w,&h);
-        if(used<=0){ui.texts[row+1][0]=0;w=h=0;}
+        unsigned cap=0;
+        char *tbuf=tile_text_buf(slot,&cap);
+        int used=film_native_view_row(menu,slot,tbuf,cap,&x,&y,&w,&h);
+        if(used<=0) {
+            tbuf[0]=0;
+            place(tile_panel(slot),0,0,0,0,0);paint(tile_panel(slot),clear_c);
+            place(tile_accent(slot),0,0,0,0,0);paint(tile_accent(slot),clear_c);
+            clear_chips(slot);
+            place(tile_label(slot),1,0,0,0,0);write_lbl(tile_label(slot),"");
+            continue;
+        }
+        /* Live RAM state text overrides */
+        if(menu->page==FILM_MENU_HOME) {
+            if(slot==2u)snprintf(tbuf,cap,"%s",quality_label(a6400_ui_hires_v1));
 #ifdef A6400_CHARO_SHUTTER
-        else if(menu->page==FILM_MENU_HOME && row==3) {
-            int custom=(a6400_ui_status_v1.magic==0x53544156u && a6400_ui_status_v1.custom_charo);
-            snprintf(ui.texts[row+1],sizeof(ui.texts[0]),"%s",
-                     charo_mode_label(ui_theme.shutter_sound_enabled,custom));
-        }
+            else if(slot==4u) {
+                int custom=(a6400_ui_status_v1.magic==0x53544156u && a6400_ui_status_v1.custom_charo);
+                snprintf(tbuf,cap,"%s",charo_mode_label(ui_theme.shutter_sound_enabled,custom));
+            }
 #endif
-        else if(menu->page==FILM_MENU_V4) {
-            if(row==0)snprintf(ui.texts[row+1],sizeof(ui.texts[0]),UI_S_POPUP_FMT,
-                               a6400_ui_v4_v1.preview_popup_en?UI_S_ON:UI_S_OFF);
-            else if(row==1)snprintf(ui.texts[row+1],sizeof(ui.texts[0]),UI_S_ALBUM_FMT,
-                                    a6400_ui_v4_v1.album_preview_en?UI_S_ON:UI_S_OFF);
-            else if(row==2)snprintf(ui.texts[row+1],sizeof(ui.texts[0]),UI_S_TOUCH_FMT,
-                                    !a6400_ui_v4_v1.native_touch_ok?UI_S_TOUCH_UNSUP:
-                                    (a6400_ui_v4_v1.native_touch_en?UI_S_ON:UI_S_OFF));
-            else if(row==3)snprintf(ui.texts[row+1],sizeof(ui.texts[0]),UI_S_BROWSE_FMT,
-                                    (unsigned)a6400_ui_v4_v1.album_count);
+            else if(slot==5u)snprintf(tbuf,cap,UI_S_V4_CNT_FMT,v4_on_cnt);
+        } else if(v4_page) {
+            if(slot==0u)snprintf(tbuf,cap,UI_S_POPUP_FMT,a6400_ui_v4_v1.preview_popup_en?UI_S_ON:UI_S_OFF);
+            else if(slot==1u)snprintf(tbuf,cap,UI_S_ALBUM_FMT,a6400_ui_v4_v1.album_preview_en?UI_S_ON:UI_S_OFF);
+            else if(slot==2u)snprintf(tbuf,cap,UI_S_TOUCH_FMT,
+                                      !a6400_ui_v4_v1.native_touch_ok?UI_S_TOUCH_UNSUP:
+                                      (a6400_ui_v4_v1.native_touch_en?UI_S_ON:UI_S_OFF));
+            else if(slot==3u)snprintf(tbuf,cap,UI_S_BROWSE_FMT,(unsigned)a6400_ui_v4_v1.album_count);
         }
-        record("ROW_PANEL_GEOMETRY",row,used);
-        place(ui.panels[row],0,x,y,w,h);
-        int stocks_page=(menu->page==FILM_MENU_STOCKS || menu->page==FILM_MENU_STOCKS_P2);
-        int details_page=(menu->page==FILM_MENU_DETAILS);
-        int v4_page=(menu->page==FILM_MENU_V4);
-        int stock_idx=(menu->page==FILM_MENU_STOCKS_P2?5:0)+(int)row;
-        int is_dismiss=(menu->page==FILM_MENU_HOME && row==2) || (stocks_page && row==5) ||
-                       (details_page && row==5) || (v4_page && row==5);
-        int is_active=(menu->page==FILM_MENU_HOME && row==0 && menu->settings.enabled) ||
-                      (menu->page==FILM_MENU_HOME && row==4 && (menu->settings.grain!=2 || !menu->settings.halation)) ||
+
+        int hit_id=-1;
+        if(stocks_page) hit_id=FILM_HIT_STOCK_BASE+(int)slot;
+        else if(details_page) hit_id=(slot==2u)?5:(int)slot;
+        else if(v4_page) hit_id=(slot<2u)?(int)slot:(int)(slot+1u);
+        else {
+            static const int home_hits[6]={0,1,7,4,3,FILM_HIT_TAB_V4};
+            hit_id=home_hits[slot];
+        }
+        int is_pressed=(menu->selected==hit_id);
+
+        /* Hasselblad signature color logic: solid International Orange hero cell for LUT ON & active Gallery */
+        const unsigned char *bg=h_cell;
+        if(is_pressed) bg=h_orange_bright;
+        else if(menu->page==FILM_MENU_HOME && slot==0u && menu->settings.enabled) bg=h_orange;
+        else if(menu->page==FILM_MENU_HOME && slot==2u && a6400_ui_hires_v1==2u) bg=h_ember;
+        else if(stocks_page && (int)slot==menu->settings.stock) bg=h_ember;
+        else if(v4_page && slot==3u && a6400_ui_v4_v1.album_count>0u) bg=h_orange;
+        else if(details_page && ((slot==0u && menu->settings.grain>0) || (slot==1u && menu->settings.halation))) bg=h_ember;
+
+        record("ROW_PANEL_GEOMETRY",(int)slot,used);
+        place(tile_panel(slot),0,x,y,w,h);
+        paint(tile_panel(slot),bg);
+
+        int lx=x+12,ly=y+10,lw=w-24,lh=h-20;
+        if(menu->page==FILM_MENU_HOME) {
+            /* Top-left 8x8 Swiss square pip + top-right index sub_label + bottom geometric bar */
+            const unsigned char *pip=h_muted;
+            if(slot==0u) pip=menu->settings.enabled?h_white:h_muted;
+            else if(slot==1u) pip=stock_palettes[(menu->settings.stock>=0 && menu->settings.stock<10)?menu->settings.stock:0][0];
+            else if(slot==2u) pip=a6400_ui_hires_v1?h_orange:h_silver;
+            else if(slot==3u) pip=menu->settings.halation?h_orange:h_silver;
+            else if(slot==4u) pip=
 #ifdef A6400_CHARO_SHUTTER
-                      (menu->page==FILM_MENU_HOME && row==3 && ui_theme.shutter_sound_enabled) ||
+                ui_theme.shutter_sound_enabled?h_sky:h_muted;
+#else
+                h_orange;
 #endif
-                      (details_page && ((row==0 && menu->settings.grain>0) || (row==1 && menu->settings.halation))) ||
-                      (v4_page && ((row==0 && a6400_ui_v4_v1.preview_popup_en) ||
-                                   (row==1 && a6400_ui_v4_v1.album_preview_en) ||
-                                   (row==2 && a6400_ui_v4_v1.native_touch_ok && a6400_ui_v4_v1.native_touch_en) ||
-                                   (row==3 && a6400_ui_v4_v1.album_count>0u))) ||
-                      (stocks_page && row<5 && stock_idx==menu->settings.stock);
-        const unsigned char *panel_color=row_plain;
-        if(menu->selected==(int)row)panel_color=is_dismiss?pill_pressed:row_pressed;
-        else if(is_dismiss)panel_color=pill_plain;
-        else if(is_active)panel_color=row_active;
-        record("ROW_PANEL_COLOR",row,0);
-        ui.set_color(ui.panels[row],panel_color);
-        if(used>0 && !is_dismiss) {
-            place(ui_theme.row_accents[row],0,x,y,5,h);
-            const unsigned char *stripe=is_active?accent_orange:
-                ((menu->page==FILM_MENU_HOME && (row==1 || row==4 || row==3)) ||
-                 (v4_page && row==3)?accent_gold:accent_muted);
-            ui.set_color(ui_theme.row_accents[row],stripe);
-        } else {
-            place(ui_theme.row_accents[row],0,0,0,0,0);
+            else pip=v4_on_cnt?h_orange:h_muted;
+            place(tile_accent(slot),0,x+14,y+16,8,8);
+            paint(tile_accent(slot),pip);
+            place(ui_theme.sub_labels[slot],1,x+28,y+10,w-42,24);
+            write_lbl(ui_theme.sub_labels[slot],home_subs[slot]);
+            /* Bottom 152px Swiss geometric indicator bar */
+            if(slot==0u) {
+                draw_swiss_bar3(slot,x+13,y+126,48,8,4,menu->settings.enabled?3:0,h_white);
+            } else if(slot==1u) {
+                draw_film_swatch(slot,x+13,y+126,menu->settings.stock,1);
+            } else if(slot==2u) {
+                draw_swiss_bar3(slot,x+13,y+126,48,8,4,(int)a6400_ui_hires_v1+1,h_orange);
+            } else if(slot==3u) {
+                draw_swiss_bar3(slot,x+13,y+126,48,8,4,menu->settings.grain,menu->settings.halation?h_orange:h_silver);
+            } else if(slot==4u) {
+#ifdef A6400_CHARO_SHUTTER
+                draw_swiss_bar3(slot,x+13,y+126,48,8,4,ui_theme.shutter_sound_enabled?3:0,h_sky);
+#else
+                draw_v4_segments(slot,x+13,y+126);
+#endif
+            } else {
+                draw_v4_segments(slot,x+13,y+126);
+            }
+            lx=x+12;ly=y+64;lw=w-24;lh=38;
+        } else if(stocks_page) {
+            int is_cur=((int)slot==menu->settings.stock);
+            place(tile_accent(slot),0,x,y,is_cur?6:3,h);
+            paint(tile_accent(slot),is_cur?h_orange:h_muted);
+            draw_film_swatch(slot,x+14,y+12,(int)slot,0);
+            lx=x+46;ly=y+11;lw=w-58;lh=32;
+        } else if(details_page) {
+            place(tile_accent(slot),0,x,y,4,h);
+            paint(tile_accent(slot),(slot<2u)?h_orange:h_silver);
+            if(slot==0u) {
+                draw_swiss_bar3(slot,x+22,y+40,28,12,8,menu->settings.grain,h_orange);
+                lx=x+130;ly=y+28;lw=w-146;lh=36;
+            } else if(slot==1u) {
+                draw_swiss_toggle(slot,x+22,y+33,menu->settings.halation,h_orange);
+                lx=x+90;ly=y+28;lw=w-106;lh=36;
+            } else {
+                clear_chips(slot);
+                lx=x+24;ly=y+28;lw=w-40;lh=36;
+            }
+        } else if(v4_page) {
+            int is_on=(slot==0u && a6400_ui_v4_v1.preview_popup_en) ||
+                      (slot==1u && a6400_ui_v4_v1.album_preview_en) ||
+                      (slot==2u && a6400_ui_v4_v1.native_touch_ok && a6400_ui_v4_v1.native_touch_en) ||
+                      (slot==3u && a6400_ui_v4_v1.album_count>0u);
+            place(tile_accent(slot),0,x,y,4,h);
+            paint(tile_accent(slot),(slot==3u && is_on)?h_white:(is_on?h_orange:h_muted));
+            place(ui_theme.sub_labels[slot],1,x+84,y+16,w-100,24);
+            write_lbl(ui_theme.sub_labels[slot],v4_subs[slot]);
+            if(slot==0u) draw_swiss_toggle(slot,x+18,y+20,a6400_ui_v4_v1.preview_popup_en!=0u,h_orange);
+            else if(slot==1u) draw_swiss_toggle(slot,x+18,y+20,a6400_ui_v4_v1.album_preview_en!=0u,h_orange);
+            else if(slot==2u) draw_swiss_toggle(slot,x+18,y+20,
+                                                (a6400_ui_v4_v1.native_touch_ok && a6400_ui_v4_v1.native_touch_en),
+                                                h_sky);
+            else draw_gallery_icon(slot,x+18,y+18,a6400_ui_v4_v1.album_count>0u);
+            lx=x+16;ly=y+84;lw=w-30;lh=38;
         }
-        record("ROW_LABEL_GEOMETRY",row,0);
-        if(is_dismiss)place(ui.labels[row+1],1,x+20,y+6,w>40?w-40:0,h>12?h-12:0);
-        else place(ui.labels[row+1],1,x+22,y+4,w>38?w-38:0,h>8?h-8:0);
-        record("ROW_TEXT_BEFORE",row,0);
-        ui.set_text(ui.labels[row+1],ui.texts[row+1]);
-        record("ROW_TEXT_AFTER",row,0);
+        place(tile_label(slot),1,lx,ly,lw,lh);
+        write_lbl(tile_label(slot),tbuf);
     }
-    int px=0,py=0,pw=0,ph=0;
-    if(film_native_view_row(menu,6,ui.texts[7],sizeof(ui.texts[0]),&px,&py,&pw,&ph)>0) {
-        place(ui_theme.page_btn,0,px,py,pw,ph);
-        ui.set_color(ui_theme.page_btn,menu->selected==6?pill_pressed:
-                     (menu->page==FILM_MENU_DETAILS?row_active:pill_plain));
-        place(ui.labels[7],1,px+16,py+6,pw>32?pw-32:0,ph>12?ph-12:0);
-    } else if(menu->page==FILM_MENU_HOME) {
-        place(ui_theme.page_btn,0,76,386,264,42);
-        ui.set_color(ui_theme.page_btn,
-                     menu->selected==7?pill_pressed:(a6400_ui_hires_v1?row_active:pill_plain));
-        snprintf(ui.texts[7],sizeof(ui.texts[0]),"%s",quality_label(a6400_ui_hires_v1));
-        place(ui.labels[7],1,92,392,232,30);
-    } else {
-        place(ui_theme.page_btn,0,0,0,0,0);
-        ui.texts[7][0]=0;
-        place(ui.labels[7],1,0,0,0,0);
-    }
-    ui.set_text(ui.labels[7],ui.texts[7]);
+
+    /* 4. Bottom-Right Persistent Quick Album Action Button */
+    place(ui_theme.page_btn,0,420,411,176,38);
+    paint(ui_theme.page_btn,
+          menu->selected==FILM_HIT_ALBUM_QUICK?h_orange_bright:
+          (a6400_ui_v4_v1.album_count>0u?h_dock_active:h_dock_idle));
+    place(ui_theme.page_btn_accent,0,420,411,4,38);
+    paint(ui_theme.page_btn_accent,a6400_ui_v4_v1.album_count>0u?h_orange:h_silver);
+    snprintf(ui.texts[7],sizeof(ui.texts[7]),UI_S_QUICK_ALBUM,(unsigned)a6400_ui_v4_v1.album_count);
+    place(ui.labels[7],1,430,416,156,28);
+    write_lbl(ui.labels[7],ui.texts[7]);
     record("FILM_DRAW",menu->page,menu->selected);
 }
 static void settings(void *unused,const struct film_settings *s) {
@@ -1101,37 +1373,61 @@ int a6400_ui_attach_v1(void *system,unsigned tid) {
     if(!ui.layer)return -4;
     ui.layer_active(ui.layer,0);ui.layer_clear(ui.layer,1);
     record("FILM_LAYER_CREATED",(int)(uintptr_t)ui.layer,0);
+    /* Z-order: backdrop -> Swiss frame/hairlines -> tabs -> tile bgs -> accents/chips -> dock -> labels -> toast */
     ui.background=make(0);
     if(!ui.background)return -5;
-    place(ui.background,0,0,0,640,480);
-    const unsigned char background[4]={8,10,14,148};
-    ui.set_color(ui.background,background);
     ui_theme.card_border=make(0);
     ui_theme.card_panel=make(0);
     ui_theme.header_accent=make(0);
     ui_theme.header_divider=make(0);
+    ui_theme.footer_divider=make(0);
+    ui_theme.status_dot=make(0);
+    ui_theme.grid_h=make(0);
+    ui_theme.grid_v1=make(0);
+    ui_theme.grid_v2=make(0);
+    ui_theme.grid_vc=make(0);
     if(!ui_theme.card_border || !ui_theme.card_panel ||
-       !ui_theme.header_accent || !ui_theme.header_divider)return -5;
-    place(ui_theme.card_border,0,54,34,532,412);
-    const unsigned char card_border[4]={84,92,106,224};
-    ui.set_color(ui_theme.card_border,card_border);
-    place(ui_theme.card_panel,0,56,36,528,408);
-    const unsigned char card_panel[4]={18,22,29,230};
-    ui.set_color(ui_theme.card_panel,card_panel);
-    place(ui_theme.header_accent,0,56,36,528,4);
-    const unsigned char header_accent[4]={234,106,28,255};
-    ui.set_color(ui_theme.header_accent,header_accent);
-    place(ui_theme.header_divider,0,76,86,488,1);
-    const unsigned char header_divider[4]={58,66,78,200};
-    ui.set_color(ui_theme.header_divider,header_divider);
-    for(unsigned i=0;i<6;i++){
+       !ui_theme.header_accent || !ui_theme.header_divider ||
+       !ui_theme.footer_divider || !ui_theme.status_dot ||
+       !ui_theme.grid_h || !ui_theme.grid_v1 || !ui_theme.grid_v2 || !ui_theme.grid_vc)return -5;
+    for(unsigned t=0;t<4u;t++){
+        ui_theme.tab_bg[t]=make(0);
+        ui_theme.tab_bar[t]=make(0);
+        if(!ui_theme.tab_bg[t] || !ui_theme.tab_bar[t])return -5;
+    }
+    ui_theme.close_bg=make(0);
+    if(!ui_theme.close_bg)return -5;
+    for(unsigned i=0;i<6u;i++){
         ui.panels[i]=make(0);
+        if(!ui.panels[i])return -5;
+    }
+    for(unsigned i=0;i<4u;i++){
+        ui_theme.extra_panels[i]=make(0);
+        if(!ui_theme.extra_panels[i])return -5;
+    }
+    for(unsigned i=0;i<6u;i++){
         ui_theme.row_accents[i]=make(0);
-        if(!ui.panels[i] || !ui_theme.row_accents[i])return -5;
+        if(!ui_theme.row_accents[i])return -5;
+    }
+    for(unsigned i=0;i<4u;i++){
+        ui_theme.extra_accents[i]=make(0);
+        if(!ui_theme.extra_accents[i])return -5;
+    }
+    for(unsigned i=0;i<10u;i++){
+        for(unsigned k=0;k<3u;k++){
+            ui_theme.chips[i][k]=make(0);
+            if(!ui_theme.chips[i][k])return -5;
+        }
     }
     ui_theme.page_btn=make(0);
-    if(!ui_theme.page_btn)return -5;
-    for(unsigned i=0;i<8;i++){ui.labels[i]=make(1);if(!ui.labels[i])return -5;}
+    ui_theme.page_btn_accent=make(0);
+    if(!ui_theme.page_btn || !ui_theme.page_btn_accent)return -5;
+    for(unsigned i=0;i<8u;i++){ui.labels[i]=make(1);if(!ui.labels[i])return -5;}
+    for(unsigned i=0;i<4u;i++){ui_theme.extra_labels[i]=make(1);if(!ui_theme.extra_labels[i])return -5;}
+    for(unsigned i=0;i<6u;i++){ui_theme.sub_labels[i]=make(1);if(!ui_theme.sub_labels[i])return -5;}
+    for(unsigned t=0;t<4u;t++){ui_theme.tab_lbl[t]=make(1);if(!ui_theme.tab_lbl[t])return -5;}
+    ui_theme.close_lbl=make(1);
+    if(!ui_theme.close_lbl)return -5;
     ui_toast.bg=make(0);
     ui_toast.accent=make(0);
     ui_toast.label=make(1);
@@ -1140,6 +1436,7 @@ int a6400_ui_attach_v1(void *system,unsigned tid) {
     } else {
         ui_toast.bg=ui_toast.accent=ui_toast.label=0;
     }
+    hide_menu_widgets();
 #ifdef A6400_CHARO_SHUTTER
     ui_theme.shutter_sound_enabled=1;
     ui_theme.last_shutter_key=0;

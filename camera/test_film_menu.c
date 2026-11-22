@@ -13,19 +13,46 @@ static void chord(struct film_menu *m) {
     sample(m, 0, 0, 0);
     for (int i = 0; i < 7; ++i) sample(m, 1, 1, 0);
 }
-static unsigned tap(struct film_menu *m, int row) {
-    int stocks_page = m->page == FILM_MENU_STOCKS || m->page == FILM_MENU_STOCKS_P2;
-    int is_dismiss = (m->page == FILM_MENU_HOME && row == 2) ||
-                     ((stocks_page || m->page == FILM_MENU_DETAILS) && row == 5);
-    int is_pager = (stocks_page || m->page == FILM_MENU_DETAILS || m->page == FILM_MENU_V4) && row == 6;
-    int x = is_dismiss ? 480 : 120;
-    int y = (is_dismiss || is_pager) ? 405 :
-            (m->page == FILM_MENU_HOME
-                 ? (row == 0 ? 128 : (row == 1 ? 198 : (row == 4 ? 268 : 338)))
-                 : (m->page == FILM_MENU_DETAILS ? (106 + row * 92 + 30) : (98 + row * 54 + 20)));
+static unsigned tap_xy(struct film_menu *m, int x, int y) {
     film_menu_touch(m, now += 20, 0, 32767, 32767);
     film_menu_touch(m, now += 20, 1, x, y);
     return film_menu_touch(m, now += 20, 0, 32767, 32767);
+}
+static unsigned tap(struct film_menu *m, int row) {
+    if (row >= FILM_HIT_STOCK_BASE && row < FILM_HIT_STOCK_BASE + 10) {
+        int s = row - FILM_HIT_STOCK_BASE;
+        int col = s & 1, r = s >> 1;
+        return tap_xy(m, col ? 460 : 170, 84 + r * 63 + 26);
+    }
+    if (row == FILM_HIT_CLOSE) return tap_xy(m, 550, 46);
+    if (row == FILM_HIT_TAB_HOME) return tap_xy(m, 96, 46);
+    if (row == FILM_HIT_TAB_STOCKS) return tap_xy(m, 210, 46);
+    if (row == FILM_HIT_TAB_DETAILS) return tap_xy(m, 324, 46);
+    if (row == FILM_HIT_TAB_V4) return tap_xy(m, 438, 46);
+    if (row == FILM_HIT_ALBUM_QUICK) return tap_xy(m, 500, 430);
+    if (m->page == FILM_MENU_HOME) {
+        if (row == 0) return tap_xy(m, 120, 150);
+        if (row == 1) return tap_xy(m, 320, 150);
+        if (row == 7) return tap_xy(m, 510, 150);
+        if (row == 4) return tap_xy(m, 120, 310);
+        if (row == 3) return tap_xy(m, 320, 310);
+        return tap_xy(m, 510, 310);
+    }
+    if (m->page == FILM_MENU_STOCKS || m->page == FILM_MENU_STOCKS_P2) {
+        int col = row & 1, r = row >> 1;
+        return tap_xy(m, col ? 460 : 170, 84 + r * 63 + 26);
+    }
+    if (m->page == FILM_MENU_DETAILS) {
+        int idx = (row == 5) ? 2 : row;
+        return tap_xy(m, 300, 88 + idx * 104 + 40);
+    }
+    if (m->page == FILM_MENU_V4) {
+        if (row == 0) return tap_xy(m, 170, 150);
+        if (row == 1) return tap_xy(m, 460, 150);
+        if (row == 3) return tap_xy(m, 170, 310);
+        return tap_xy(m, 460, 310);
+    }
+    return 0;
 }
 int main(void) {
     struct film_menu m;
@@ -85,15 +112,8 @@ int main(void) {
     assert(m.settings.enabled);
     for (int stock = 0; stock < 10; ++stock) {
         tap(&m, 1);
-        if (stock < 5) {
-            if (m.page == FILM_MENU_STOCKS_P2) tap(&m, 6);
-            assert(m.page == FILM_MENU_STOCKS);
-            tap(&m, stock);
-        } else {
-            if (m.page == FILM_MENU_STOCKS) tap(&m, 6);
-            assert(m.page == FILM_MENU_STOCKS_P2);
-            tap(&m, stock - 5);
-        }
+        assert(m.page == FILM_MENU_STOCKS);
+        tap(&m, FILM_HIT_STOCK_BASE + stock);
         assert(m.settings.stock == stock && m.page == FILM_MENU_HOME);
     }
     assert(strcmp(film_stock_worker_name(m.settings.stock), "polaroid_px680") == 0);
@@ -104,28 +124,24 @@ int main(void) {
     assert(m.settings.grain == 3);
     assert(tap(&m, 1) & FILM_MENU_SETTINGS_CHANGED);
     assert(m.settings.halation == 0);
-    assert(tap(&m, 2) & FILM_MENU_SETTINGS_CHANGED);
+    assert(tap(&m, 5) & FILM_MENU_SETTINGS_CHANGED);
     assert(m.settings.grain == 2 && m.settings.halation == 1);
-    assert(tap(&m, 6) & FILM_MENU_REDRAW);
+    assert(tap(&m, FILM_HIT_TAB_V4) & FILM_MENU_REDRAW);
     assert(m.page == FILM_MENU_V4);
-    assert(film_menu_hit(FILM_MENU_V4, 120, 120) == 0);
-    assert(film_menu_hit(FILM_MENU_V4, 120, 185) == 1);
-    assert(film_menu_hit(FILM_MENU_V4, 120, 250) == 2);
-    assert(film_menu_hit(FILM_MENU_V4, 120, 315) == 3);
-    assert(film_menu_hit(FILM_MENU_V4, 120, 405) == 6);
-    assert(film_menu_hit(FILM_MENU_V4, 480, 405) == 5);
-    assert(film_menu_touch(&m, now += 20, 1, 120, 120) & FILM_MENU_REDRAW);
-    assert(film_menu_touch(&m, now += 20, 0, 32767, 32767) & FILM_MENU_POPUP_TOGGLED);
-    assert(film_menu_touch(&m, now += 20, 1, 120, 185) & FILM_MENU_REDRAW);
-    assert(film_menu_touch(&m, now += 20, 0, 32767, 32767) & FILM_MENU_ALBUM_TOGGLED);
-    assert(film_menu_touch(&m, now += 20, 1, 120, 250) & FILM_MENU_REDRAW);
-    assert(film_menu_touch(&m, now += 20, 0, 32767, 32767) & FILM_MENU_TOUCH_TOGGLED);
-    assert(film_menu_touch(&m, now += 20, 1, 120, 315) & FILM_MENU_REDRAW);
-    assert(film_menu_touch(&m, now += 20, 0, 32767, 32767) & FILM_MENU_ALBUM_BROWSE);
-    assert(film_menu_touch(&m, now += 20, 1, 120, 405) & FILM_MENU_REDRAW);
-    assert(film_menu_touch(&m, now += 20, 0, 32767, 32767) & FILM_MENU_REDRAW);
+    assert(film_menu_hit(FILM_MENU_V4, 170, 150) == 0);
+    assert(film_menu_hit(FILM_MENU_V4, 460, 150) == 1);
+    assert(film_menu_hit(FILM_MENU_V4, 170, 310) == 3);
+    assert(film_menu_hit(FILM_MENU_V4, 460, 310) == 4);
+    assert(film_menu_hit(FILM_MENU_V4, 550, 46) == FILM_HIT_CLOSE);
+    assert(film_menu_hit(FILM_MENU_V4, 500, 430) == FILM_HIT_ALBUM_QUICK);
+    assert(tap_xy(&m, 170, 150) & FILM_MENU_POPUP_TOGGLED);
+    assert(tap_xy(&m, 460, 150) & FILM_MENU_ALBUM_TOGGLED);
+    assert(tap_xy(&m, 170, 310) & FILM_MENU_TOUCH_TOGGLED);
+    assert(tap_xy(&m, 460, 310) & FILM_MENU_ALBUM_BROWSE);
+    assert(tap(&m, FILM_HIT_ALBUM_QUICK) & FILM_MENU_ALBUM_BROWSE);
+    assert(tap(&m, FILM_HIT_TAB_DETAILS) & FILM_MENU_REDRAW);
     assert(m.page == FILM_MENU_DETAILS);
-    assert(tap(&m, 5) & FILM_MENU_REDRAW);
+    assert(tap(&m, FILM_HIT_TAB_HOME) & FILM_MENU_REDRAW);
     assert(m.page == FILM_MENU_HOME);
     chord(&m); assert(!m.visible); chord(&m); assert(m.visible);
     /* All real persisted choices round-trip, independent of menu visibility. */

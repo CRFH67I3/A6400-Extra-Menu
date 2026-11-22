@@ -280,22 +280,22 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
             v4 = UiV4V1.in_dll(lib, 'a6400_ui_v4_v1')
             hires = ctypes.c_uint32.in_dll(lib, 'a6400_ui_hires_v1')
 
-            # 1) 3-way quality cycling: 1.7MP -> 6MP -> 12MP -> 1.7MP
+            # 1) 3-way quality cycling: 1.7MP -> 6MP -> 12MP -> 1.7MP (Cell 2 = top-right @ x=510, y=150, label slot 3)
             lib.model_open_home()
-            self.assertEqual(lib.model_text_at(7).decode('utf-8'), '畫質: 1.7MP 極速')
+            self.assertEqual(lib.model_text_at(3).decode('utf-8'), '1.7MP 極速')
             for expected_val, expected_lbl in [
-                (1, '畫質: 6MP 高清'),
-                (2, '畫質: 12MP 超清'),
-                (0, '畫質: 1.7MP 極速'),
+                (1, '6MP 高清'),
+                (2, '12MP 超清'),
+                (0, '1.7MP 極速'),
             ]:
-                lib.model_tick(25, 5, 160, 405, 0, 0)
+                lib.model_tick(25, 5, 510, 150, 0, 0)
                 lib.model_tick(25, 6, 32767, 32767, 0, 0)
                 self.assertEqual(hires.value, expected_val)
-                self.assertEqual(lib.model_text_at(7).decode('utf-8'), expected_lbl)
+                self.assertEqual(lib.model_text_at(3).decode('utf-8'), expected_lbl)
             # While Film Menu is open, MTF2 must NEVER fire
             self.assertEqual(lib.model_mtf2_calls(), 0)
-            # Close menu
-            lib.model_tick(25, 5, 480, 405, 0, 0)
+            # Close menu via top-right Hasselblad close pill (x=550, y=46)
+            lib.model_tick(25, 5, 550, 46, 0, 0)
             lib.model_tick(25, 6, 32767, 32767, 0, 0)
             self.assertEqual(lib.model_menu_visible(), 0)
 
@@ -368,11 +368,11 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
             self.assertEqual(lib.model_album_mode(), 0)
             self.assertEqual(v4.display_mode, 0)
 
-            # 5) Direct Graded Album Browser from V4 menu (works even without Playback sync!)
+            # 5) Direct Graded Album Browser from V4 tab (works even without Playback sync!)
             lib.model_open_home()
-            lib.model_tick(25, 5, 200, 338, 0, 0)  # Home row 3 -> FILM_MENU_V4
+            lib.model_tick(25, 5, 438, 46, 0, 0)   # Top tab 04 V4 -> FILM_MENU_V4
             lib.model_tick(25, 6, 32767, 32767, 0, 0)
-            lib.model_tick(25, 5, 200, 315, 0, 0)  # V4 row 3 -> 瀏覽套色相冊
+            lib.model_tick(25, 5, 460, 310, 0, 0)  # V4 cell 3 -> 瀏覽套色相冊
             lib.model_tick(25, 6, 32767, 32767, 0, 0)
             self.assertEqual(lib.model_album_mode(), 2)
             self.assertEqual(v4.display_mode, 2)
@@ -401,20 +401,18 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
             lib_sc.model_text_at.restype = ctypes.c_char_p
             lib_sc.model_init()
             lib_sc.model_open_home()
-            self.assertEqual(lib_sc.model_text_at(7).decode('utf-8'), '画质: 1.7MP 极速')
-            lib_sc.model_tick(25, 5, 160, 405, 0, 0)
+            self.assertEqual(lib_sc.model_text_at(3).decode('utf-8'), '1.7MP 极速')
+            lib_sc.model_tick(25, 5, 510, 150, 0, 0)
             lib_sc.model_tick(25, 6, 32767, 32767, 0, 0)
-            lib_sc.model_tick(25, 5, 160, 405, 0, 0)
+            lib_sc.model_tick(25, 5, 510, 150, 0, 0)
             lib_sc.model_tick(25, 6, 32767, 32767, 0, 0)
-            self.assertEqual(lib_sc.model_text_at(7).decode('utf-8'), '画质: 12MP 超清')
-            # Check 3-sound SC label on Home row 3, then enter Details (row 4 @ y=268) -> V4 (row 6 @ x=200,y=405)
-            self.assertEqual(lib_sc.model_text_at(4).decode('utf-8'), '快门声: 关闭')
-            lib_sc.model_tick(25, 5, 200, 338, 0, 0)  # Home row 3 -> Charo sound mode 1
+            self.assertEqual(lib_sc.model_text_at(3).decode('utf-8'), '12MP 超清')
+            # Check 3-sound SC label on Home cell 4 (label 5 @ x=320, y=310), then enter V4 tab (x=438, y=46)
+            self.assertEqual(lib_sc.model_text_at(5).decode('utf-8'), '静音')
+            lib_sc.model_tick(25, 5, 320, 310, 0, 0)  # Home cell 4 -> Charo sound mode 1
             lib_sc.model_tick(25, 6, 32767, 32767, 0, 0)
-            self.assertEqual(lib_sc.model_text_at(4).decode('utf-8'), '快门声: 日文 Charo')
-            lib_sc.model_tick(25, 5, 200, 268, 0, 0)  # Home row 4 -> Details
-            lib_sc.model_tick(25, 6, 32767, 32767, 0, 0)
-            lib_sc.model_tick(25, 5, 200, 405, 0, 0)  # Details row 6 -> V4 page
+            self.assertEqual(lib_sc.model_text_at(5).decode('utf-8'), '日文 Charo')
+            lib_sc.model_tick(25, 5, 438, 46, 0, 0)   # Top tab 04 V4 -> FILM_MENU_V4
             lib_sc.model_tick(25, 6, 32767, 32767, 0, 0)
             self.assertEqual(lib_sc.model_text_at(1).decode('utf-8'), '即时预览小窗: 开启')
             self.assertEqual(lib_sc.model_text_at(2).decode('utf-8'), '机内相册预览: 开启')

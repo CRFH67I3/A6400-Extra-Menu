@@ -40,26 +40,20 @@ unsigned film_native_view_step(struct film_native_view *v,unsigned now,
 #define FV_OFF          "关闭"
 #define FV_OPEN_S       "开"
 #define FV_CLOSE_S      "关"
-#define FV_BACK         "返回"
-#define FV_BACK_HOME    "返回主页"
-#define FV_CLOSE        "关闭"
-#define FV_NEXT_PAGE    "下一页 >"
-#define FV_PREV_PAGE    "< 上一页"
-#define FV_GRAIN_FMT    "颗粒强度: %s"
-#define FV_HALO_FMT     "胶片光晕: %s"
+#define FV_GRAIN_FMT    "01 / 颗粒强度: %s"
+#define FV_HALO_FMT     "02 / 胶片光晕: %s"
 #define FV_HALO_OFF     "关闭 (加速)"
-#define FV_RESET_DET    "恢复细节默认 (标准/开)"
-#define FV_V4_BTN       "V4 预览/相册/触控 >"
-#define FV_BACK_DET     "< 细节设置"
+#define FV_RESET_DET    "03 / 恢复预设 (标准 · 光晕开)"
 #define FV_V4_POPUP     "即时预览小窗: 开启"
 #define FV_V4_ALBUM     "机内相册预览: 开启"
 #define FV_V4_TOUCH     "原生MENU触控: 开启"
 #define FV_V4_BROWSE    "浏览套色相册 (0张)"
-#define FV_LUT_FMT      "LUT 滤镜: %s"
-#define FV_STYLE_FMT    "胶片风格: %s"
-#define FV_DETAIL_FMT   "胶片细节: 颗粒%s / 光晕%s"
-#define FV_CHARO_DEF    "快门声: Charo"
-#define FV_HOME_V4      "V4 功能: 预览 / 相册 / 原生触控 >"
+#define FV_LUT_FMT      "LUT %s"
+#define FV_QUAL_DEF     "1.7MP 极速"
+#define FV_DETAIL_FMT   "颗粒%s / 光晕%s"
+#define FV_CHARO_DEF    "日文 Charo"
+#define FV_HOME_V4_ALT  "V4 功能 >"
+#define FV_HOME_V4_HUB  "V4 (3/3) >"
 #define FV_GRAIN_SHORT  {"无","轻","中","强"}
 #define FV_GRAIN_DET    {"无 (加速)","轻微","标准","浓厚"}
 #define FV_GRAIN_MID    "中"
@@ -69,26 +63,20 @@ unsigned film_native_view_step(struct film_native_view *v,unsigned now,
 #define FV_OFF          "關閉"
 #define FV_OPEN_S       "開"
 #define FV_CLOSE_S      "關"
-#define FV_BACK         "返回"
-#define FV_BACK_HOME    "返回主頁"
-#define FV_CLOSE        "關閉"
-#define FV_NEXT_PAGE    "下一頁 >"
-#define FV_PREV_PAGE    "< 上一頁"
-#define FV_GRAIN_FMT    "顆粒強度: %s"
-#define FV_HALO_FMT     "底片光暈: %s"
+#define FV_GRAIN_FMT    "01 / 顆粒強度: %s"
+#define FV_HALO_FMT     "02 / 底片光暈: %s"
 #define FV_HALO_OFF     "關閉 (加速)"
-#define FV_RESET_DET    "恢復細節預設 (標準/開)"
-#define FV_V4_BTN       "V4 預覽/相冊/觸控 >"
-#define FV_BACK_DET     "< 細節設定"
+#define FV_RESET_DET    "03 / 恢復預設 (標準 · 光暈開)"
 #define FV_V4_POPUP     "即時預覽小窗: 開啟"
 #define FV_V4_ALBUM     "機內相冊預覽: 開啟"
 #define FV_V4_TOUCH     "原生MENU觸控: 開啟"
 #define FV_V4_BROWSE    "瀏覽套色相冊 (0張)"
-#define FV_LUT_FMT      "LUT 濾鏡: %s"
-#define FV_STYLE_FMT    "膠片風格: %s"
-#define FV_DETAIL_FMT   "膠片細節: 顆粒%s / 光暈%s"
-#define FV_CHARO_DEF    "快門聲: Charo"
-#define FV_HOME_V4      "V4 功能: 預覽 / 相冊 / 原生觸控 >"
+#define FV_LUT_FMT      "LUT %s"
+#define FV_QUAL_DEF     "1.7MP 極速"
+#define FV_DETAIL_FMT   "顆粒%s / 光暈%s"
+#define FV_CHARO_DEF    "日文 Charo"
+#define FV_HOME_V4_ALT  "V4 功能 >"
+#define FV_HOME_V4_HUB  "V4 (3/3) >"
 #define FV_GRAIN_SHORT  {"無","輕","中","強"}
 #define FV_GRAIN_DET    {"無 (加速)","輕微","標準","濃厚"}
 #define FV_GRAIN_MID    "中"
@@ -105,75 +93,51 @@ static const char *grain_detail(int grain) {
 }
 int film_native_view_row(const struct film_menu *m,unsigned row,char *out,unsigned capacity,
                          int *x,int *y,int *width,int *height) {
-    if(!m || row>=7 || !out || !capacity)return -1;
-    unsigned count=m->page==FILM_MENU_HOME?5:7;
-    if(row>=count){out[0]=0;return 0;}
-    if(m->page==FILM_MENU_DETAILS && (row==3 || row==4)){out[0]=0;return 0;}
-    if(m->page==FILM_MENU_V4 && row==4){out[0]=0;return 0;}
+    if(!m || row>=10 || !out || !capacity)return -1;
     if(!x||!y||!width||!height)return -1;
-    int n;
+    int n=0;
     if(m->page==FILM_MENU_STOCKS || m->page==FILM_MENU_STOCKS_P2) {
-        if(row<5) {
-            int stock=(m->page==FILM_MENU_STOCKS_P2?5:0)+(int)row;
-            *x=76;*width=488;*y=98+(int)row*54;*height=46;
-            n=snprintf(out,capacity,"%s %s",stock==m->settings.stock?"*":" ",
-                       film_stock_display_name(stock));
-        } else if(row==5) {
-            *x=404;*width=160;*y=386;*height=42;
-            n=snprintf(out,capacity,"%s",FV_BACK);
-        } else {
-            *x=76;*width=160;*y=386;*height=42;
-            n=snprintf(out,capacity,"%s",m->page==FILM_MENU_STOCKS?FV_NEXT_PAGE:FV_PREV_PAGE);
-        }
+        int col=(int)(row & 1u);
+        int r=(int)(row >> 1u);
+        *x=col?328:42;*width=270;*y=84+r*63;*height=55;
+        n=snprintf(out,capacity,"%s %s",(int)row==m->settings.stock?"*":" ",
+                   film_stock_display_name((int)row));
     } else if(m->page==FILM_MENU_DETAILS) {
-        if(row==0) {
-            *x=76;*width=488;*y=106;*height=76;
-            n=snprintf(out,capacity,FV_GRAIN_FMT,grain_detail(m->settings.grain));
-        } else if(row==1) {
-            *x=76;*width=488;*y=198;*height=76;
-            n=snprintf(out,capacity,FV_HALO_FMT,m->settings.halation?FV_ON:FV_HALO_OFF);
-        } else if(row==2) {
-            *x=76;*width=488;*y=290;*height=76;
-            n=snprintf(out,capacity,"%s",FV_RESET_DET);
-        } else if(row==6) {
-            *x=76;*width=264;*y=386;*height=42;
-            n=snprintf(out,capacity,"%s",FV_V4_BTN);
-        } else {
-            *x=404;*width=160;*y=386;*height=42;
-            n=snprintf(out,capacity,"%s",FV_BACK);
-        }
+        if(row>=3){out[0]=0;return 0;}
+        *x=42;*width=556;*y=88+(int)row*104;*height=92;
+        if(row==0)n=snprintf(out,capacity,FV_GRAIN_FMT,grain_detail(m->settings.grain));
+        else if(row==1)n=snprintf(out,capacity,FV_HALO_FMT,m->settings.halation?FV_ON:FV_HALO_OFF);
+        else n=snprintf(out,capacity,"%s",FV_RESET_DET);
     } else if(m->page==FILM_MENU_V4) {
-        if(row<4) {
-            *x=76;*width=488;*y=98+(int)row*64;*height=56;
-            if(row==0)n=snprintf(out,capacity,"%s",FV_V4_POPUP);
-            else if(row==1)n=snprintf(out,capacity,"%s",FV_V4_ALBUM);
-            else if(row==2)n=snprintf(out,capacity,"%s",FV_V4_TOUCH);
-            else n=snprintf(out,capacity,"%s",FV_V4_BROWSE);
-        } else if(row==6) {
-            *x=76;*width=184;*y=386;*height=42;
-            n=snprintf(out,capacity,"%s",FV_BACK_DET);
-        } else {
-            *x=404;*width=160;*y=386;*height=42;
-            n=snprintf(out,capacity,"%s",FV_BACK_HOME);
-        }
-    } else if(row<2) {
-        *x=76;*width=488;*y=row==0?98:168;*height=60;
-        if(row==0)n=snprintf(out,capacity,FV_LUT_FMT,m->settings.enabled?FV_ON:FV_OFF);
-        else n=snprintf(out,capacity,FV_STYLE_FMT,film_stock_display_name(m->settings.stock));
-    } else if(row==4) {
-        *x=76;*width=488;*y=238;*height=60;
-        n=snprintf(out,capacity,FV_DETAIL_FMT,
-                   grain_short(m->settings.grain),m->settings.halation?FV_OPEN_S:FV_CLOSE_S);
-    } else if(row==3) {
-        *x=76;*width=488;*y=308;*height=60;
-#ifdef A6400_CHARO_SHUTTER
-        n=snprintf(out,capacity,"%s",FV_CHARO_DEF);
-#else
-        n=snprintf(out,capacity,"%s",FV_HOME_V4);
-#endif
+        if(row>=4){out[0]=0;return 0;}
+        int col=(int)(row & 1u);
+        int r=(int)(row >> 1u);
+        *x=col?328:42;*width=270;*y=r?245:82;*height=148;
+        if(row==0)n=snprintf(out,capacity,"%s",FV_V4_POPUP);
+        else if(row==1)n=snprintf(out,capacity,"%s",FV_V4_ALBUM);
+        else if(row==2)n=snprintf(out,capacity,"%s",FV_V4_TOUCH);
+        else n=snprintf(out,capacity,"%s",FV_V4_BROWSE);
     } else {
-        *x=404;*width=160;*y=386;*height=42;
-        n=snprintf(out,capacity,"%s",FV_CLOSE);
+        /* FILM_MENU_HOME: Hasselblad 3x2 precision cell grid. */
+        if(row>=6){out[0]=0;return 0;}
+        static const int col_x[3]={40,231,423};
+        int col=(int)(row % 3u);
+        int r=(int)(row / 3u);
+        *x=col_x[col];*width=178;*y=r?245:82;*height=148;
+        if(row==0)n=snprintf(out,capacity,FV_LUT_FMT,m->settings.enabled?FV_ON:FV_OFF);
+        else if(row==1)n=snprintf(out,capacity,"%s",film_stock_display_name(m->settings.stock));
+        else if(row==2)n=snprintf(out,capacity,"%s",FV_QUAL_DEF);
+        else if(row==3)n=snprintf(out,capacity,FV_DETAIL_FMT,
+                                  grain_short(m->settings.grain),m->settings.halation?FV_OPEN_S:FV_CLOSE_S);
+        else if(row==4) {
+#ifdef A6400_CHARO_SHUTTER
+            n=snprintf(out,capacity,"%s",FV_CHARO_DEF);
+#else
+            n=snprintf(out,capacity,"%s",FV_HOME_V4_ALT);
+#endif
+        } else {
+            n=snprintf(out,capacity,"%s",FV_HOME_V4_HUB);
+        }
     }
     return n>=0 && (unsigned)n<capacity?1:-1;
 }

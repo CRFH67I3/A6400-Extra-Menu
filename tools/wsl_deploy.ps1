@@ -140,6 +140,11 @@ function Test-WslReady {
     $wsl = Find-WslExe
     if (-not (Test-Path $wsl)) { return $false }
 
+    # HCS / VirtualMachinePlatform (`vmcompute`) must be installed for WSL2 VM creation (`wsl --import ... --version 2`)
+    if (-not (Get-Service -Name "vmcompute" -ErrorAction SilentlyContinue)) {
+        return $false
+    }
+
     $ver = Invoke-Native -FilePath $wsl -Arguments @("--version") -TimeoutSec 8
     if (-not $ver.TimedOut -and $ver.ExitCode -eq 0 -and $ver.Text -and ($ver.Text -notmatch "--update")) {
         return $true
@@ -339,6 +344,20 @@ function Ensure-AlpineDistro {
         $imp = Invoke-Native -FilePath $wsl -Arguments @("--import", $DistroName, $InstallBase, $RootfsTar, "--version", "2") -TimeoutSec 120
         if ($imp.ExitCode -ne 0) {
             if ($imp.Text) { Write-Host $imp.Text -ForegroundColor Yellow }
+            if ($imp.Text -match "HCS_E_SERVICE_NOT_AVAILABLE|VirtualMachinePlatform|0x80370102|0x800701bc") {
+                Write-Host "[*] 偵測到 Windows 虛擬機器平台尚未生效，正在自動補開功能..." -ForegroundColor Yellow
+                foreach ($feat in @("VirtualMachinePlatform", "Microsoft-Windows-Subsystem-Linux")) {
+                    Start-Process -FilePath "dism.exe" -ArgumentList "/online /enable-feature /featurename:$feat /all /norestart" -Wait -PassThru -NoNewWindow | Out-Null
+                }
+                Start-Process -FilePath "bcdedit.exe" -ArgumentList "/set hypervisorlaunchtype auto" -Wait -PassThru -NoNewWindow | Out-Null
+                Write-Host ""
+                Write-Host "========================================================" -ForegroundColor Yellow
+                Write-Host "  [!] 已自動開啟 Windows 虛擬機器平台！" -ForegroundColor Yellow
+                Write-Host "  請「重新開機一次」（並確認 BIOS 已開啟虛擬化 VT-x / SVM），" -ForegroundColor Yellow
+                Write-Host "  重開機後再雙擊「一鍵開始安裝.bat」即可順利刷機！" -ForegroundColor Yellow
+                Write-Host "========================================================" -ForegroundColor Yellow
+                exit 1
+            }
             throw "匯入 $DistroName 失敗 (rc=$($imp.ExitCode))。若電腦剛開啟 WSL2，請先重新開機一次並確認 BIOS 已開啟虛擬化（VT-x / SVM）。"
         }
         Write-Host "[+] 極輕量 Linux 環境匯入完成"

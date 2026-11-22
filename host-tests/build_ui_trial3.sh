@@ -10,9 +10,10 @@ LIBS=${2:?pulled camera glibc directory}
 MODULE_PATH=${UI_MODULE_PATH:-/tmp_bt/a6400-film-ui-v3.so}
 DISPLAY_MS=${A6400_DISPLAY_MS:-5000}
 case "$DISPLAY_MS" in
- ''|0*|*[!0-9]*) echo "A6400_DISPLAY_MS must be a decimal integer from 1 to 20000" >&2; exit 2 ;;
+ 0) ;;
+ ''|0*|*[!0-9]*) echo "A6400_DISPLAY_MS must be 0 (no auto-hide) or a decimal integer from 1 to 20000" >&2; exit 2 ;;
 esac
-if [ "${#DISPLAY_MS}" -gt 5 ] || [ "$DISPLAY_MS" -gt 20000 ]; then
+if [ "$DISPLAY_MS" != 0 ] && { [ "${#DISPLAY_MS}" -gt 5 ] || [ "$DISPLAY_MS" -gt 20000 ]; }; then
  echo "A6400_DISPLAY_MS must not exceed 20000" >&2; exit 2
 fi
 if [ "${A6400_COMBO_DIAGNOSTIC:-0}" = 1 ]; then

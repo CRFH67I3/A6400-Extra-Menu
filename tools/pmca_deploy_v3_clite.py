@@ -757,7 +757,7 @@ def main():
 
             must_cmd(cam, "/bin/busybox umount /tmp_bt/v3c_up 2>/dev/null || true", "UMOUNT_UP_STAGE")
             must_cmd(cam, "/bin/busybox rm -rf /tmp_bt/v3c_up && /bin/busybox sync", "CLEAN_UP_STAGE")
-            print(f"V3_CLITE_DEPLOY_OK package={manifest['package_id']} version=V3.9-SSLF", flush=True)
+            print(f"V3_CLITE_DEPLOY_OK package={manifest['package_id']} version=V4.1-SLEM-hany", flush=True)
             deploy_ok = True
         finally:
             try:

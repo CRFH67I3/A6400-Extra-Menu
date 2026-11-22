@@ -269,7 +269,7 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
             so_file = d / 'v40_model.so'
             subprocess.run([
                 'cc', '-std=c11', '-shared', '-fPIC', '-Wall', '-Wextra', '-Werror',
-                '-Wno-unused-function', '-DA6400_UI_TRIAL_MS=0', '-DA6400_UI_DISPLAY_MS=20000',
+                '-Wno-unused-function', '-DA6400_UI_TRIAL_MS=0', '-DA6400_UI_DISPLAY_MS=0',
                 '-I', str(inc), '-I', str(d),
                 str(d / 'model.c'), str(ROOT / 'camera/film_native_view.c'),
                 str(ROOT / 'camera/film_menu.c'), '-o', str(so_file),
@@ -294,6 +294,11 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
                 self.assertEqual(lib.model_text_at(4).decode('utf-8'), expected_lbl)
             # While Film Menu is open, MTF2 must NEVER fire
             self.assertEqual(lib.model_mtf2_calls(), 0)
+            # Verify NO auto-hide when A6400_UI_DISPLAY_MS=0 even after 120s idle!
+            lib.model_tick(120000, 6, 32767, 32767, 0, 0)
+            self.assertEqual(lib.model_menu_visible(), 1)
+            self.assertIn('V4.1 SLEM', lib.model_text_at(0).decode('utf-8'))
+            self.assertIn('hany', lib.model_text_at(7).decode('utf-8'))
             # Close menu via bottom-right Close pill (x=510, y=418)
             lib.model_tick(25, 5, 510, 418, 0, 0)
             lib.model_tick(25, 6, 32767, 32767, 0, 0)
@@ -390,7 +395,7 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
             so_sc = d / 'v40_model_sc.so'
             subprocess.run([
                 'cc', '-std=c11', '-shared', '-fPIC', '-Wall', '-Wextra', '-Werror',
-                '-Wno-unused-function', '-DA6400_UI_TRIAL_MS=0', '-DA6400_UI_DISPLAY_MS=20000',
+                '-Wno-unused-function', '-DA6400_UI_TRIAL_MS=0', '-DA6400_UI_DISPLAY_MS=0',
                 '-DA6400_UI_LANG_SC=1', '-DA6400_CHARO_SHUTTER=1', '-DA6400_CHARO_MULTI=1',
                 '-I', str(inc), '-I', str(d),
                 str(d / 'model.c'), str(ROOT / 'camera/film_native_view.c'),

@@ -53,8 +53,9 @@ static key_inst_fn get_key_instance_fn;
 #ifndef A6400_UI_DISPLAY_MS
 #define A6400_UI_DISPLAY_MS 5000u
 #endif
-#if A6400_UI_DISPLAY_MS < 1 || A6400_UI_DISPLAY_MS > 20000 || (TRIAL_MS != 0 && A6400_UI_DISPLAY_MS >= TRIAL_MS)
-#error "A6400_UI_DISPLAY_MS must be between 1 and 20000 milliseconds"
+#if (A6400_UI_DISPLAY_MS != 0 || TRIAL_MS != 0) && \
+    (A6400_UI_DISPLAY_MS < 1 || A6400_UI_DISPLAY_MS > 20000 || (TRIAL_MS != 0 && A6400_UI_DISPLAY_MS >= TRIAL_MS))
+#error "A6400_UI_DISPLAY_MS must be 0 (no auto-hide, persistent only) or between 1 and 20000 milliseconds"
 #endif
 static volatile struct ui_trial_trace a6400_ui_trial_trace;
 #define TRACE (&a6400_ui_trial_trace)
@@ -92,14 +93,14 @@ typedef uint32_t (*pb_base_fn)(void);
 #define UI_S_QUAL_12M           "画质: 12MP 超清"
 #define UI_S_QUAL_6M            "画质: 6MP 高清"
 #define UI_S_QUAL_1M7           "画质: 1.7MP 极速"
-#define UI_S_HDR_BUSY           "V4.0 | %s | 转档:%u 已转:%u"
-#define UI_S_HDR_IDLE           "V4.0 | %s | 已转:%u (%u/%u)"
-#define UI_S_HDR_INIT           "A6400 V4.0 | %s"
-#define UI_S_HDR_BOOT           "A6400 V4.0 | 关闭"
+#define UI_S_HDR_BUSY           "V4.1 SLEM | %s | 转档:%u 已转:%u"
+#define UI_S_HDR_IDLE           "V4.1 SLEM | %s | 已转:%u (%u/%u)"
+#define UI_S_HDR_INIT           "V4.1 SLEM (hany) | %s"
+#define UI_S_HDR_BOOT           "V4.1 SLEM (hany) | 关闭"
 #define UI_S_HDR_LUT            "LUT 设置 | %s"
-#define UI_S_HDR_V4             "细节设置 | V4 功能"
+#define UI_S_HDR_V4             "细节设置 | V4.1 SLEM (hany)"
 #define UI_S_HDR_STOCKS         "胶片风格 (%u/2)"
-#define UI_S_FOOT_HOME          "套色相册: %u张 | 队列 %u/%u"
+#define UI_S_FOOT_HOME          "hany | 相册:%u张 | 队列 %u/%u"
 #define UI_S_ALBUM_TILE_FMT     "套色相册 (%u张) >"
 #define UI_S_POPUP_FMT          "即时预览小窗: %s"
 #define UI_S_ALBUM_FMT          "机内相册预览: %s"
@@ -125,14 +126,14 @@ typedef uint32_t (*pb_base_fn)(void);
 #define UI_S_QUAL_12M           "畫質: 12MP 超清"
 #define UI_S_QUAL_6M            "畫質: 6MP 高清"
 #define UI_S_QUAL_1M7           "畫質: 1.7MP 極速"
-#define UI_S_HDR_BUSY           "V4.0 | %s | 轉檔:%u 已轉:%u"
-#define UI_S_HDR_IDLE           "V4.0 | %s | 已轉:%u (%u/%u)"
-#define UI_S_HDR_INIT           "A6400 V4.0 | %s"
-#define UI_S_HDR_BOOT           "A6400 V4.0 | 關閉"
+#define UI_S_HDR_BUSY           "V4.1 SLEM | %s | 轉檔:%u 已轉:%u"
+#define UI_S_HDR_IDLE           "V4.1 SLEM | %s | 已轉:%u (%u/%u)"
+#define UI_S_HDR_INIT           "V4.1 SLEM (hany) | %s"
+#define UI_S_HDR_BOOT           "V4.1 SLEM (hany) | 關閉"
 #define UI_S_HDR_LUT            "LUT 設定 | %s"
-#define UI_S_HDR_V4             "細節設定 | V4 功能"
+#define UI_S_HDR_V4             "細節設定 | V4.1 SLEM (hany)"
 #define UI_S_HDR_STOCKS         "膠片風格 (%u/2)"
-#define UI_S_FOOT_HOME          "套色相冊: %u張 | 佇列 %u/%u"
+#define UI_S_FOOT_HOME          "hany | 相冊:%u張 | 佇列 %u/%u"
 #define UI_S_ALBUM_TILE_FMT     "套色相冊 (%u張) >"
 #define UI_S_POPUP_FMT          "即時預覽小窗: %s"
 #define UI_S_ALBUM_FMT          "機內相冊預覽: %s"
@@ -926,6 +927,7 @@ static void animate(void *self) {
         stop_trial("FILM_TRIAL_STOPPED");return;
     }
 #endif
+#if A6400_UI_DISPLAY_MS != 0
     if(ui.opened_ms && now-ui.opened_ms>=A6400_UI_DISPLAY_MS) {
 #if defined(A6400_UI_COMBO_DIAGNOSTIC) || (TRIAL_MS == 0 && !defined(A6400_UI_RENDER_DIAGNOSTIC))
         /* Hide only: the separate active ticker still watches the chord. */
@@ -935,6 +937,7 @@ static void animate(void *self) {
         stop_trial("TRIAL_AUTO_HIDE");return;
 #endif
     }
+#endif
 #if !defined(A6400_UI_COMBO_DIAGNOSTIC) && !(TRIAL_MS == 0 && !defined(A6400_UI_RENDER_DIAGNOSTIC))
     if(ui.ever_opened && !ui.view.menu.visible) {
         stop_trial("TRIAL_CLOSE_DONE");return;

@@ -199,11 +199,27 @@ echo [*] Checking Alpine Linux environment (!DISTRO!)...
 "!WSL_EXE!" -d "!DISTRO!" -- /bin/sh -c "test -f /opt/a6400/pmca_deploy_v3_clite.py" <nul >nul 2>&1
 if !errorlevel! EQU 0 goto :alpine_ready
 
+"!WSL_EXE!" --shutdown <nul >nul 2>&1
 "!WSL_EXE!" --unregister "!DISTRO!" <nul >nul 2>&1
+if exist "!INSTALL_BASE!" rmdir /s /q "!INSTALL_BASE!" >nul 2>&1
 echo [*] Importing Alpine Linux (!DISTRO!), takes ~3-5 seconds...
+if not exist "!INSTALL_BASE!" mkdir "!INSTALL_BASE!"
+"!WSL_EXE!" --import "!DISTRO!" "!INSTALL_BASE!" "!ROOTFS_TAR!" --version 2 <nul >"!TMP_OUT!" 2>&1
+if !errorlevel! EQU 0 goto :alpine_imported
+
+type "!TMP_OUT!"
+findstr /i "ERROR_ALREADY_EXISTS" "!TMP_OUT!" >nul 2>&1
+if !errorlevel! NEQ 0 goto :err_import_failed
+
+set "DISTRO=A6400Deployer_!RUN_ID!"
+set "INSTALL_BASE=!LOCALAPPDATA!\A6400WSL_!RUN_ID!"
+echo [*] Retrying import with fresh instance name !DISTRO!...
 if not exist "!INSTALL_BASE!" mkdir "!INSTALL_BASE!"
 "!WSL_EXE!" --import "!DISTRO!" "!INSTALL_BASE!" "!ROOTFS_TAR!" --version 2 <nul
 if !errorlevel! NEQ 0 goto :err_import_failed
+
+:alpine_imported
+del /f /q "!TMP_OUT!" >nul 2>&1
 echo [+] Alpine Linux imported
 goto :alpine_boot_check
 
@@ -326,9 +342,14 @@ call :find_usbipd
 call :find_wsl
 if not "!USBIPD_EXE!"=="" call :detach_all_sony
 if not "!WSL_EXE!"=="" (
+    "!WSL_EXE!" --shutdown <nul >nul 2>&1
     "!WSL_EXE!" --unregister "!DISTRO!" <nul >nul 2>&1
+    "!WSL_EXE!" -l -q <nul >"!TMP_OUT!" 2>nul
+    for /f "usebackq delims=" %%D in ("!TMP_OUT!") do (
+        echo %%D| findstr /i "^A6400Deployer" >nul 2>&1 && "!WSL_EXE!" --unregister "%%D" <nul >nul 2>&1
+    )
 )
-if exist "!INSTALL_BASE!" rmdir /s /q "!INSTALL_BASE!" >nul 2>&1
+for /d %%P in ("!LOCALAPPDATA!\A6400WSL*") do rmdir /s /q "%%P" >nul 2>&1
 del /f /q "!TMP_OUT!" "!TMP_JSON!" "!TMP_GUIDS!" >nul 2>&1
 echo [+] Cleanup complete.
 exit /b 0

@@ -574,6 +574,31 @@ Class Name :                libusb-win32 devices
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn('ALPINE_WSL_SMOKE_OK', sh.read_text())
 
+        cmd = root / 'tools' / 'wsl_deploy.cmd'
+        cmd_raw = cmd.read_bytes()
+        self.assertFalse(cmd_raw.startswith(b'\xef\xbb\xbf'), 'wsl_deploy.cmd must NOT have UTF-8 BOM for cmd.exe')
+        self.assertTrue(cmd_raw.startswith(b'@echo off\r\n'), 'wsl_deploy.cmd must start with @echo off CRLF')
+        cmd_txt = cmd_raw.decode('utf-8')
+        for needle in (
+            '[體檢 1/6]',
+            '[體檢 6/6]',
+            'fltmc',
+            'hypervisorlaunchtype',
+            'vmcompute',
+            '/LimitAccess',
+            'wsl.2.4.13.0.x64.msi',
+            'usbipd-win.msi',
+            'PersistedGuid',
+            'chr(92)',
+        ):
+            self.assertIn(needle, cmd_txt)
+
+        watch = root / 'tools' / 'usbipd_watch.cmd'
+        watch_raw = watch.read_bytes()
+        self.assertFalse(watch_raw.startswith(b'\xef\xbb\xbf'))
+        self.assertTrue(watch_raw.startswith(b'@echo off\r\n'))
+        self.assertIn('054c:0336', watch_raw.decode('ascii'))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

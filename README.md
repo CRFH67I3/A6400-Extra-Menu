@@ -19,6 +19,7 @@
 > **本專案仍在持續開發與演進。** 主要文件使用繁體中文，採 **PolyForm Noncommercial 1.0.0**（非商業用途之原始碼公開授權，正式條款見 [LICENSE](LICENSE)，中文重點見 [授權說明](docs/授權說明.md)）。已驗證的功能、硬體限制（含 Cortex-A5 無 NEON 實測確認）與操作邊界請參閱 [功能狀態與限制](docs/功能狀態.md) 與 [開發與架構細節](docs/開發與架構細節.md)。
 
 > ### 📘 快速入口：從 GitHub 原始碼完整建置／部署 V3.9 SSLF ＋ 開發細節
+> - **[Windows WSL2 全離線一鍵包 — 常見問題與排錯指南（docs/WINDOWS-WSL2-FAQ.md）](docs/WINDOWS-WSL2-FAQ.md)** — 收錄 Win11 `HCS_E_SERVICE_NOT_AVAILABLE`（TIA Portal / `hypervisorlaunchtype off` / `vmcompute 1060`）、`DISM` / `OptionalFeatures` 卡「正在尋找所需文件」（`/LimitAccess` 解法）、資料夾含 `(1)` 括號提權閃退與 `usbipd unbind --all` 復原讀卡機等實戰排錯。
 > - **[從原始碼建置、部署與操作規範（docs/部署與操作規範.md）](docs/部署與操作規範.md)** — 收錄從源碼交叉編譯、全自動 PMCA 寫入（自動偵測並修補全新機身開機掛勾 `/etc/a6400-autoexec.so`）、`--rollback` / `--diag` 一鍵救援、**SD 卡 `/A6400/CHARO.PCM` 自訂音效**、**日常使用限制（最新資料夾 1,024 張上限／15.94 MiB／exFAT 與 FAT32 皆可用／`/A6400/TEST/`）**，以及 **[第六節完整實戰排雷手冊](docs/部署與操作規範.md#六完整實戰排雷手冊部署過程中所有常見異常與解決對策)**。
 > - **[更新日誌（CHANGELOG.md）](CHANGELOG.md)** — 完整記錄 V0 → V3.9 SSLF 的版本演進、效能數據與實機修復項目。
 > - **[開發與架構細節（docs/開發與架構細節.md）](docs/開發與架構細節.md)** — 完整記錄 V3.1 → V3.9 SSLF 演進脈絡、硬體 `/proc/cpuinfo`（無 NEON）、解碼/編碼/Shell 各階段拆解、`1120-byte` UI 快照 ABI 與 `manifest.json` 欄位說明。

@@ -78,6 +78,10 @@ typedef void (*font_fn)(void *,uint32_t);
 typedef void (*cimg_size_fn)(void *,float,float) __attribute__((pcs("aapcs")));
 typedef void *(*img_sys_get_fn)(void *);
 typedef uint32_t (*get_res_id_fn)(void *);
+typedef void (*create_param_ctor_fn)(void *,uint16_t,uint16_t,int);
+typedef void (*create_param_arena_fn)(void *,uint8_t);
+typedef uint8_t (*widget_get_arena_fn)(void *);
+typedef int (*resmgr_create_img_fn)(const void *,void *);
 typedef int (*bmp_stride_fn)(void *,int16_t *);
 typedef int (*bmp_fmt_fn)(void *,int *);
 typedef int (*bmp_lock_fn)(void *,int,void **);
@@ -286,11 +290,22 @@ volatile struct a6400_ui_v4_v1 a6400_ui_v4_v1 = {
     {0}, {{0}}
 };
 
+struct v4_native_slot {
+    void *widget;
+    void *bmp;
+    int w, h, init_failed;
+    uint32_t res_id;
+};
+
 static struct {
     struct mtf2_ctx mtf2;
-    /* Native Sony GEN_CacheInsImg zero-flicker canvas APIs (resolved via dlsym). */
-    ctor_fn cache_img_ctor, cache_img_init, sprite_invalidate;
+    /* Native Sony GEN_CacheInsImg + RGBA4444 (fmt=7) zero-flicker canvas APIs. */
+    ctor_fn cache_img_ctor, sprite_invalidate;
     cimg_size_fn cache_img_set_size;
+    create_param_ctor_fn create_param_ctor;
+    create_param_arena_fn create_param_arena;
+    widget_get_arena_fn widget_get_arena;
+    resmgr_create_img_fn resmgr_create_img;
     img_sys_get_fn img_sys_get, bmp_get_internal;
     get_res_id_fn get_res_id;
     bmp_stride_fn bmp_stride;
@@ -302,10 +317,8 @@ static struct {
     pv_read_fn pv_read;
     pv_close_fn pv_close;
     void *popup_border;
-    void *img_widget;
-    void *img_bmp;
-    int img_w, img_h, img_fmt, img_init_failed;
-    uint32_t img_res_id;
+    struct v4_native_slot pop_slot;
+    struct v4_native_slot alb_slot;
     uint32_t seen_latest_seq;
     int popup_active;
     int popup_is_native;
@@ -402,11 +415,15 @@ static __attribute__((noinline)) int resolve(void) {
     ui_theme.beep_play=(beep_play_fn)api("_ZN13AppWidgetBase8beepPlayEi",0);
     if(!ui_theme.beep_play)return -1;
 #endif
-    /* Optional native GEN_CacheInsImg zero-flicker preview renderer (falls back to
-     * external OSD blitter cleanly if any symbol or Thumb prologue does not match). */
+    /* Optional native GEN_CacheInsImg + RGBA4444 (CreateImageParam fmt=7, same as
+     * Sony's GEN_QRCode) zero-flicker preview renderer. */
     ui_v4.cache_img_ctor=(ctor_fn)dlsym(RTLD_DEFAULT,"_ZN15GEN_CacheInsImgC1Ev");
     ui_v4.cache_img_set_size=(cimg_size_fn)dlsym(RTLD_DEFAULT,"_ZN15GEN_CacheInsImg7setSizeEff");
-    ui_v4.cache_img_init=(ctor_fn)dlsym(RTLD_DEFAULT,"_ZN15GEN_CacheInsImg19initializeImageDataEv");
+    ui_v4.create_param_ctor=(create_param_ctor_fn)dlsym(RTLD_DEFAULT,"_ZN5libra16CreateImageParamC1Etti");
+    ui_v4.create_param_arena=(create_param_arena_fn)dlsym(RTLD_DEFAULT,"_ZN5libra16CreateImageParam10setArenaIDEh");
+    ui_v4.widget_get_arena=(widget_get_arena_fn)dlsym(RTLD_DEFAULT,"_ZN13AppWidgetBase10getArenaIDEv");
+    ui_v4.resmgr_create_img=(resmgr_create_img_fn)dlsym(RTLD_DEFAULT,
+        "_ZN2ux6resmgr15ResourceManager11createImageERKN5libra16CreateImageParamEPNS2_9ImageDataE");
     ui_v4.img_sys_get=(img_sys_get_fn)dlsym(RTLD_DEFAULT,"_ZN5libra9ImageData16sys_getImageDataEv");
     ui_v4.bmp_get_internal=(img_sys_get_fn)dlsym(RTLD_DEFAULT,"_ZN2ux4core13GraphicsImage21sys_getInternalObjectEPv");
     ui_v4.get_res_id=(get_res_id_fn)dlsym(RTLD_DEFAULT,"_ZNK5libra9ImageData8getResIDEv");
@@ -597,48 +614,71 @@ static int v4_pv_read_exact(int fd,void *buf,size_t len) {
     }
     return 0;
 }
-static int v4_ensure_native_canvas(void) {
-    if(ui_v4.img_widget && ui_v4.img_bmp)return 1;
-    if(ui_v4.img_init_failed)return 0;
-    if(!ui_v4.cache_img_ctor || !ui_v4.cache_img_set_size || !ui_v4.cache_img_init ||
-       !ui_v4.img_sys_get || !ui_v4.bmp_get_internal || !ui_v4.bmp_stride ||
-       !ui_v4.bmp_lock || !ui_v4.bmp_unlock || !ui_v4.sprite_invalidate ||
+static void v4_hide_slot(struct v4_native_slot *slot) {
+    if(slot->widget && ui_v4.cache_img_set_size) {
+        const float zxy[2]={0.0f,0.0f};
+        ui.set_position(slot->widget,zxy);
+        ui_v4.cache_img_set_size(slot->widget,0.0f,0.0f);
+        if(ui_v4.sprite_invalidate)ui_v4.sprite_invalidate((unsigned char *)slot->widget+0x164u);
+    }
+}
+static int v4_ensure_native_slot(struct v4_native_slot *slot,const int dims[][2],int ndims) {
+    if(slot->widget && slot->bmp)return 1;
+    if(slot->init_failed)return 0;
+    if(!ui_v4.cache_img_ctor || !ui_v4.cache_img_set_size ||
+       !ui_v4.create_param_ctor || !ui_v4.resmgr_create_img ||
+       !ui_v4.img_sys_get || !ui_v4.bmp_get_internal || !ui_v4.get_res_id ||
+       !ui_v4.bmp_stride || !ui_v4.bmp_lock || !ui_v4.bmp_unlock ||
+       !ui_v4.sprite_set_img || !ui_v4.sprite_invalidate ||
        !ui_v4.pv_open || !ui_v4.pv_read || !ui_v4.pv_close) {
-        ui_v4.img_init_failed=1;
+        slot->init_failed=1;
         return 0;
     }
-    static const int try_dims[3][2]={{600,400},{480,320},{300,200}};
-    for(int t=0;t<3;t++) {
+    for(int t=0;t<ndims;t++) {
+        int cw=dims[t][0],ch=dims[t][1];
         void *cand=calloc(1,0x400u);
         if(!cand)break;
         ui_v4.cache_img_ctor(cand);
         ui.set_layer(cand,&ui.layer_id);
         const float zxy[2]={0.0f,0.0f};
         ui.set_position(cand,zxy);
-        int cw=try_dims[t][0],ch=try_dims[t][1];
         ui_v4.cache_img_set_size(cand,(float)cw,(float)ch);
         *(uint8_t *)((unsigned char *)cand+0x20cu)=1u;
-        ui_v4.cache_img_init(cand);
+        uint32_t param[12];
+        memset(param,0,sizeof(param));
+        /* Format 7 = native 16-bit RGBA4444 (0xRGBA), exact match to Sony GEN_QRCode. */
+        ui_v4.create_param_ctor(param,(uint16_t)cw,(uint16_t)ch,7);
+        if(ui_v4.create_param_arena && ui_v4.widget_get_arena)
+            ui_v4.create_param_arena(param,ui_v4.widget_get_arena(cand));
         void *img_data=(unsigned char *)cand+0x15cu;
-        void *internal_img=ui_v4.img_sys_get(img_data);
-        void *bmp=internal_img?ui_v4.bmp_get_internal(internal_img):0;
-        if(bmp) {
-            ui_v4.img_widget=cand;
-            ui_v4.img_bmp=bmp;
-            ui_v4.img_w=cw;
-            ui_v4.img_h=ch;
-            ui_v4.img_res_id=ui_v4.get_res_id?ui_v4.get_res_id(img_data):0xffffffffu;
-            ui_v4.img_fmt=-1;
-            if(ui_v4.bmp_fmt)ui_v4.bmp_fmt(bmp,&ui_v4.img_fmt);
-            ui_v4.cache_img_set_size(cand,0.0f,0.0f);
-            ui_v4.sprite_invalidate((unsigned char *)cand+0x164u);
-            record("V4_NATIVE_IMG_OK",cw,ch);
-            return 1;
+        int created=ui_v4.resmgr_create_img(param,img_data);
+        if(!created && ui_v4.create_param_arena) {
+            ui_v4.create_param_ctor(param,(uint16_t)cw,(uint16_t)ch,7);
+            created=ui_v4.resmgr_create_img(param,img_data);
+        }
+        if(created) {
+            void *internal_img=ui_v4.img_sys_get(img_data);
+            void *bmp=internal_img?ui_v4.bmp_get_internal(internal_img):0;
+            if(bmp) {
+                uint32_t rid=ui_v4.get_res_id(img_data);
+                ui_v4.sprite_set_img((unsigned char *)cand+0x164u,rid,0x80u);
+                *(uint8_t *)((unsigned char *)cand+0x20eu)=1u;
+                *(uint8_t *)((unsigned char *)cand+0x20du)=1u;
+                slot->widget=cand;
+                slot->bmp=bmp;
+                slot->w=cw;
+                slot->h=ch;
+                slot->res_id=rid;
+                ui_v4.cache_img_set_size(cand,0.0f,0.0f);
+                ui_v4.sprite_invalidate((unsigned char *)cand+0x164u);
+                record("V4_NATIVE_IMG_OK",cw,ch);
+                return 1;
+            }
         }
         ui_v4.cache_img_set_size(cand,0.0f,0.0f);
     }
-    ui_v4.img_init_failed=1;
-    record("V4_NATIVE_IMG_FAIL",0,0);
+    slot->init_failed=1;
+    record("V4_NATIVE_IMG_FAIL",dims[0][0],dims[0][1]);
     return 0;
 }
 static void v4_hide_native_img(void) {
@@ -647,45 +687,37 @@ static void v4_hide_native_img(void) {
         place(ui_v4.popup_border,0,0,0,0,0);
         paint(ui_v4.popup_border,clear_c);
     }
-    if(ui_v4.img_widget && ui_v4.cache_img_set_size) {
-        const float zxy[2]={0.0f,0.0f};
-        ui.set_position(ui_v4.img_widget,zxy);
-        ui_v4.cache_img_set_size(ui_v4.img_widget,0.0f,0.0f);
-        if(ui_v4.sprite_invalidate)ui_v4.sprite_invalidate((unsigned char *)ui_v4.img_widget+0x164u);
-    }
+    v4_hide_slot(&ui_v4.pop_slot);
+    v4_hide_slot(&ui_v4.alb_slot);
 }
-static void v4_convert_row(unsigned char *dst_row,int is32,int is4444,
-                           const uint16_t *src_row,unsigned src_w,unsigned dst_w) {
+static void v4_write_rgba4444_row(unsigned char *dst_row,int is32,unsigned slot_w,
+                                  const uint16_t *src_row,unsigned src_w) {
+    unsigned dst_w=(src_w<=slot_w)?src_w:slot_w;
+    unsigned pad_l=(slot_w>dst_w)?((slot_w-dst_w)/2u):0u;
     if(is32) {
         uint32_t *d=(uint32_t *)dst_row;
+        for(unsigned x=0;x<slot_w;x++)d[x]=0xff12100eu;
         for(unsigned dx=0;dx<dst_w;dx++) {
             uint16_t q=src_row[(dst_w==src_w)?dx:((dx*src_w)/dst_w)];
             uint32_t r=((q>>12)&0xfu)*0x11u;
             uint32_t g=((q>>8)&0xfu)*0x11u;
             uint32_t b=((q>>4)&0xfu)*0x11u;
-            d[dx]=r | (g<<8) | (b<<16) | 0xff000000u;
-        }
-    } else if(is4444) {
-        uint16_t *d=(uint16_t *)dst_row;
-        if(dst_w==src_w) {
-            memcpy(d,src_row,(size_t)dst_w*2u);
-        } else {
-            for(unsigned dx=0;dx<dst_w;dx++)d[dx]=src_row[(dx*src_w)/dst_w];
+            d[pad_l+dx]=r | (g<<8) | (b<<16) | 0xff000000u;
         }
     } else {
         uint16_t *d=(uint16_t *)dst_row;
-        for(unsigned dx=0;dx<dst_w;dx++) {
-            uint16_t q=src_row[(dst_w==src_w)?dx:((dx*src_w)/dst_w)];
-            unsigned r4=(q>>12)&0xfu,g4=(q>>8)&0xfu,b4=(q>>4)&0xfu;
-            unsigned r5=(r4<<1)|(r4>>3);
-            unsigned g6=(g4<<2)|(g4>>2);
-            unsigned b5=(b4<<1)|(b4>>3);
-            d[dx]=(uint16_t)((r5<<11)|(g6<<5)|b5);
+        for(unsigned x=0;x<pad_l;x++)d[x]=0x112Fu;
+        if(dst_w==src_w) {
+            memcpy(d+pad_l,src_row,(size_t)dst_w*2u);
+        } else {
+            for(unsigned dx=0;dx<dst_w;dx++)d[pad_l+dx]=src_row[(dx*src_w)/dst_w];
         }
+        for(unsigned x=pad_l+dst_w;x<slot_w;x++)d[x]=0x112Fu;
     }
 }
-static int v4_load_bin_to_canvas(const char *path,unsigned want_w,unsigned want_h,int *out_w,int *out_h) {
-    if(!v4_ensure_native_canvas())return -1;
+static int v4_load_bin_to_slot(struct v4_native_slot *slot,const int dims[][2],int ndims,
+                               const char *path,unsigned want_w,unsigned want_h) {
+    if(!v4_ensure_native_slot(slot,dims,ndims))return -1;
     if(want_w==0u || want_h==0u || want_w>A6400_ALBUM_W)return -1;
     int fd=ui_v4.pv_open(path,0);
     if(fd<0)return -1;
@@ -697,15 +729,13 @@ static int v4_load_bin_to_canvas(const char *path,unsigned want_w,unsigned want_
     }
     int16_t stride=0;
     void *dst=0;
-    ui_v4.bmp_stride(ui_v4.img_bmp,&stride);
-    if(stride<ui_v4.img_w*2 || ui_v4.bmp_lock(ui_v4.img_bmp,-1,&dst)!=0 || !dst) {
+    ui_v4.bmp_stride(slot->bmp,&stride);
+    if(stride<slot->w*2 || ui_v4.bmp_lock(slot->bmp,-1,&dst)!=0 || !dst) {
         ui_v4.pv_close(fd);
         return -1;
     }
-    int is32=(stride>=ui_v4.img_w*4);
-    int is4444=(!is32 && ui_v4.img_fmt==3);
-    unsigned dst_w=(want_w<=(unsigned)ui_v4.img_w)?want_w:(unsigned)ui_v4.img_w;
-    unsigned dst_h=(want_h<=(unsigned)ui_v4.img_h)?want_h:(unsigned)ui_v4.img_h;
+    int is32=(stride>=slot->w*4);
+    unsigned dst_h=(unsigned)slot->h;
     uint16_t row_buf[A6400_ALBUM_W];
     unsigned next_dy=0u;
     int ok=1;
@@ -713,36 +743,35 @@ static int v4_load_bin_to_canvas(const char *path,unsigned want_w,unsigned want_
         if(v4_pv_read_exact(fd,row_buf,(size_t)want_w*2u)!=0){ok=0;break;}
         while(next_dy<dst_h && ((next_dy*want_h)/dst_h)==sy) {
             unsigned char *drow=(unsigned char *)dst+(size_t)next_dy*(size_t)stride;
-            v4_convert_row(drow,is32,is4444,row_buf,want_w,dst_w);
+            v4_write_rgba4444_row(drow,is32,(unsigned)slot->w,row_buf,want_w);
             ++next_dy;
         }
     }
-    ui_v4.bmp_unlock(ui_v4.img_bmp);
+    ui_v4.bmp_unlock(slot->bmp);
     ui_v4.pv_close(fd);
     if(!ok)return -1;
-    if(ui_v4.sprite_set_img && ui_v4.img_res_id!=0xffffffffu)
-        ui_v4.sprite_set_img((unsigned char *)ui_v4.img_widget+0x164u,ui_v4.img_res_id,0x80u);
-    if(out_w)*out_w=(int)dst_w;
-    if(out_h)*out_h=(int)dst_h;
+    ui_v4.sprite_set_img((unsigned char *)slot->widget+0x164u,slot->res_id,0x80u);
     return 0;
 }
 static void v4_show_popup(uint32_t now) {
+    static const int pop_dims[1][2]={{(int)A6400_POPUP_W,(int)A6400_POPUP_H}};
     char path[160];
     snprintf(path,sizeof(path),"%s/popup.bin",A6400_PV_DIR_RUNTIME);
-    int dw=0,dh=0;
     ui_v4.popup_active=1;
     ui_v4.popup_until_ms=now+A6400_POPUP_SHOW_MS;
-    if(v4_load_bin_to_canvas(path,A6400_POPUP_W,A6400_POPUP_H,&dw,&dh)==0) {
+    if(v4_load_bin_to_slot(&ui_v4.pop_slot,pop_dims,1,path,A6400_POPUP_W,A6400_POPUP_H)==0) {
         static const unsigned char frame_c[4]={234,78,16,255};
         hide_menu_widgets();
+        v4_hide_slot(&ui_v4.alb_slot);
         if(ui_v4.popup_border) {
-            place(ui_v4.popup_border,0,(int)A6400_POPUP_X-2,(int)A6400_POPUP_Y-2,dw+4,dh+4);
+            place(ui_v4.popup_border,0,(int)A6400_POPUP_X-2,(int)A6400_POPUP_Y-2,
+                  ui_v4.pop_slot.w+4,ui_v4.pop_slot.h+4);
             paint(ui_v4.popup_border,frame_c);
         }
         const float xy[2]={(float)A6400_POPUP_X,(float)A6400_POPUP_Y};
-        ui.set_position(ui_v4.img_widget,xy);
-        ui_v4.cache_img_set_size(ui_v4.img_widget,(float)dw,(float)dh);
-        if(ui_v4.sprite_invalidate)ui_v4.sprite_invalidate((unsigned char *)ui_v4.img_widget+0x164u);
+        ui.set_position(ui_v4.pop_slot.widget,xy);
+        ui_v4.cache_img_set_size(ui_v4.pop_slot.widget,(float)ui_v4.pop_slot.w,(float)ui_v4.pop_slot.h);
+        ui_v4.sprite_invalidate((unsigned char *)ui_v4.pop_slot.widget+0x164u);
         ui_v4.popup_is_native=1;
         v4_publish_display(A6400_DISP_NONE,0u);
         ui.move_last(ui.layer);
@@ -772,6 +801,7 @@ static void v4_draw_album_hud(const char *top_text,const char *bot_text,int opaq
     hide_menu_widgets();
     hide_toast_widgets();
     ui_toast.visible=0;
+    v4_hide_slot(&ui_v4.pop_slot);
     if(ui_v4.popup_border) {
         place(ui_v4.popup_border,0,0,0,0,0);
         paint(ui_v4.popup_border,clear_c);
@@ -817,16 +847,17 @@ static void v4_album_sync_view(void) {
              (unsigned)(ui_v4.album_idx+1u),(unsigned)cnt,cap[0]?cap:UI_S_ALB_LUT_DEF);
     snprintf(bot,sizeof(bot),UI_S_ALB_DIR_BOT);
     snprintf(path,sizeof(path),"%s/slot_%02u.bin",A6400_PV_DIR_RUNTIME,(unsigned)(slot%A6400_ALBUM_SLOTS));
-    int dw=0,dh=0;
-    int native_ok=(v4_load_bin_to_canvas(path,A6400_ALBUM_W,A6400_ALBUM_H,&dw,&dh)==0);
+    /* 16-pixel aligned widths matching Sony GEN_QRCode RGBA4444 requirements. */
+    static const int alb_dims[3][2]={{608,400},{480,320},{304,200}};
+    int native_ok=(v4_load_bin_to_slot(&ui_v4.alb_slot,alb_dims,3,path,A6400_ALBUM_W,A6400_ALBUM_H)==0);
     v4_draw_album_hud(top,bot,native_ok);
     if(native_ok) {
-        int px=(640-dw)/2;
-        int py=40+(400-dh)/2;
+        int px=(640-ui_v4.alb_slot.w)/2;
+        int py=40+(400-ui_v4.alb_slot.h)/2;
         const float xy[2]={(float)px,(float)py};
-        ui.set_position(ui_v4.img_widget,xy);
-        ui_v4.cache_img_set_size(ui_v4.img_widget,(float)dw,(float)dh);
-        if(ui_v4.sprite_invalidate)ui_v4.sprite_invalidate((unsigned char *)ui_v4.img_widget+0x164u);
+        ui.set_position(ui_v4.alb_slot.widget,xy);
+        ui_v4.cache_img_set_size(ui_v4.alb_slot.widget,(float)ui_v4.alb_slot.w,(float)ui_v4.alb_slot.h);
+        ui_v4.sprite_invalidate((unsigned char *)ui_v4.alb_slot.widget+0x164u);
         ui_v4.album_is_native=1;
         /* Keep external OSD blitter idle while native GEN_CacheInsImg renders zero-flicker. */
         v4_publish_display(A6400_DISP_NONE,slot);

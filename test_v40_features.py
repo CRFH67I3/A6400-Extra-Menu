@@ -555,9 +555,12 @@ static uint32_t mtf2_host_mock_dispatch(int16_t x, int16_t y, int dx, int dy, in
 static unsigned model_now_ms = 1000;
 static int model_layer_is_active = 0;
 static float last_img_w = -1.0f, last_img_h = -1.0f;
+static int last_param_fmt = -1;
 static int invalidates = 0, unlocks = 0;
-static uint32_t canvas_rgba[600 * 400];
-static unsigned char menu_marker[64], ticker_marker[64], bmp_marker[64], int_marker[64], border_marker[64];
+static uint16_t pop_rgba4444[240 * 160];
+static uint16_t alb_rgba4444[608 * 400];
+static unsigned char menu_marker[64], ticker_marker[64], pop_bmp[64], alb_bmp[64], pop_int[64], alb_int[64], border_marker[64];
+static uint16_t pending_w = 0, pending_h = 0;
 static int model_key(void *p, int k, void *d) { (void)p;(void)k;(void)d; return 0; }
 static void model_position(const void *p, unsigned char n, short *x, short *y) { (void)p;(void)n;*x=32767;*y=32767; }
 static int model_state(const void *p, unsigned char a, unsigned char b) { (void)p;(void)a;(void)b; return 6; }
@@ -569,12 +572,20 @@ static void model_size(void *p, float w, float h) { (void)p;(void)w;(void)h; }
 static void model_cimg_size(void *p, float w, float h) { (void)p; last_img_w = w; last_img_h = h; }
 static void model_color(void *p, const unsigned char *c) { (void)p;(void)c; }
 static void model_text(void *p, const char *s) { (void)p;(void)s; }
-static void *model_sys_get(void *p) { (void)p; return int_marker; }
-static void *model_bmp_get(void *p) { (void)p; return bmp_marker; }
-static uint32_t model_res_id(void *p) { (void)p; return 0x1234u; }
-static int model_bmp_stride(void *p, int16_t *s) { (void)p; *s = 600 * 4; return 0; }
-static int model_bmp_fmt(void *p, int *f) { (void)p; *f = 0; return 0; }
-static int model_bmp_lock(void *p, int fl, void **out) { (void)p;(void)fl; *out = canvas_rgba; return 0; }
+static void model_param_ctor(void *p, uint16_t w, uint16_t h, int fmt) {
+    (void)p; pending_w = w; pending_h = h; last_param_fmt = fmt;
+}
+static int model_resmgr_create(const void *param, void *img_data) {
+    (void)param;
+    *(uint16_t *)img_data = pending_w;
+    return 1;
+}
+static void *model_sys_get(void *p) { return (*(uint16_t *)p == 240u) ? pop_int : alb_int; }
+static void *model_bmp_get(void *p) { return (p == pop_int) ? pop_bmp : alb_bmp; }
+static uint32_t model_res_id(void *p) { return (*(uint16_t *)p == 240u) ? 0x1001u : 0x1002u; }
+static int model_bmp_stride(void *p, int16_t *s) { *s = (p == pop_bmp) ? (240 * 2) : (608 * 2); return 0; }
+static int model_bmp_fmt(void *p, int *f) { (void)p; *f = 7; return 0; }
+static int model_bmp_lock(void *p, int fl, void **out) { (void)fl; *out = (p == pop_bmp) ? (void *)pop_rgba4444 : (void *)alb_rgba4444; return 0; }
 static int model_bmp_unlock(void *p) { (void)p; ++unlocks; return 0; }
 static void model_sprite_set(void *p, uint32_t id, uint32_t fl) { (void)p;(void)id;(void)fl; }
 static void model_sprite_inv(void *p) { (void)p; ++invalidates; }
@@ -600,7 +611,8 @@ void n_init(void) {
     memset(&ui_theme, 0, sizeof(ui_theme));
     memset(&ui_toast, 0, sizeof(ui_toast));
     memset(&ui_v4, 0, sizeof(ui_v4));
-    memset(canvas_rgba, 0, sizeof(canvas_rgba));
+    memset(pop_rgba4444, 0, sizeof(pop_rgba4444));
+    memset(alb_rgba4444, 0, sizeof(alb_rgba4444));
     struct film_settings initial = {0, 0, 2, 1};
     const struct film_native_view_ops ops = {visibility, draw, settings};
     film_native_view_init(&ui.view, &ops, 0, &initial);
@@ -613,8 +625,9 @@ void n_init(void) {
     ui.set_color = model_color; ui.set_text = model_text;
     ui_v4.popup_border = border_marker;
     ui_v4.cache_img_ctor = model_unary;
-    ui_v4.cache_img_init = model_unary;
     ui_v4.cache_img_set_size = model_cimg_size;
+    ui_v4.create_param_ctor = model_param_ctor;
+    ui_v4.resmgr_create_img = model_resmgr_create;
     ui_v4.img_sys_get = model_sys_get;
     ui_v4.bmp_get_internal = model_bmp_get;
     ui_v4.get_res_id = model_res_id;
@@ -633,12 +646,14 @@ void n_init(void) {
     a6400_ui_v4_v1.latest_seq = 0u;
     a6400_ui_v4_v1.display_mode = A6400_DISP_NONE;
     model_now_ms = 1000; model_layer_is_active = 0; last_img_w = -1.0f; last_img_h = -1.0f;
-    invalidates = 0; unlocks = 0;
+    last_param_fmt = -1; invalidates = 0; unlocks = 0;
 }
 void n_tick(unsigned dt) { model_now_ms += dt; animate(ui.ticker); }
 void n_open_album(void) { ui_v4.album_mode = 2; ui_v4.album_idx = 0; v4_album_sync_view(); }
 void n_exit_album(void) { v4_exit_album(); }
-uint32_t n_canvas_px(unsigned idx) { return canvas_rgba[idx]; }
+uint32_t n_pop_px(unsigned idx) { return pop_rgba4444[idx]; }
+uint32_t n_alb_px(unsigned idx) { return alb_rgba4444[idx]; }
+int n_param_fmt(void) { return last_param_fmt; }
 int n_layer_active(void) { return model_layer_is_active; }
 int n_img_w(void) { return (int)last_img_w; }
 int n_img_h(void) { return (int)last_img_h; }
@@ -657,30 +672,37 @@ int n_album_native(void) { return ui_v4.album_is_native; }
                 str(ROOT / 'camera/film_menu.c'), '-o', str(so_file),
             ], check=True)
             lib = ctypes.CDLL(str(so_file))
-            lib.n_canvas_px.restype = ctypes.c_uint32
+            lib.n_pop_px.restype = ctypes.c_uint32
+            lib.n_alb_px.restype = ctypes.c_uint32
             lib.n_init()
             v4 = UiV4V1.in_dll(lib, 'a6400_ui_v4_v1')
 
-            # 1) Trigger popup -> native GEN_CacheInsImg renders 240x160 RGBA8888 red, external OSD stays NONE!
+            # 1) Trigger popup -> native RGBA4444 (fmt=7) 240x160 exact copy, external OSD stays NONE!
             v4.latest_seq = 1
             lib.n_tick(25)
             self.assertEqual(lib.n_popup_native(), 1)
+            self.assertEqual(lib.n_param_fmt(), 7)
             self.assertEqual(v4.display_mode, 0)  # external film_preview_osd stays 100% idle!
             self.assertEqual(lib.n_layer_active(), 1)
             self.assertEqual((lib.n_img_w(), lib.n_img_h()), (240, 160))
-            self.assertEqual(lib.n_canvas_px(0), 0xFF0000FF)
+            self.assertEqual(lib.n_pop_px(0), 0xF00F)
+            self.assertEqual(lib.n_pop_px(240 * 159 + 239), 0xF00F)
             # Expires after 3.5s -> hides canvas (0x0) and deactivates layer!
             lib.n_tick(3600)
             self.assertEqual(lib.n_layer_active(), 0)
             self.assertEqual((lib.n_img_w(), lib.n_img_h()), (0, 0))
 
-            # 2) Open Graded Album -> native GEN_CacheInsImg renders 600x400 RGBA8888 green, external OSD stays NONE!
+            # 2) Open Graded Album -> native RGBA4444 (fmt=7) 608x400 (600px centered + 4px margins)
             lib.n_open_album()
             self.assertEqual(lib.n_album_native(), 1)
+            self.assertEqual(lib.n_param_fmt(), 7)
             self.assertEqual(v4.display_mode, 0)
             self.assertEqual(lib.n_layer_active(), 1)
-            self.assertEqual((lib.n_img_w(), lib.n_img_h()), (600, 400))
-            self.assertEqual(lib.n_canvas_px(600 * 200 + 300), 0xFF00FF00)
+            self.assertEqual((lib.n_img_w(), lib.n_img_h()), (608, 400))
+            self.assertEqual(lib.n_alb_px(608 * 200 + 0), 0x112F)     # left 4px obsidian margin
+            self.assertEqual(lib.n_alb_px(608 * 200 + 4), 0x0F0F)     # image start
+            self.assertEqual(lib.n_alb_px(608 * 200 + 603), 0x0F0F)   # image end
+            self.assertEqual(lib.n_alb_px(608 * 200 + 607), 0x112F)   # right 4px obsidian margin
             lib.n_exit_album()
             self.assertEqual(lib.n_layer_active(), 0)
             self.assertEqual((lib.n_img_w(), lib.n_img_h()), (0, 0))

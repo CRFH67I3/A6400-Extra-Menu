@@ -194,10 +194,11 @@ const char *model_toast_text(void) { return model_toast_label; }
             self.assertIn('V4.0', lib.model_header_text().decode('utf-8'))
             self.assertIn('已轉:7 (42/1024)', lib.model_header_text().decode('utf-8'))
             lib.model_open_details()
-            self.assertEqual(lib.model_footer_text().decode('utf-8'), '相冊預覽 (0) →')
+            self.assertEqual(lib.model_footer_text().decode('utf-8'), '細節設定 >')
 
             status.active_jobs = 2
             status.seq = 2
+            lib.model_open_home()
             lib.model_tick(20)
             self.assertIn('轉檔:2 已轉:7', lib.model_header_text().decode('utf-8'))
 
@@ -238,7 +239,7 @@ static void model_size(void *p,float w,float h) __attribute__((pcs("aapcs")));
 static void model_size(void *p,float w,float h) {(void)p;(void)w;(void)h;}
 static void model_color(void *p,const unsigned char *c) {(void)p;(void)c;}
 static void model_text(void *p,const char *s) {
-    if(p==ui.labels[5] && s)snprintf(model_row3_buf,sizeof(model_row3_buf),"%s",s);
+    if(p==ui.labels[3] && s)snprintf(model_row3_buf,sizeof(model_row3_buf),"%s",s);
 }
 static void model_beep(void *p,int sound_id) {
     (void)p;++model_beep_calls;model_last_beep_id=sound_id;
@@ -317,7 +318,7 @@ void model_open_home(void) { ui.view.menu.visible=1; ui.view.menu.page=FILM_MENU
             status = UiStatusV1.in_dll(lib, 'a6400_ui_status_v1')
 
             def tap_row3():
-                lib.model_tick(500, 5, 320, 310, 0)
+                lib.model_tick(500, 5, 180, 310, 0)
                 lib.model_tick(20, 6, 32767, 32767, 0)
 
             def fire_shutter():
@@ -326,37 +327,37 @@ void model_open_home(void) { ui.view.menu.visible=1; ui.view.menu.page=FILM_MENU
                 lib.model_open_home()
                 lib.model_tick(20, 6, 32767, 32767, 0)
 
-            self.assertEqual(lib.model_row3().decode('utf-8'), '日文 Charo')
+            self.assertEqual(lib.model_row3().decode('utf-8'), '快門: 日文 Charo')
             lib.model_tick(20, 6, 32767, 32767, 0)  # establish touch_ready=1 without pressing
             fire_shutter()
             self.assertEqual((lib.model_beeps(), lib.model_beep_id()), (1, 0x33))
 
             tap_row3()
-            self.assertEqual(lib.model_row3().decode('utf-8'), 'Bling Bling')
+            self.assertEqual(lib.model_row3().decode('utf-8'), '快門: Bling Bling')
             self.assertEqual((lib.model_beeps(), lib.model_beep_id()), (2, 0x34))
             status.custom_charo = 1
             lib.model_redraw()
-            self.assertEqual(lib.model_row3().decode('utf-8'), 'SD自訂')
+            self.assertEqual(lib.model_row3().decode('utf-8'), '快門: SD自訂')
             status.custom_charo = 0
             lib.model_redraw()
-            self.assertEqual(lib.model_row3().decode('utf-8'), 'Bling Bling')
+            self.assertEqual(lib.model_row3().decode('utf-8'), '快門: Bling Bling')
             fire_shutter()
             self.assertEqual((lib.model_beeps(), lib.model_beep_id()), (3, 0x34))
 
             tap_row3()
-            self.assertEqual(lib.model_row3().decode('utf-8'), 'iPhone 快門')
+            self.assertEqual(lib.model_row3().decode('utf-8'), '快門: iPhone 快門')
             self.assertEqual((lib.model_beeps(), lib.model_beep_id()), (4, 0x35))
             fire_shutter()
             self.assertEqual((lib.model_beeps(), lib.model_beep_id()), (5, 0x35))
 
             tap_row3()
-            self.assertEqual(lib.model_row3().decode('utf-8'), '靜音')
+            self.assertEqual(lib.model_row3().decode('utf-8'), '快門: 靜音')
             self.assertEqual(lib.model_beeps(), 5)
             fire_shutter()
             self.assertEqual(lib.model_beeps(), 5)
 
             tap_row3()
-            self.assertEqual(lib.model_row3().decode('utf-8'), '日文 Charo')
+            self.assertEqual(lib.model_row3().decode('utf-8'), '快門: 日文 Charo')
             self.assertEqual((lib.model_beeps(), lib.model_beep_id()), (6, 0x33))
 
 

@@ -280,22 +280,22 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
             v4 = UiV4V1.in_dll(lib, 'a6400_ui_v4_v1')
             hires = ctypes.c_uint32.in_dll(lib, 'a6400_ui_hires_v1')
 
-            # 1) 3-way quality cycling: 1.7MP -> 6MP -> 12MP -> 1.7MP (Cell 2 = top-right @ x=510, y=150, label slot 3)
+            # 1) 3-way quality cycling: 1.7MP -> 6MP -> 12MP -> 1.7MP (Bottom-Right Tian tile @ x=450, y=310, label 4)
             lib.model_open_home()
-            self.assertEqual(lib.model_text_at(3).decode('utf-8'), '1.7MP 極速')
+            self.assertEqual(lib.model_text_at(4).decode('utf-8'), '畫質: 1.7MP 極速')
             for expected_val, expected_lbl in [
-                (1, '6MP 高清'),
-                (2, '12MP 超清'),
-                (0, '1.7MP 極速'),
+                (1, '畫質: 6MP 高清'),
+                (2, '畫質: 12MP 超清'),
+                (0, '畫質: 1.7MP 極速'),
             ]:
-                lib.model_tick(25, 5, 510, 150, 0, 0)
+                lib.model_tick(25, 5, 450, 310, 0, 0)
                 lib.model_tick(25, 6, 32767, 32767, 0, 0)
                 self.assertEqual(hires.value, expected_val)
-                self.assertEqual(lib.model_text_at(3).decode('utf-8'), expected_lbl)
+                self.assertEqual(lib.model_text_at(4).decode('utf-8'), expected_lbl)
             # While Film Menu is open, MTF2 must NEVER fire
             self.assertEqual(lib.model_mtf2_calls(), 0)
-            # Close menu via top-right Hasselblad close pill (x=550, y=46)
-            lib.model_tick(25, 5, 550, 46, 0, 0)
+            # Close menu via bottom-right Close pill (x=510, y=418)
+            lib.model_tick(25, 5, 510, 418, 0, 0)
             lib.model_tick(25, 6, 32767, 32767, 0, 0)
             self.assertEqual(lib.model_menu_visible(), 0)
 
@@ -368,11 +368,10 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
             self.assertEqual(lib.model_album_mode(), 0)
             self.assertEqual(v4.display_mode, 0)
 
-            # 5) Direct Graded Album Browser from V4 tab (works even without Playback sync!)
+            # 5) Direct Graded Album Browser directly from Home Top-Right tile!
             lib.model_open_home()
-            lib.model_tick(25, 5, 438, 46, 0, 0)   # Top tab 04 V4 -> FILM_MENU_V4
-            lib.model_tick(25, 6, 32767, 32767, 0, 0)
-            lib.model_tick(25, 5, 460, 310, 0, 0)  # V4 cell 3 -> 瀏覽套色相冊
+            self.assertEqual(lib.model_text_at(2).decode('utf-8'), '套色相冊 (2張) >')
+            lib.model_tick(25, 5, 450, 150, 0, 0)  # Top-Right tile -> direct album browse!
             lib.model_tick(25, 6, 32767, 32767, 0, 0)
             self.assertEqual(lib.model_album_mode(), 2)
             self.assertEqual(v4.display_mode, 2)
@@ -401,23 +400,26 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
             lib_sc.model_text_at.restype = ctypes.c_char_p
             lib_sc.model_init()
             lib_sc.model_open_home()
-            self.assertEqual(lib_sc.model_text_at(3).decode('utf-8'), '1.7MP 极速')
-            lib_sc.model_tick(25, 5, 510, 150, 0, 0)
+            self.assertEqual(lib_sc.model_text_at(2).decode('utf-8'), '套色相册 (0张) >')
+            self.assertEqual(lib_sc.model_text_at(4).decode('utf-8'), '画质: 1.7MP 极速')
+            lib_sc.model_tick(25, 5, 450, 310, 0, 0)
             lib_sc.model_tick(25, 6, 32767, 32767, 0, 0)
-            lib_sc.model_tick(25, 5, 510, 150, 0, 0)
+            lib_sc.model_tick(25, 5, 450, 310, 0, 0)
             lib_sc.model_tick(25, 6, 32767, 32767, 0, 0)
-            self.assertEqual(lib_sc.model_text_at(3).decode('utf-8'), '12MP 超清')
-            # Check 3-sound SC label on Home cell 4 (label 5 @ x=320, y=310), then enter V4 tab (x=438, y=46)
-            self.assertEqual(lib_sc.model_text_at(5).decode('utf-8'), '静音')
-            lib_sc.model_tick(25, 5, 320, 310, 0, 0)  # Home cell 4 -> Charo sound mode 1
+            self.assertEqual(lib_sc.model_text_at(4).decode('utf-8'), '画质: 12MP 超清')
+            # Check 3-sound SC label on Bottom-Left tile, then LUT (x=180,y=150) -> Details/V4 (x=160,y=418)
+            self.assertEqual(lib_sc.model_text_at(3).decode('utf-8'), '快门: 静音')
+            lib_sc.model_tick(25, 5, 180, 310, 0, 0)
             lib_sc.model_tick(25, 6, 32767, 32767, 0, 0)
-            self.assertEqual(lib_sc.model_text_at(5).decode('utf-8'), '日文 Charo')
-            lib_sc.model_tick(25, 5, 438, 46, 0, 0)   # Top tab 04 V4 -> FILM_MENU_V4
+            self.assertEqual(lib_sc.model_text_at(3).decode('utf-8'), '快门: 日文 Charo')
+            lib_sc.model_tick(25, 5, 180, 150, 0, 0)  # Open LUT Settings
+            lib_sc.model_tick(25, 6, 32767, 32767, 0, 0)
+            lib_sc.model_tick(25, 5, 160, 418, 0, 0)  # Open Details/V4 inside LUT
             lib_sc.model_tick(25, 6, 32767, 32767, 0, 0)
             self.assertEqual(lib_sc.model_text_at(1).decode('utf-8'), '即时预览小窗: 开启')
             self.assertEqual(lib_sc.model_text_at(2).decode('utf-8'), '机内相册预览: 开启')
             self.assertEqual(lib_sc.model_text_at(3).decode('utf-8'), '原生MENU触控: 开启')
-            self.assertEqual(lib_sc.model_text_at(4).decode('utf-8'), '浏览套色相册 (0张)')
+            self.assertEqual(lib_sc.model_text_at(4).decode('utf-8'), '恢复胶片默认 (标准/开)')
 
     def test_external_osd_preview_blitter_popup_album_and_clear(self):
         with tempfile.TemporaryDirectory() as td:

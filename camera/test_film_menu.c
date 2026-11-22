@@ -19,40 +19,35 @@ static unsigned tap_xy(struct film_menu *m, int x, int y) {
     return film_menu_touch(m, now += 20, 0, 32767, 32767);
 }
 static unsigned tap(struct film_menu *m, int row) {
-    if (row >= FILM_HIT_STOCK_BASE && row < FILM_HIT_STOCK_BASE + 10) {
-        int s = row - FILM_HIT_STOCK_BASE;
-        int col = s & 1, r = s >> 1;
-        return tap_xy(m, col ? 460 : 170, 84 + r * 63 + 26);
-    }
-    if (row == FILM_HIT_CLOSE) return tap_xy(m, 550, 46);
-    if (row == FILM_HIT_TAB_HOME) return tap_xy(m, 96, 46);
-    if (row == FILM_HIT_TAB_STOCKS) return tap_xy(m, 210, 46);
-    if (row == FILM_HIT_TAB_DETAILS) return tap_xy(m, 324, 46);
-    if (row == FILM_HIT_TAB_V4) return tap_xy(m, 438, 46);
-    if (row == FILM_HIT_ALBUM_QUICK) return tap_xy(m, 500, 430);
     if (m->page == FILM_MENU_HOME) {
-        if (row == 0) return tap_xy(m, 120, 150);
-        if (row == 1) return tap_xy(m, 320, 150);
-        if (row == 7) return tap_xy(m, 510, 150);
-        if (row == 4) return tap_xy(m, 120, 310);
-        if (row == 3) return tap_xy(m, 320, 310);
-        return tap_xy(m, 510, 310);
-    }
-    if (m->page == FILM_MENU_STOCKS || m->page == FILM_MENU_STOCKS_P2) {
-        int col = row & 1, r = row >> 1;
-        return tap_xy(m, col ? 460 : 170, 84 + r * 63 + 26);
+        if (row == FILM_HIT_OPEN_LUT) return tap_xy(m, 180, 150);
+        if (row == FILM_HIT_ALBUM_HOME) return tap_xy(m, 450, 150);
+        if (row == 3) return tap_xy(m, 180, 310);
+        if (row == 7) return tap_xy(m, 450, 310);
+        if (row == FILM_HIT_CLOSE) return tap_xy(m, 510, 418);
+        return 0;
     }
     if (m->page == FILM_MENU_DETAILS) {
-        int idx = (row == 5) ? 2 : row;
-        return tap_xy(m, 300, 88 + idx * 104 + 40);
+        if (row == 0) return tap_xy(m, 300, 120);
+        if (row == 1) return tap_xy(m, 300, 192);
+        if (row == 3) return tap_xy(m, 300, 264);
+        if (row == 4) return tap_xy(m, 300, 336);
+        if (row == 6) return tap_xy(m, 160, 418);
+        if (row == 5) return tap_xy(m, 510, 418);
+        return 0;
     }
     if (m->page == FILM_MENU_V4) {
-        if (row == 0) return tap_xy(m, 170, 150);
-        if (row == 1) return tap_xy(m, 460, 150);
-        if (row == 3) return tap_xy(m, 170, 310);
-        return tap_xy(m, 460, 310);
+        if (row == 0) return tap_xy(m, 300, 120);
+        if (row == 1) return tap_xy(m, 300, 192);
+        if (row == 3) return tap_xy(m, 300, 264);
+        if (row == 4) return tap_xy(m, 300, 336);
+        if (row == 6) return tap_xy(m, 140, 418);
+        if (row == 5) return tap_xy(m, 510, 418);
+        return 0;
     }
-    return 0;
+    if (row == 6) return tap_xy(m, 140, 418);
+    if (row == 5) return tap_xy(m, 510, 418);
+    return tap_xy(m, 300, 90 + row * 56 + 24);
 }
 int main(void) {
     struct film_menu m;
@@ -83,13 +78,15 @@ int main(void) {
     assert(m.visible && m.page == FILM_MENU_HOME);
     for (int i = 0; i < 20; ++i) sample(&m, 1, 1, 0);
     assert(m.visible); /* One continuous hold toggles once. */
+    assert(tap(&m, FILM_HIT_OPEN_LUT) & FILM_MENU_REDRAW);
+    assert(m.page == FILM_MENU_DETAILS);
     assert(tap(&m, 0) & FILM_MENU_SETTINGS_CHANGED);
     assert(m.settings.enabled == 1);
     assert(tap(&m, 1) & FILM_MENU_REDRAW);
     assert(m.page == FILM_MENU_STOCKS);
     assert(tap(&m, 3) & FILM_MENU_SETTINGS_CHANGED);
     assert(m.settings.stock == 3 && m.page == FILM_MENU_HOME);
-    assert(tap(&m, 2) & FILM_MENU_CLOSED);
+    assert(tap(&m, FILM_HIT_CLOSE) & FILM_MENU_CLOSED);
     assert(!m.visible && m.settings.enabled && m.settings.stock == 3);
     for (int i = 0; i < 3; ++i) {
         chord(&m); assert(m.visible);
@@ -98,51 +95,53 @@ int main(void) {
     }
     before = m.settings;
     assert(sample(&m, 0, 0, 1) == 0); /* Hidden native input passes untouched. */
-    assert(film_menu_touch(&m, now, 1, 100, 140) == 0);
+    assert(film_menu_touch(&m, now, 1, 180, 150) == 0);
     assert(memcmp(&before, &m.settings, sizeof before) == 0);
     chord(&m);
-    /* Opening with a finger down does not accidentally enable/disable. */
-    film_menu_touch(&m, now += 20, 1, 100, 140);
+    /* Opening with a finger down does not accidentally navigate. */
+    film_menu_touch(&m, now += 20, 1, 180, 150);
     film_menu_touch(&m, now += 20, 0, 32767, 32767);
-    assert(m.settings.enabled);
+    assert(m.page == FILM_MENU_HOME && m.settings.enabled);
     /* Dragging outside the original hit target cancels the activation. */
-    film_menu_touch(&m, now += 20, 1, 100, 140);
-    film_menu_touch(&m, now += 20, 1, 100, 300);
+    film_menu_touch(&m, now += 20, 1, 180, 150);
+    film_menu_touch(&m, now += 20, 1, 450, 310);
     film_menu_touch(&m, now += 20, 0, 32767, 32767);
-    assert(m.settings.enabled);
+    assert(m.page == FILM_MENU_HOME && m.settings.enabled);
     for (int stock = 0; stock < 10; ++stock) {
+        tap(&m, FILM_HIT_OPEN_LUT);
+        assert(m.page == FILM_MENU_DETAILS);
         tap(&m, 1);
-        assert(m.page == FILM_MENU_STOCKS);
-        tap(&m, FILM_HIT_STOCK_BASE + stock);
+        if (stock < 5) {
+            if (m.page == FILM_MENU_STOCKS_P2) tap(&m, 6);
+            assert(m.page == FILM_MENU_STOCKS);
+            tap(&m, stock);
+        } else {
+            if (m.page == FILM_MENU_STOCKS) tap(&m, 6);
+            assert(m.page == FILM_MENU_STOCKS_P2);
+            tap(&m, stock - 5);
+        }
         assert(m.settings.stock == stock && m.page == FILM_MENU_HOME);
     }
     assert(strcmp(film_stock_worker_name(m.settings.stock), "polaroid_px680") == 0);
     assert(film_stock_worker_name(-1) == NULL && film_stock_worker_name(10) == NULL);
-    assert(tap(&m, 4) & FILM_MENU_REDRAW);
+    assert(tap(&m, FILM_HIT_OPEN_LUT) & FILM_MENU_REDRAW);
     assert(m.page == FILM_MENU_DETAILS);
-    assert(tap(&m, 0) & FILM_MENU_SETTINGS_CHANGED);
+    assert(tap(&m, 3) & FILM_MENU_SETTINGS_CHANGED);
     assert(m.settings.grain == 3);
-    assert(tap(&m, 1) & FILM_MENU_SETTINGS_CHANGED);
+    assert(tap(&m, 4) & FILM_MENU_SETTINGS_CHANGED);
     assert(m.settings.halation == 0);
-    assert(tap(&m, 5) & FILM_MENU_SETTINGS_CHANGED);
-    assert(m.settings.grain == 2 && m.settings.halation == 1);
-    assert(tap(&m, FILM_HIT_TAB_V4) & FILM_MENU_REDRAW);
+    assert(tap(&m, 6) & FILM_MENU_REDRAW);
     assert(m.page == FILM_MENU_V4);
-    assert(film_menu_hit(FILM_MENU_V4, 170, 150) == 0);
-    assert(film_menu_hit(FILM_MENU_V4, 460, 150) == 1);
-    assert(film_menu_hit(FILM_MENU_V4, 170, 310) == 3);
-    assert(film_menu_hit(FILM_MENU_V4, 460, 310) == 4);
-    assert(film_menu_hit(FILM_MENU_V4, 550, 46) == FILM_HIT_CLOSE);
-    assert(film_menu_hit(FILM_MENU_V4, 500, 430) == FILM_HIT_ALBUM_QUICK);
-    assert(tap_xy(&m, 170, 150) & FILM_MENU_POPUP_TOGGLED);
-    assert(tap_xy(&m, 460, 150) & FILM_MENU_ALBUM_TOGGLED);
-    assert(tap_xy(&m, 170, 310) & FILM_MENU_TOUCH_TOGGLED);
-    assert(tap_xy(&m, 460, 310) & FILM_MENU_ALBUM_BROWSE);
-    assert(tap(&m, FILM_HIT_ALBUM_QUICK) & FILM_MENU_ALBUM_BROWSE);
-    assert(tap(&m, FILM_HIT_TAB_DETAILS) & FILM_MENU_REDRAW);
+    assert(tap(&m, 0) & FILM_MENU_POPUP_TOGGLED);
+    assert(tap(&m, 1) & FILM_MENU_ALBUM_TOGGLED);
+    assert(tap(&m, 3) & FILM_MENU_TOUCH_TOGGLED);
+    assert(tap(&m, 4) & FILM_MENU_SETTINGS_CHANGED);
+    assert(m.settings.grain == 2 && m.settings.halation == 1);
+    assert(tap(&m, 6) & FILM_MENU_REDRAW);
     assert(m.page == FILM_MENU_DETAILS);
-    assert(tap(&m, FILM_HIT_TAB_HOME) & FILM_MENU_REDRAW);
+    assert(tap(&m, 5) & FILM_MENU_REDRAW);
     assert(m.page == FILM_MENU_HOME);
+    assert(tap(&m, FILM_HIT_ALBUM_HOME) & FILM_MENU_ALBUM_BROWSE);
     chord(&m); assert(!m.visible); chord(&m); assert(m.visible);
     /* All real persisted choices round-trip, independent of menu visibility. */
     for (int enabled = 0; enabled < 2; ++enabled)

@@ -7,12 +7,8 @@ struct film_settings { int enabled, stock, grain, halation; };
 enum film_menu_page { FILM_MENU_HOME, FILM_MENU_STOCKS, FILM_MENU_STOCKS_P2, FILM_MENU_DETAILS, FILM_MENU_V4 };
 enum film_menu_hit_id {
     FILM_HIT_CLOSE = 2,
-    FILM_HIT_TAB_HOME = 10,
-    FILM_HIT_TAB_STOCKS = 11,
-    FILM_HIT_TAB_DETAILS = 12,
-    FILM_HIT_TAB_V4 = 13,
-    FILM_HIT_ALBUM_QUICK = 14,
-    FILM_HIT_STOCK_BASE = 20
+    FILM_HIT_OPEN_LUT = 10,
+    FILM_HIT_ALBUM_HOME = 14
 };
 enum film_menu_change {
     FILM_MENU_REDRAW = 1, FILM_MENU_OPENED = 2, FILM_MENU_CLOSED = 4,

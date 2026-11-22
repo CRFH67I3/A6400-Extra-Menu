@@ -202,7 +202,7 @@ if !errorlevel! EQU 0 goto :alpine_ready
 
 rem Reuse any already-working A6400Deployer_* instance if primary is broken
 "!WSL_EXE!" -l -q >"!TMP_OUT!" 2>nul
-for /f "usebackq delims=" %%D in ("!TMP_OUT!") do (
+for /f "usebackq tokens=1" %%D in ("!TMP_OUT!") do (
     set "_DN=%%D"
     if /i "!_DN:~0,13!"=="A6400Deployer" (
         "!WSL_EXE!" -d "%%D" -- /bin/sh -c "test -f /opt/a6400/pmca_deploy_v3_clite.py" >nul 2>&1
@@ -373,7 +373,7 @@ if not "!WSL_EXE!"=="" (
     "!WSL_EXE!" --shutdown <nul >nul 2>&1
     "!WSL_EXE!" --unregister "!DISTRO!" <nul >nul 2>&1
     "!WSL_EXE!" -l -q <nul >"!TMP_OUT!" 2>nul
-    for /f "usebackq delims=" %%D in ("!TMP_OUT!") do (
+    for /f "usebackq tokens=1" %%D in ("!TMP_OUT!") do (
         set "_DN=%%D"
         if /i "!_DN:~0,13!"=="A6400Deployer" "!WSL_EXE!" --unregister "%%D" <nul >nul 2>&1
     )

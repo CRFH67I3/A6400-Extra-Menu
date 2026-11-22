@@ -354,7 +354,7 @@ function Ensure-AlpineDistro {
     }
 }
 
-function Parse-SonyUsbipdDevices([string]$UsbipdExe) {
+function Parse-SonyUsbipdDevices([string]$UsbipdExe, [switch]$IncludeDisconnected) {
     $found = @()
 
     # Prefer structured JSON from `usbipd state` (100% immune to Windows locale / column spacing)
@@ -364,7 +364,8 @@ function Parse-SonyUsbipdDevices([string]$UsbipdExe) {
             $parsed = $st.Text | ConvertFrom-Json
             $items = if ($parsed -and $parsed.PSObject.Properties["Devices"]) { @($parsed.Devices) } else { @($parsed) }
             foreach ($dev in $items) {
-                if ($null -eq $dev -or -not $dev.BusId) { continue }
+                if ($null -eq $dev) { continue }
+                if (-not $IncludeDisconnected -and -not $dev.BusId) { continue }
                 if ($dev.InstanceId -match 'VID_054C&PID_(0CA8|0D12|0336)') {
                     $pidHex = $Matches[1].ToLower()
                     $stateStr = "Not shared"
@@ -374,10 +375,11 @@ function Parse-SonyUsbipdDevices([string]$UsbipdExe) {
                         $stateStr = "Shared"
                     }
                     $found += [PSCustomObject]@{
-                        BusId = [string]$dev.BusId
-                        Pid   = $pidHex
-                        Desc  = [string]$dev.Description
-                        State = $stateStr
+                        BusId         = if ($dev.BusId) { [string]$dev.BusId } else { "" }
+                        PersistedGuid = if ($dev.PersistedGuid) { [string]$dev.PersistedGuid } else { "" }
+                        Pid           = $pidHex
+                        Desc          = [string]$dev.Description
+                        State         = $stateStr
                     }
                 }
             }
@@ -390,10 +392,11 @@ function Parse-SonyUsbipdDevices([string]$UsbipdExe) {
     foreach ($line in $lst.Lines) {
         if ($line -match '^\s*(\d+-\d+(?:\.\d+)*)\s+054c:(0ca8|0d12|0336)\s+(.*?)\s{2,}(Not shared|Shared(?:\s*\(forced\))?|Attached)\s*$') {
             $found += [PSCustomObject]@{
-                BusId = $Matches[1]
-                Pid   = $Matches[2].ToLower()
-                Desc  = $Matches[3].Trim()
-                State = $Matches[4].Trim()
+                BusId         = $Matches[1]
+                PersistedGuid = ""
+                Pid           = $Matches[2].ToLower()
+                Desc          = $Matches[3].Trim()
+                State         = $Matches[4].Trim()
             }
         }
     }
@@ -404,7 +407,7 @@ function Attach-SonyDevicesOnce([string]$UsbipdExe) {
     $devs = @(Parse-SonyUsbipdDevices $UsbipdExe)
     $attachedAny = $false
     foreach ($d in $devs) {
-        if ($null -eq $d) { continue }
+        if ($null -eq $d -or -not $d.BusId) { continue }
         if ($d.State -eq "Not shared") {
             Invoke-Native -FilePath $UsbipdExe -Arguments @("bind", "--force", "--busid", $d.BusId) | Out-Null
         }
@@ -423,14 +426,19 @@ function Attach-SonyDevicesOnce([string]$UsbipdExe) {
 
 function Detach-SonyDevices([string]$UsbipdExe) {
     try {
-        $devs = @(Parse-SonyUsbipdDevices $UsbipdExe)
+        # Include disconnected/persisted devices! When 054C:0CA8/0D12 switches to 054C:0336,
+        # the Mass Storage PID loses its BusId while keeping its forced PersistedGuid in usbipd.
+        $devs = @(Parse-SonyUsbipdDevices $UsbipdExe -IncludeDisconnected)
         foreach ($d in $devs) {
             if ($null -eq $d) { continue }
-            if ($d.State -eq "Attached") {
+            if ($d.BusId -and $d.State -eq "Attached") {
                 Invoke-Native -FilePath $UsbipdExe -Arguments @("detach", "--busid", $d.BusId) | Out-Null
             }
-            if ($d.State -ne "Not shared") {
+            if ($d.BusId -and $d.State -ne "Not shared") {
                 Invoke-Native -FilePath $UsbipdExe -Arguments @("unbind", "--busid", $d.BusId) | Out-Null
+            }
+            if ($d.PersistedGuid) {
+                Invoke-Native -FilePath $UsbipdExe -Arguments @("unbind", "--guid", $d.PersistedGuid) | Out-Null
             }
         }
     } catch {}

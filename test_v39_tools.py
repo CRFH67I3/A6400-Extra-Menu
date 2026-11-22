@@ -578,10 +578,10 @@ Class Name :                libusb-win32 devices
         cmd_raw = cmd.read_bytes()
         self.assertFalse(cmd_raw.startswith(b'\xef\xbb\xbf'), 'wsl_deploy.cmd must NOT have UTF-8 BOM for cmd.exe')
         self.assertTrue(cmd_raw.startswith(b'@echo off\r\n'), 'wsl_deploy.cmd must start with @echo off CRLF')
-        cmd_txt = cmd_raw.decode('utf-8')
+        cmd_txt = cmd_raw.decode('ascii')  # Must be 100% pure ASCII so CP950/CP936 cmd.exe never splits UTF-8 CJK bytes
         for needle in (
-            '[體檢 1/6]',
-            '[體檢 6/6]',
+            '[Check 1/6]',
+            '[Check 6/6]',
             'fltmc',
             'hypervisorlaunchtype',
             'vmcompute',

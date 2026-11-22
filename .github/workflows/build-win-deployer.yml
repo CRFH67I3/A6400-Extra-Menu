@@ -133,8 +133,11 @@ jobs:
               fetch_pkg("v3.9-sslf-sc", stage / "local-boot-package-sc")
 
           # Copy pure-CMD deployer (UTF-8 no BOM + CRLF) + watcher + PS1 backup
-          for fn in ("wsl_deploy.cmd", "usbipd_watch.cmd", "wsl_deploy.ps1"):
-              shutil.copy2(f"repo/tools/{fn}", stage / "tools" / fn)
+          for fn in ("wsl_deploy.cmd", "usbipd_watch.cmd"):
+              txt = Path(f"repo/tools/{fn}").read_text(encoding="utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+              (stage / "tools" / fn).write_bytes(txt.replace("\n", "\r\n").encode("utf-8"))
+          ps_txt = Path("repo/tools/wsl_deploy.ps1").read_text(encoding="utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+          (stage / "tools" / "wsl_deploy.ps1").write_bytes(b"\xef\xbb\xbf" + ps_txt.replace("\n", "\r\n").encode("utf-8"))
 
           # Also bundle offline FAQ inside the ZIP
           faq_src = Path("repo/docs/WINDOWS-WSL2-FAQ.md")

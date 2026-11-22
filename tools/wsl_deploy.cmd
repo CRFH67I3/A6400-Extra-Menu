@@ -196,48 +196,31 @@ exit /b 0
 echo.
 echo [*] Checking Alpine Linux environment (!DISTRO!)...
 "!WSL_EXE!" --set-default-version 2 >nul 2>&1
-"!WSL_EXE!" -l -v >nul 2>&1
 "!WSL_EXE!" -d !DISTRO! -- /bin/sh -c "test -f /opt/a6400/pmca_deploy_v3_clite.py" >nul 2>&1
 if !errorlevel! EQU 0 goto :alpine_ready
 
-rem Reuse any already-working A6400Deployer_* instance if primary is broken
-"!WSL_EXE!" -l -q >"!TMP_OUT!" 2>nul
-for /f "usebackq tokens=1" %%D in ("!TMP_OUT!") do (
-    set "_DN=%%D"
-    if /i "!_DN:~0,13!"=="A6400Deployer" (
-        "!WSL_EXE!" -d %%D -- /bin/sh -c "test -f /opt/a6400/pmca_deploy_v3_clite.py" >nul 2>&1
-        if !errorlevel! EQU 0 (
-            set "DISTRO=%%D"
-            goto :alpine_ready
-        )
-    )
-)
-del /f /q "!TMP_OUT!" >nul 2>&1
-
-"!WSL_EXE!" --shutdown >nul 2>&1
+echo [*] Cleaning any previous incomplete !DISTRO! registration...
 "!WSL_EXE!" --unregister !DISTRO! >nul 2>&1
+ping -n 2 127.0.0.1 >nul
 if exist "!INSTALL_BASE!" rmdir /s /q "!INSTALL_BASE!" >nul 2>&1
-echo [*] Importing Alpine Linux (!DISTRO!), takes ~3-5 seconds...
 if not exist "!INSTALL_BASE!" mkdir "!INSTALL_BASE!"
-"!WSL_EXE!" --import !DISTRO! "!INSTALL_BASE!" "!ROOTFS_TAR!" --version 2 >"!TMP_OUT!" 2>&1
-if !errorlevel! EQU 0 goto :alpine_imported
 
-type "!TMP_OUT!"
-findstr /i "ERROR_ALREADY_EXISTS" "!TMP_OUT!" >nul 2>&1
-if !errorlevel! NEQ 0 goto :err_import_failed
-
-set "DISTRO=A6400Deployer_!RUN_ID!"
-set "INSTALL_BASE=!LOCALAPPDATA!\A6400WSL_!RUN_ID!"
-echo [*] Retrying import with fresh instance name !DISTRO!...
-if not exist "!INSTALL_BASE!" mkdir "!INSTALL_BASE!"
+echo [*] Importing Alpine Linux (!DISTRO!), takes ~3-10 seconds...
 "!WSL_EXE!" --import !DISTRO! "!INSTALL_BASE!" "!ROOTFS_TAR!" --version 2
-if !errorlevel! NEQ 0 goto :err_import_failed
+if !errorlevel! NEQ 0 (
+    echo [*] Restarting WSL service and retrying import once...
+    "!WSL_EXE!" --shutdown >nul 2>&1
+    ping -n 3 127.0.0.1 >nul
+    "!WSL_EXE!" --unregister !DISTRO! >nul 2>&1
+    ping -n 2 127.0.0.1 >nul
+    if exist "!INSTALL_BASE!" rmdir /s /q "!INSTALL_BASE!" >nul 2>&1
+    if not exist "!INSTALL_BASE!" mkdir "!INSTALL_BASE!"
+    "!WSL_EXE!" --import !DISTRO! "!INSTALL_BASE!" "!ROOTFS_TAR!" --version 2
+    if !errorlevel! NEQ 0 goto :err_import_failed
+)
 
-:alpine_imported
-del /f /q "!TMP_OUT!" >nul 2>&1
-echo [+] Alpine Linux imported, refreshing WSL service...
-"!WSL_EXE!" -l -v >nul 2>&1
-ping -n 3 127.0.0.1 >nul
+echo [+] Alpine Linux imported
+ping -n 2 127.0.0.1 >nul
 goto :alpine_boot_check
 
 :err_import_failed

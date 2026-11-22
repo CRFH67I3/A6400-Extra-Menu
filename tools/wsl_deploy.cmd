@@ -346,7 +346,8 @@ if not "!WSL_EXE!"=="" (
     "!WSL_EXE!" --unregister "!DISTRO!" <nul >nul 2>&1
     "!WSL_EXE!" -l -q <nul >"!TMP_OUT!" 2>nul
     for /f "usebackq delims=" %%D in ("!TMP_OUT!") do (
-        echo %%D| findstr /i "^A6400Deployer" >nul 2>&1 && "!WSL_EXE!" --unregister "%%D" <nul >nul 2>&1
+        set "_DN=%%D"
+        if /i "!_DN:~0,13!"=="A6400Deployer" "!WSL_EXE!" --unregister "%%D" <nul >nul 2>&1
     )
 )
 for /d %%P in ("!LOCALAPPDATA!\A6400WSL*") do rmdir /s /q "%%P" >nul 2>&1

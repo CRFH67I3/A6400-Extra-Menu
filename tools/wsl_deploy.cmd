@@ -45,7 +45,7 @@ echo   3. Power on camera, plug USB cable, wait 8 seconds
 echo ========================================================
 echo.
 
-echo [Check 1/6] Admin & Windows Build...
+echo [Check 1/6] Admin and Windows Build...
 echo   [+] Admin OK (Windows Build !WIN_BUILD!)
 
 echo [Check 2/6] Offline package files...
@@ -162,7 +162,7 @@ echo   [*] Installing usbipd-win offline...
 msiexec.exe /i "!USBIPD_MSI!" /qn /norestart
 set "URC=!errorlevel!"
 if !URC! NEQ 0 if !URC! NEQ 3010 (
-    echo   [!] Silent install blocked (rc=!URC!), launching GUI installer...
+    echo   [!] Silent install blocked rc=!URC!, launching GUI installer...
     msiexec.exe /i "!USBIPD_MSI!"
 )
 call :find_usbipd
@@ -197,13 +197,13 @@ echo.
 echo [*] Checking Alpine Linux environment (!DISTRO!)...
 "!WSL_EXE!" --set-default-version 2 <nul >nul 2>&1
 "!WSL_EXE!" -d "!DISTRO!" -- /bin/sh -c "test -f /opt/a6400/pmca_deploy_v3_clite.py" <nul >nul 2>&1
-if not errorlevel 1 goto :alpine_ready
+if !errorlevel! EQU 0 goto :alpine_ready
 
 "!WSL_EXE!" --unregister "!DISTRO!" <nul >nul 2>&1
 echo [*] Importing Alpine Linux (!DISTRO!), takes ~3-5 seconds...
 if not exist "!INSTALL_BASE!" mkdir "!INSTALL_BASE!"
 "!WSL_EXE!" --import "!DISTRO!" "!INSTALL_BASE!" "!ROOTFS_TAR!" --version 2 <nul
-if errorlevel 1 goto :err_import_failed
+if !errorlevel! NEQ 0 goto :err_import_failed
 echo [+] Alpine Linux imported
 goto :alpine_boot_check
 
@@ -222,7 +222,7 @@ echo [+] Alpine Linux (!DISTRO!) OK
 
 :alpine_boot_check
 "!WSL_EXE!" -d "!DISTRO!" -- /bin/sh -c "test -e /sys/devices/platform/vhci_hcd.0/status || modprobe vhci-hcd 2>/dev/null || true" <nul
-if errorlevel 1 (
+if !errorlevel! NEQ 0 (
     echo [X] Cannot boot !DISTRO!. Restart PC and verify BIOS VT-x / SVM is Enabled.
     exit /b 1
 )
@@ -262,7 +262,7 @@ for /l %%T in (1,1,20) do (
 )
 
 if "!ATTACHED!"=="0" (
-    echo [!] No Sony camera USB detected within 20s (054c:0ca8 / 0d12 / 0336).
+    echo [!] No Sony camera USB detected within 20s [054c:0ca8 / 0d12 / 0336].
     echo     Check: camera ON, USB = Mass Storage, data-capable USB cable.
     set "DEPLOY_RC=1"
     goto :cleanup_session
@@ -484,8 +484,8 @@ for /f "usebackq tokens=1,2" %%A in ("!TMP_OUT!") do (
     if "!_HIT!"=="1" (
         "!USBIPD_EXE!" bind --force --busid %%A >nul 2>&1
         "!USBIPD_EXE!" attach --wsl --busid %%A >nul 2>&1
-        if not errorlevel 1 (
-            echo [+] Attached camera (%%B, bus %%A) to Linux
+        if !errorlevel! EQU 0 (
+            echo [+] Attached camera %%B bus %%A to Linux
             set "ATTACH_HIT=1"
         ) else (
             "!USBIPD_EXE!" list 2>nul | findstr /i "%%A" | findstr /i "Attached" >nul 2>&1 && set "ATTACH_HIT=1"

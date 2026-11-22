@@ -197,7 +197,7 @@ echo.
 echo [*] Checking Alpine Linux environment (!DISTRO!)...
 "!WSL_EXE!" --set-default-version 2 >nul 2>&1
 "!WSL_EXE!" -l -v >nul 2>&1
-"!WSL_EXE!" -d "!DISTRO!" -- /bin/sh -c "test -f /opt/a6400/pmca_deploy_v3_clite.py" >nul 2>&1
+"!WSL_EXE!" -d !DISTRO! -- /bin/sh -c "test -f /opt/a6400/pmca_deploy_v3_clite.py" >nul 2>&1
 if !errorlevel! EQU 0 goto :alpine_ready
 
 rem Reuse any already-working A6400Deployer_* instance if primary is broken
@@ -205,7 +205,7 @@ rem Reuse any already-working A6400Deployer_* instance if primary is broken
 for /f "usebackq tokens=1" %%D in ("!TMP_OUT!") do (
     set "_DN=%%D"
     if /i "!_DN:~0,13!"=="A6400Deployer" (
-        "!WSL_EXE!" -d "%%D" -- /bin/sh -c "test -f /opt/a6400/pmca_deploy_v3_clite.py" >nul 2>&1
+        "!WSL_EXE!" -d %%D -- /bin/sh -c "test -f /opt/a6400/pmca_deploy_v3_clite.py" >nul 2>&1
         if !errorlevel! EQU 0 (
             set "DISTRO=%%D"
             goto :alpine_ready
@@ -215,11 +215,11 @@ for /f "usebackq tokens=1" %%D in ("!TMP_OUT!") do (
 del /f /q "!TMP_OUT!" >nul 2>&1
 
 "!WSL_EXE!" --shutdown >nul 2>&1
-"!WSL_EXE!" --unregister "!DISTRO!" >nul 2>&1
+"!WSL_EXE!" --unregister !DISTRO! >nul 2>&1
 if exist "!INSTALL_BASE!" rmdir /s /q "!INSTALL_BASE!" >nul 2>&1
 echo [*] Importing Alpine Linux (!DISTRO!), takes ~3-5 seconds...
 if not exist "!INSTALL_BASE!" mkdir "!INSTALL_BASE!"
-"!WSL_EXE!" --import "!DISTRO!" "!INSTALL_BASE!" "!ROOTFS_TAR!" --version 2 >"!TMP_OUT!" 2>&1
+"!WSL_EXE!" --import !DISTRO! "!INSTALL_BASE!" "!ROOTFS_TAR!" --version 2 >"!TMP_OUT!" 2>&1
 if !errorlevel! EQU 0 goto :alpine_imported
 
 type "!TMP_OUT!"
@@ -230,7 +230,7 @@ set "DISTRO=A6400Deployer_!RUN_ID!"
 set "INSTALL_BASE=!LOCALAPPDATA!\A6400WSL_!RUN_ID!"
 echo [*] Retrying import with fresh instance name !DISTRO!...
 if not exist "!INSTALL_BASE!" mkdir "!INSTALL_BASE!"
-"!WSL_EXE!" --import "!DISTRO!" "!INSTALL_BASE!" "!ROOTFS_TAR!" --version 2
+"!WSL_EXE!" --import !DISTRO! "!INSTALL_BASE!" "!ROOTFS_TAR!" --version 2
 if !errorlevel! NEQ 0 goto :err_import_failed
 
 :alpine_imported
@@ -258,7 +258,7 @@ set "BOOT_OK=0"
 for /l %%B in (1,1,3) do (
     if "!BOOT_OK!"=="0" (
         "!WSL_EXE!" -l -v >nul 2>&1
-        "!WSL_EXE!" -d "!DISTRO!" -- /bin/sh -c "test -e /sys/devices/platform/vhci_hcd.0/status || modprobe vhci-hcd 2>/dev/null || true"
+        "!WSL_EXE!" -d !DISTRO! -- /bin/sh -c "test -e /sys/devices/platform/vhci_hcd.0/status || modprobe vhci-hcd 2>/dev/null || true"
         if !errorlevel! EQU 0 (
             set "BOOT_OK=1"
         ) else (
@@ -288,7 +288,7 @@ if exist "!ROOT_DIR!\a6400-autoexec.so" (
 )
 
 :start_usb_phase
-start "" /b "!WSL_EXE!" -d "!DISTRO!" -- timeout 600 /bin/sh -c "touch /tmp/.a6400_keepalive; while [ -f /tmp/.a6400_keepalive ]; do sleep 1; done" <nul >nul 2>&1
+start "" /b "!WSL_EXE!" -d !DISTRO! -- timeout 600 /bin/sh -c "touch /tmp/.a6400_keepalive; while [ -f /tmp/.a6400_keepalive ]; do sleep 1; done" <nul >nul 2>&1
 ping -n 2 127.0.0.1 >nul
 
 echo.
@@ -334,7 +334,7 @@ if exist "!WATCH_LOCK!" del /f /q "!WATCH_LOCK!" >nul 2>&1
 ping -n 2 127.0.0.1 >nul
 echo [*] Detaching USB passthrough and restoring Windows card reader...
 call :detach_all_sony
-"!WSL_EXE!" -d "!DISTRO!" -- rm -f /tmp/.a6400_keepalive <nul >nul 2>&1
+"!WSL_EXE!" -d !DISTRO! -- rm -f /tmp/.a6400_keepalive <nul >nul 2>&1
 del /f /q "!TMP_OUT!" "!TMP_JSON!" "!TMP_GUIDS!" >nul 2>&1
 
 if "!DEPLOY_RC!"=="0" (
@@ -350,18 +350,18 @@ exit /b !DEPLOY_RC!
 
 :run_python_deployer
 if /i "!ACTION!"=="rollback" (
-    "!WSL_EXE!" -d "!DISTRO!" -- python3 -u /opt/a6400/pmca_deploy_v3_clite.py --pmca-dir /opt/pmca-re --safe-serial --yes --rollback
+    "!WSL_EXE!" -d !DISTRO! -- python3 -u /opt/a6400/pmca_deploy_v3_clite.py --pmca-dir /opt/pmca-re --safe-serial --yes --rollback
     exit /b !errorlevel!
 )
 if /i "!ACTION!"=="diag" (
-    "!WSL_EXE!" -d "!DISTRO!" -- python3 -u /opt/a6400/pmca_deploy_v3_clite.py --pmca-dir /opt/pmca-re --safe-serial --yes --diag
+    "!WSL_EXE!" -d !DISTRO! -- python3 -u /opt/a6400/pmca_deploy_v3_clite.py --pmca-dir /opt/pmca-re --safe-serial --yes --diag
     exit /b !errorlevel!
 )
 if not "!HOOK_WSL!"=="" (
-    "!WSL_EXE!" -d "!DISTRO!" -- python3 -u /opt/a6400/pmca_deploy_v3_clite.py --pmca-dir /opt/pmca-re --safe-serial --yes "!PKG_WSL!" --install-hook "!HOOK_WSL!"
+    "!WSL_EXE!" -d !DISTRO! -- python3 -u /opt/a6400/pmca_deploy_v3_clite.py --pmca-dir /opt/pmca-re --safe-serial --yes "!PKG_WSL!" --install-hook "!HOOK_WSL!"
     exit /b !errorlevel!
 )
-"!WSL_EXE!" -d "!DISTRO!" -- python3 -u /opt/a6400/pmca_deploy_v3_clite.py --pmca-dir /opt/pmca-re --safe-serial --yes "!PKG_WSL!" --auto-hook-stub /opt/a6400/hook-stub.bin
+"!WSL_EXE!" -d !DISTRO! -- python3 -u /opt/a6400/pmca_deploy_v3_clite.py --pmca-dir /opt/pmca-re --safe-serial --yes "!PKG_WSL!" --auto-hook-stub /opt/a6400/hook-stub.bin
 exit /b !errorlevel!
 
 :do_cleanup
@@ -371,11 +371,11 @@ call :find_wsl
 if not "!USBIPD_EXE!"=="" call :detach_all_sony
 if not "!WSL_EXE!"=="" (
     "!WSL_EXE!" --shutdown <nul >nul 2>&1
-    "!WSL_EXE!" --unregister "!DISTRO!" <nul >nul 2>&1
+    "!WSL_EXE!" --unregister !DISTRO! <nul >nul 2>&1
     "!WSL_EXE!" -l -q <nul >"!TMP_OUT!" 2>nul
     for /f "usebackq tokens=1" %%D in ("!TMP_OUT!") do (
         set "_DN=%%D"
-        if /i "!_DN:~0,13!"=="A6400Deployer" "!WSL_EXE!" --unregister "%%D" <nul >nul 2>&1
+        if /i "!_DN:~0,13!"=="A6400Deployer" "!WSL_EXE!" --unregister %%D <nul >nul 2>&1
     )
 )
 for /d %%P in ("!LOCALAPPDATA!\A6400WSL*") do rmdir /s /q "%%P" >nul 2>&1
@@ -515,7 +515,7 @@ set "_WIN_IN=%~1"
 set "_OUT_VAR=%~2"
 set "!_OUT_VAR!="
 del /f /q "!TMP_OUT!" >nul 2>&1
-"!WSL_EXE!" -d "!DISTRO!" -- python3 -c "import sys; p=sys.argv[1].replace(chr(92),'/'); print('/mnt/'+p[0].lower()+p[2:] if len(p)>2 and p[1]==':' else '')" "!_WIN_IN!" <nul >"!TMP_OUT!" 2>nul
+"!WSL_EXE!" -d !DISTRO! -- python3 -c "import sys; p=sys.argv[1].replace(chr(92),'/'); print('/mnt/'+p[0].lower()+p[2:] if len(p)>2 and p[1]==':' else '')" "!_WIN_IN!" <nul >"!TMP_OUT!" 2>nul
 if exist "!TMP_OUT!" (
     for /f "usebackq delims=" %%W in ("!TMP_OUT!") do set "!_OUT_VAR!=%%W"
     del /f /q "!TMP_OUT!" >nul 2>&1
@@ -562,7 +562,7 @@ del /f /q "!TMP_OUT!" >nul 2>&1
 if "!WSL_EXE!"=="" exit /b 0
 "!USBIPD_EXE!" state >"!TMP_JSON!" 2>nul
 if not exist "!TMP_JSON!" exit /b 0
-"!WSL_EXE!" -d "!DISTRO!" -- python3 -c "import sys,json,re; raw=sys.stdin.read().strip(); d=json.loads(raw) if raw else {}; items=d.get('Devices',d) if isinstance(d,dict) else d; [print(x['PersistedGuid']) for x in items if isinstance(x,dict) and x.get('PersistedGuid') and re.search(r'VID_054C&PID_(0CA8|0D12|0336)',str(x.get('InstanceId','')),re.I)]" <"!TMP_JSON!" >"!TMP_GUIDS!" 2>nul
+"!WSL_EXE!" -d !DISTRO! -- python3 -c "import sys,json,re; raw=sys.stdin.read().strip(); d=json.loads(raw) if raw else {}; items=d.get('Devices',d) if isinstance(d,dict) else d; [print(x['PersistedGuid']) for x in items if isinstance(x,dict) and x.get('PersistedGuid') and re.search(r'VID_054C&PID_(0CA8|0D12|0336)',str(x.get('InstanceId','')),re.I)]" <"!TMP_JSON!" >"!TMP_GUIDS!" 2>nul
 if exist "!TMP_GUIDS!" (
     for /f "usebackq delims=" %%G in ("!TMP_GUIDS!") do (
         "!USBIPD_EXE!" unbind --guid %%G >nul 2>&1

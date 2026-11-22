@@ -102,12 +102,11 @@ int film_menu_hit(int page, int x, int y) {
         return -1;
     }
     if (page == FILM_MENU_V4) {
-        /* Advanced Details subpage (inside LUT): Popup, Album Preview, Native Touch, Reset + Back. */
+        /* Advanced Details subpage (inside LUT): Popup, Native Touch, Reset + Back. */
         if (x >= 56 && x < 584) {
             if (y >= 90 && y < 150) return 0;
             if (y >= 162 && y < 222) return 1;
             if (y >= 234 && y < 294) return 3;
-            if (y >= 306 && y < 366) return 4;
         }
         if (y >= 398 && y < 440) {
             if (x >= 56 && x < 236) return 6;
@@ -169,9 +168,8 @@ static unsigned activate(struct film_menu *m, int row) {
         }
     } else if (m->page == FILM_MENU_V4) {
         if (row == 0) change |= FILM_MENU_POPUP_TOGGLED;
-        else if (row == 1) change |= FILM_MENU_ALBUM_TOGGLED;
-        else if (row == 3) change |= FILM_MENU_TOUCH_TOGGLED;
-        else if (row == 4) {
+        else if (row == 1) change |= FILM_MENU_TOUCH_TOGGLED;
+        else if (row == 3) {
             if (m->settings.grain != 2 || m->settings.halation != 1) {
                 m->settings.grain = 2;
                 m->settings.halation = 1;

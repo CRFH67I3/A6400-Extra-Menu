@@ -133,9 +133,8 @@ int main(void) {
     assert(tap(&m, 6) & FILM_MENU_REDRAW);
     assert(m.page == FILM_MENU_V4);
     assert(tap(&m, 0) & FILM_MENU_POPUP_TOGGLED);
-    assert(tap(&m, 1) & FILM_MENU_ALBUM_TOGGLED);
-    assert(tap(&m, 3) & FILM_MENU_TOUCH_TOGGLED);
-    assert(tap(&m, 4) & FILM_MENU_SETTINGS_CHANGED);
+    assert(tap(&m, 1) & FILM_MENU_TOUCH_TOGGLED);
+    assert(tap(&m, 3) & FILM_MENU_SETTINGS_CHANGED);
     assert(m.settings.grain == 2 && m.settings.halation == 1);
     assert(tap(&m, 6) & FILM_MENU_REDRAW);
     assert(m.page == FILM_MENU_DETAILS);

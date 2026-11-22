@@ -75,7 +75,20 @@ typedef void (*mouse_position_fn)(const void *,unsigned char,short *,short *);
 typedef int (*mouse_state_fn)(const void *,unsigned char,unsigned char);
 typedef int (*key_fn)(void *,int,void *);
 typedef void (*font_fn)(void *,uint32_t);
-typedef uint32_t (*pb_base_fn)(void);
+typedef void (*cimg_size_fn)(void *,float,float) __attribute__((pcs("aapcs")));
+typedef void *(*img_sys_get_fn)(void *);
+typedef uint32_t (*get_res_id_fn)(void *);
+typedef int (*bmp_stride_fn)(void *,int16_t *);
+typedef int (*bmp_fmt_fn)(void *,int *);
+typedef int (*bmp_lock_fn)(void *,int,void **);
+typedef int (*bmp_unlock_fn)(void *);
+typedef void (*sprite_set_img_fn)(void *,uint32_t,uint32_t);
+typedef int (*pv_open_fn)(const char *,int);
+typedef long (*pv_read_fn)(int,void *,size_t);
+typedef int (*pv_close_fn)(int);
+#ifndef A6400_PV_DIR_RUNTIME
+#define A6400_PV_DIR_RUNTIME A6400_PV_DIR
+#endif
 #define A6400_KEY_LEFT      0x0015
 #define A6400_KEY_RIGHT     0x01af
 #define A6400_KEY_CENTER    0x01ac
@@ -103,18 +116,9 @@ typedef uint32_t (*pb_base_fn)(void);
 #define UI_S_FOOT_HOME          "hany | 相册:%u张 | 队列 %u/%u"
 #define UI_S_ALBUM_TILE_FMT     "套色相册 (%u张) >"
 #define UI_S_POPUP_FMT          "即时预览小窗: %s"
-#define UI_S_ALBUM_FMT          "机内相册预览: %s"
 #define UI_S_TOUCH_FMT          "原生MENU触控: %s"
 #define UI_S_TOUCH_UNSUP        "不支持"
-#define UI_S_BROWSE_FMT         "浏览套色相册 (%u张) >"
-#define UI_S_ALB_LUT_TOP        "[LUT相册] %s"
 #define UI_S_ALB_LUT_DEF        "已套滤镜"
-#define UI_S_ALB_LUT_BOT        "◀/▶ 换张 | 轻触屏幕: 切换原图对比"
-#define UI_S_ALB_ORIG_TOP       "[原图对比] %s"
-#define UI_S_ALB_ORIG_DEF       "原始照片"
-#define UI_S_ALB_ORIG_BOT       "◀/▶ 换张 | 轻触屏幕: 切回 LUT 套色"
-#define UI_S_ALB_NONE_TOP       "[原图] 本张未套滤镜"
-#define UI_S_ALB_NONE_BOT       "◀/▶ 换张 | 按播放键/快门退出"
 #define UI_S_ALB_DIR_TOP        "[套色相册 %u/%u] %s"
 #define UI_S_ALB_DIR_BOT        "< 上一张 | 点中间或按快门退出 | 下一张 >"
 #define UI_S_HINT_COMBO         "MENU + 放大镜"
@@ -136,18 +140,9 @@ typedef uint32_t (*pb_base_fn)(void);
 #define UI_S_FOOT_HOME          "hany | 相冊:%u張 | 佇列 %u/%u"
 #define UI_S_ALBUM_TILE_FMT     "套色相冊 (%u張) >"
 #define UI_S_POPUP_FMT          "即時預覽小窗: %s"
-#define UI_S_ALBUM_FMT          "機內相冊預覽: %s"
 #define UI_S_TOUCH_FMT          "原生MENU觸控: %s"
 #define UI_S_TOUCH_UNSUP        "不支援"
-#define UI_S_BROWSE_FMT         "瀏覽套色相冊 (%u張) >"
-#define UI_S_ALB_LUT_TOP        "[LUT相冊] %s"
 #define UI_S_ALB_LUT_DEF        "已套濾鏡"
-#define UI_S_ALB_LUT_BOT        "◀/▶ 換張 | 輕觸螢幕: 切換原圖對比"
-#define UI_S_ALB_ORIG_TOP       "[原圖對比] %s"
-#define UI_S_ALB_ORIG_DEF       "原始照片"
-#define UI_S_ALB_ORIG_BOT       "◀/▶ 換張 | 輕觸螢幕: 切回 LUT 套色"
-#define UI_S_ALB_NONE_TOP       "[原圖] 本張未套濾鏡"
-#define UI_S_ALB_NONE_BOT       "◀/▶ 換張 | 按播放鍵/快門退出"
 #define UI_S_ALB_DIR_TOP        "[套色相冊 %u/%u] %s"
 #define UI_S_ALB_DIR_BOT        "< 上一張 | 點中間或按快門退出 | 下一張 >"
 #define UI_S_HINT_COMBO         "MENU + 放大鏡"
@@ -284,7 +279,7 @@ volatile struct a6400_ui_status_v1 a6400_ui_status_v1 = { 0x53544156u, 0u, 0u, 0
 __attribute__((visibility("default")))
 volatile struct a6400_ui_v4_v1 a6400_ui_v4_v1 = {
     A6400_V4_MAGIC, A6400_V4_VERSION,
-    1u, 1u, 1u,          /* preview_popup_en, album_preview_en, native_touch_en default ON */
+    1u, 0u, 1u,          /* preview_popup_en=ON, native Playback hijack=OFF, native_touch_en=ON */
     A6400_DISP_NONE, 0u, 0u,
     0u, 0u,
     0u, 0u, 0u, 0u,
@@ -292,16 +287,33 @@ volatile struct a6400_ui_v4_v1 a6400_ui_v4_v1 = {
 };
 
 static struct {
-    pb_base_fn get_pb_base;
     struct mtf2_ctx mtf2;
+    /* Native Sony GEN_CacheInsImg zero-flicker canvas APIs (resolved via dlsym). */
+    ctor_fn cache_img_ctor, cache_img_init, sprite_invalidate;
+    cimg_size_fn cache_img_set_size;
+    img_sys_get_fn img_sys_get, bmp_get_internal;
+    get_res_id_fn get_res_id;
+    bmp_stride_fn bmp_stride;
+    bmp_fmt_fn bmp_fmt;
+    bmp_lock_fn bmp_lock;
+    bmp_unlock_fn bmp_unlock;
+    sprite_set_img_fn sprite_set_img;
+    pv_open_fn pv_open;
+    pv_read_fn pv_read;
+    pv_close_fn pv_close;
+    void *popup_border;
+    void *img_widget;
+    void *img_bmp;
+    int img_w, img_h, img_fmt, img_init_failed;
+    uint32_t img_res_id;
     uint32_t seen_latest_seq;
     int popup_active;
+    int popup_is_native;
     uint32_t popup_until_ms;
-    int album_mode;          /* 0=off, 1=playback-synced, 2=direct-menu-browser */
-    int album_compare_orig;
-    unsigned album_idx;      /* pb_offset in mode 1, or 0..album_count-1 in mode 2 */
-    int last_pb_active;
-    int last_nav_left, last_nav_right, last_nav_center, last_nav_exit;
+    int album_mode;          /* 0=off, 2=direct-menu-browser (never hijacks native Playback) */
+    int album_is_native;
+    unsigned album_idx;      /* 0..album_count-1 in direct graded album browser */
+    int last_nav_left, last_nav_right, last_nav_exit;
     int album_touch_down;
     short album_touch_x, album_touch_y;
     int mtf2_wait_release;
@@ -390,9 +402,56 @@ static __attribute__((noinline)) int resolve(void) {
     ui_theme.beep_play=(beep_play_fn)api("_ZN13AppWidgetBase8beepPlayEi",0);
     if(!ui_theme.beep_play)return -1;
 #endif
-    /* Optional playback detector: absent on non-matching models is non-fatal. */
-    ui_v4.get_pb_base=(pb_base_fn)dlsym(RTLD_DEFAULT,
-        "_ZN27CmnForUseMultipleViewStatus20getCurrentViewPbBaseEv");
+    /* Optional native GEN_CacheInsImg zero-flicker preview renderer (falls back to
+     * external OSD blitter cleanly if any symbol or Thumb prologue does not match). */
+    ui_v4.cache_img_ctor=(ctor_fn)dlsym(RTLD_DEFAULT,"_ZN15GEN_CacheInsImgC1Ev");
+    ui_v4.cache_img_set_size=(cimg_size_fn)dlsym(RTLD_DEFAULT,"_ZN15GEN_CacheInsImg7setSizeEff");
+    ui_v4.cache_img_init=(ctor_fn)dlsym(RTLD_DEFAULT,"_ZN15GEN_CacheInsImg19initializeImageDataEv");
+    ui_v4.img_sys_get=(img_sys_get_fn)dlsym(RTLD_DEFAULT,"_ZN5libra9ImageData16sys_getImageDataEv");
+    ui_v4.bmp_get_internal=(img_sys_get_fn)dlsym(RTLD_DEFAULT,"_ZN2ux4core13GraphicsImage21sys_getInternalObjectEPv");
+    ui_v4.get_res_id=(get_res_id_fn)dlsym(RTLD_DEFAULT,"_ZNK5libra9ImageData8getResIDEv");
+    ui_v4.pv_open=(pv_open_fn)dlsym(RTLD_DEFAULT,"open");
+    ui_v4.pv_read=(pv_read_fn)dlsym(RTLD_DEFAULT,"read");
+    ui_v4.pv_close=(pv_close_fn)dlsym(RTLD_DEFAULT,"close");
+    {
+        void *bmp_create=dlsym(RTLD_DEFAULT,"BMP_Create");
+        if(bmp_create) {
+            uintptr_t bb=(uintptr_t)bmp_create;
+            uintptr_t s=bb+0x3fcu;
+            uintptr_t f=bb+0x45cu;
+            uintptr_t l=bb+0x57cu;
+            uintptr_t u=bb+0x5acu;
+            if(*(const uint16_t *)(s & ~1u)==0xb580u)ui_v4.bmp_stride=(bmp_stride_fn)s;
+            if(*(const uint16_t *)(f & ~1u)==0xb580u)ui_v4.bmp_fmt=(bmp_fmt_fn)f;
+            if(*(const uint16_t *)(l & ~1u)==0xb580u)ui_v4.bmp_lock=(bmp_lock_fn)l;
+            if(*(const uint16_t *)(u & ~1u)==0xb580u)ui_v4.bmp_unlock=(bmp_unlock_fn)u;
+        }
+        void *cimg_clear=dlsym(RTLD_DEFAULT,"_ZN15GEN_CacheInsImg10clearImageEN6stella6CColorE");
+        if(cimg_clear) {
+            uintptr_t bl_addr=((uintptr_t)cimg_clear & ~1u)+0x3au;
+            const uint16_t *bins=(const uint16_t *)bl_addr;
+            if((bins[0]&0xf800u)==0xf000u && (bins[1]&0xd000u)==0xd000u) {
+                uint32_t S=(bins[0]>>10)&1u,imm10=bins[0]&0x3ffu;
+                uint32_t J1=(bins[1]>>13)&1u,J2=(bins[1]>>11)&1u,imm11=bins[1]&0x7ffu;
+                uint32_t I1=~(J1^S)&1u,I2=~(J2^S)&1u;
+                int32_t imm25=(int32_t)((S<<24)|(I1<<23)|(I2<<22)|(imm10<<12)|(imm11<<1));
+                if(S)imm25-=(int32_t)(1u<<25);
+                uintptr_t tgt=(bl_addr+4u)+(uintptr_t)imm25;
+                if(*(const uint16_t *)tgt==0xf1b1u)ui_v4.sprite_set_img=(sprite_set_img_fn)(tgt|1u);
+            }
+            uintptr_t b_addr=((uintptr_t)cimg_clear & ~1u)+0x44u;
+            const uint16_t *ins=(const uint16_t *)b_addr;
+            if((ins[0]&0xf800u)==0xf000u && (ins[1]&0xd000u)==0x9000u) {
+                uint32_t S=(ins[0]>>10)&1u,imm10=ins[0]&0x3ffu;
+                uint32_t J1=(ins[1]>>13)&1u,J2=(ins[1]>>11)&1u,imm11=ins[1]&0x7ffu;
+                uint32_t I1=~(J1^S)&1u,I2=~(J2^S)&1u;
+                int32_t imm25=(int32_t)((S<<24)|(I1<<23)|(I2<<22)|(imm10<<12)|(imm11<<1));
+                if(S)imm25-=(int32_t)(1u<<25);
+                uintptr_t tgt=(b_addr+4u)+(uintptr_t)imm25;
+                if(*(const uint16_t *)tgt==0xb5f0u)ui_v4.sprite_invalidate=(ctor_fn)(tgt|1u);
+            }
+        }
+    }
 #undef API
     return 0;
 }
@@ -522,21 +581,207 @@ static void v4_publish_display(uint32_t mode,uint32_t slot) {
     __sync_synchronize();
     a6400_ui_v4_v1.display_seq+=1u;
 }
+static void sync_layer_active(void) {
+    if(!ui.layer)return;
+    int want=(ui.view.menu.visible || ui_v4.album_mode ||
+              (ui_v4.popup_active && ui_v4.popup_is_native) || ui_toast.visible)?1:0;
+    ui.layer_active(ui.layer,want);
+}
+static int v4_pv_read_exact(int fd,void *buf,size_t len) {
+    unsigned char *p=(unsigned char *)buf;
+    size_t got=0u;
+    while(got<len) {
+        long r=ui_v4.pv_read(fd,p+got,len-got);
+        if(r<=0)return -1;
+        got+=(size_t)r;
+    }
+    return 0;
+}
+static int v4_ensure_native_canvas(void) {
+    if(ui_v4.img_widget && ui_v4.img_bmp)return 1;
+    if(ui_v4.img_init_failed)return 0;
+    if(!ui_v4.cache_img_ctor || !ui_v4.cache_img_set_size || !ui_v4.cache_img_init ||
+       !ui_v4.img_sys_get || !ui_v4.bmp_get_internal || !ui_v4.bmp_stride ||
+       !ui_v4.bmp_lock || !ui_v4.bmp_unlock || !ui_v4.sprite_invalidate ||
+       !ui_v4.pv_open || !ui_v4.pv_read || !ui_v4.pv_close) {
+        ui_v4.img_init_failed=1;
+        return 0;
+    }
+    static const int try_dims[3][2]={{600,400},{480,320},{300,200}};
+    for(int t=0;t<3;t++) {
+        void *cand=calloc(1,0x400u);
+        if(!cand)break;
+        ui_v4.cache_img_ctor(cand);
+        ui.set_layer(cand,&ui.layer_id);
+        const float zxy[2]={0.0f,0.0f};
+        ui.set_position(cand,zxy);
+        int cw=try_dims[t][0],ch=try_dims[t][1];
+        ui_v4.cache_img_set_size(cand,(float)cw,(float)ch);
+        *(uint8_t *)((unsigned char *)cand+0x20cu)=1u;
+        ui_v4.cache_img_init(cand);
+        void *img_data=(unsigned char *)cand+0x15cu;
+        void *internal_img=ui_v4.img_sys_get(img_data);
+        void *bmp=internal_img?ui_v4.bmp_get_internal(internal_img):0;
+        if(bmp) {
+            ui_v4.img_widget=cand;
+            ui_v4.img_bmp=bmp;
+            ui_v4.img_w=cw;
+            ui_v4.img_h=ch;
+            ui_v4.img_res_id=ui_v4.get_res_id?ui_v4.get_res_id(img_data):0xffffffffu;
+            ui_v4.img_fmt=-1;
+            if(ui_v4.bmp_fmt)ui_v4.bmp_fmt(bmp,&ui_v4.img_fmt);
+            ui_v4.cache_img_set_size(cand,0.0f,0.0f);
+            ui_v4.sprite_invalidate((unsigned char *)cand+0x164u);
+            record("V4_NATIVE_IMG_OK",cw,ch);
+            return 1;
+        }
+        ui_v4.cache_img_set_size(cand,0.0f,0.0f);
+    }
+    ui_v4.img_init_failed=1;
+    record("V4_NATIVE_IMG_FAIL",0,0);
+    return 0;
+}
+static void v4_hide_native_img(void) {
+    static const unsigned char clear_c[4]={0,0,0,0};
+    if(ui_v4.popup_border) {
+        place(ui_v4.popup_border,0,0,0,0,0);
+        paint(ui_v4.popup_border,clear_c);
+    }
+    if(ui_v4.img_widget && ui_v4.cache_img_set_size) {
+        const float zxy[2]={0.0f,0.0f};
+        ui.set_position(ui_v4.img_widget,zxy);
+        ui_v4.cache_img_set_size(ui_v4.img_widget,0.0f,0.0f);
+        if(ui_v4.sprite_invalidate)ui_v4.sprite_invalidate((unsigned char *)ui_v4.img_widget+0x164u);
+    }
+}
+static void v4_convert_row(unsigned char *dst_row,int is32,int is4444,
+                           const uint16_t *src_row,unsigned src_w,unsigned dst_w) {
+    if(is32) {
+        uint32_t *d=(uint32_t *)dst_row;
+        for(unsigned dx=0;dx<dst_w;dx++) {
+            uint16_t q=src_row[(dst_w==src_w)?dx:((dx*src_w)/dst_w)];
+            uint32_t r=((q>>12)&0xfu)*0x11u;
+            uint32_t g=((q>>8)&0xfu)*0x11u;
+            uint32_t b=((q>>4)&0xfu)*0x11u;
+            d[dx]=r | (g<<8) | (b<<16) | 0xff000000u;
+        }
+    } else if(is4444) {
+        uint16_t *d=(uint16_t *)dst_row;
+        if(dst_w==src_w) {
+            memcpy(d,src_row,(size_t)dst_w*2u);
+        } else {
+            for(unsigned dx=0;dx<dst_w;dx++)d[dx]=src_row[(dx*src_w)/dst_w];
+        }
+    } else {
+        uint16_t *d=(uint16_t *)dst_row;
+        for(unsigned dx=0;dx<dst_w;dx++) {
+            uint16_t q=src_row[(dst_w==src_w)?dx:((dx*src_w)/dst_w)];
+            unsigned r4=(q>>12)&0xfu,g4=(q>>8)&0xfu,b4=(q>>4)&0xfu;
+            unsigned r5=(r4<<1)|(r4>>3);
+            unsigned g6=(g4<<2)|(g4>>2);
+            unsigned b5=(b4<<1)|(b4>>3);
+            d[dx]=(uint16_t)((r5<<11)|(g6<<5)|b5);
+        }
+    }
+}
+static int v4_load_bin_to_canvas(const char *path,unsigned want_w,unsigned want_h,int *out_w,int *out_h) {
+    if(!v4_ensure_native_canvas())return -1;
+    if(want_w==0u || want_h==0u || want_w>A6400_ALBUM_W)return -1;
+    int fd=ui_v4.pv_open(path,0);
+    if(fd<0)return -1;
+    struct a6400_preview_hdr hdr;
+    if(v4_pv_read_exact(fd,&hdr,sizeof(hdr))!=0 ||
+       hdr.magic!=A6400_PV_MAGIC || hdr.width!=want_w || hdr.height!=want_h) {
+        ui_v4.pv_close(fd);
+        return -1;
+    }
+    int16_t stride=0;
+    void *dst=0;
+    ui_v4.bmp_stride(ui_v4.img_bmp,&stride);
+    if(stride<ui_v4.img_w*2 || ui_v4.bmp_lock(ui_v4.img_bmp,-1,&dst)!=0 || !dst) {
+        ui_v4.pv_close(fd);
+        return -1;
+    }
+    int is32=(stride>=ui_v4.img_w*4);
+    int is4444=(!is32 && ui_v4.img_fmt==3);
+    unsigned dst_w=(want_w<=(unsigned)ui_v4.img_w)?want_w:(unsigned)ui_v4.img_w;
+    unsigned dst_h=(want_h<=(unsigned)ui_v4.img_h)?want_h:(unsigned)ui_v4.img_h;
+    uint16_t row_buf[A6400_ALBUM_W];
+    unsigned next_dy=0u;
+    int ok=1;
+    for(unsigned sy=0;sy<want_h;sy++) {
+        if(v4_pv_read_exact(fd,row_buf,(size_t)want_w*2u)!=0){ok=0;break;}
+        while(next_dy<dst_h && ((next_dy*want_h)/dst_h)==sy) {
+            unsigned char *drow=(unsigned char *)dst+(size_t)next_dy*(size_t)stride;
+            v4_convert_row(drow,is32,is4444,row_buf,want_w,dst_w);
+            ++next_dy;
+        }
+    }
+    ui_v4.bmp_unlock(ui_v4.img_bmp);
+    ui_v4.pv_close(fd);
+    if(!ok)return -1;
+    if(ui_v4.sprite_set_img && ui_v4.img_res_id!=0xffffffffu)
+        ui_v4.sprite_set_img((unsigned char *)ui_v4.img_widget+0x164u,ui_v4.img_res_id,0x80u);
+    if(out_w)*out_w=(int)dst_w;
+    if(out_h)*out_h=(int)dst_h;
+    return 0;
+}
+static void v4_show_popup(uint32_t now) {
+    char path[160];
+    snprintf(path,sizeof(path),"%s/popup.bin",A6400_PV_DIR_RUNTIME);
+    int dw=0,dh=0;
+    ui_v4.popup_active=1;
+    ui_v4.popup_until_ms=now+A6400_POPUP_SHOW_MS;
+    if(v4_load_bin_to_canvas(path,A6400_POPUP_W,A6400_POPUP_H,&dw,&dh)==0) {
+        static const unsigned char frame_c[4]={234,78,16,255};
+        hide_menu_widgets();
+        if(ui_v4.popup_border) {
+            place(ui_v4.popup_border,0,(int)A6400_POPUP_X-2,(int)A6400_POPUP_Y-2,dw+4,dh+4);
+            paint(ui_v4.popup_border,frame_c);
+        }
+        const float xy[2]={(float)A6400_POPUP_X,(float)A6400_POPUP_Y};
+        ui.set_position(ui_v4.img_widget,xy);
+        ui_v4.cache_img_set_size(ui_v4.img_widget,(float)dw,(float)dh);
+        if(ui_v4.sprite_invalidate)ui_v4.sprite_invalidate((unsigned char *)ui_v4.img_widget+0x164u);
+        ui_v4.popup_is_native=1;
+        v4_publish_display(A6400_DISP_NONE,0u);
+        ui.move_last(ui.layer);
+        sync_layer_active();
+    } else {
+        ui_v4.popup_is_native=0;
+        v4_publish_display(A6400_DISP_POPUP,a6400_ui_v4_v1.album_head);
+    }
+}
 static void v4_dismiss_popup(void) {
     if(!ui_v4.popup_active)return;
+    int was_native=ui_v4.popup_is_native;
     ui_v4.popup_active=0;
+    ui_v4.popup_is_native=0;
     ui_v4.popup_until_ms=0;
-    if(!ui_v4.album_mode)v4_publish_display(A6400_DISP_NONE,0u);
+    if(was_native && !ui_v4.album_mode)v4_hide_native_img();
+    if(!ui_v4.album_mode) {
+        v4_publish_display(A6400_DISP_NONE,0u);
+        sync_layer_active();
+    }
 }
-static void v4_draw_album_hud(const char *top_text,const char *bot_text,int show_lut) {
+static void v4_draw_album_hud(const char *top_text,const char *bot_text,int opaque_bg) {
+    static const unsigned char bg_solid[4]={14,15,18,255};
     static const unsigned char bar_lut[4]={14,15,18,242};
-    static const unsigned char bar_orig[4]={32,34,40,236};
     static const unsigned char accent_c[4]={245,86,18,255};
+    static const unsigned char clear_c[4]={0,0,0,0};
     hide_menu_widgets();
     hide_toast_widgets();
     ui_toast.visible=0;
+    if(ui_v4.popup_border) {
+        place(ui_v4.popup_border,0,0,0,0,0);
+        paint(ui_v4.popup_border,clear_c);
+    }
+    if(opaque_bg) {
+        place(ui.background,0,0,0,640,480);
+        paint(ui.background,bg_solid);
+    }
     place(ui.panels[0],0,0,0,640,34);
-    paint(ui.panels[0],show_lut?bar_lut:bar_orig);
+    paint(ui.panels[0],bar_lut);
     place(ui_theme.header_accent,0,0,34,640,2);
     paint(ui_theme.header_accent,accent_c);
     place(ui.panels[1],0,0,444,640,36);
@@ -548,70 +793,59 @@ static void v4_draw_album_hud(const char *top_text,const char *bot_text,int show
     place(ui.labels[7],1,14,448,612,28);
     ui.set_text(ui.labels[7],ui.texts[7]);
     ui.move_last(ui.layer);
-    ui.layer_active(ui.layer,1);
+    sync_layer_active();
 }
 static void v4_album_sync_view(void) {
     if(!ui_v4.album_mode)return;
-    char top[80],bot[80];
-    if(ui_v4.album_mode==1) {
-        uint32_t total_shots=a6400_ui_v4_v1.session_shots;
-        int slot=-1;
-        if(total_shots>0u && ui_v4.album_idx<total_shots && ui_v4.album_idx<A6400_SESSION_SHOTS_CAP) {
-            uint32_t pos=(total_shots-1u-ui_v4.album_idx)%A6400_SESSION_SHOTS_CAP;
-            slot=(int)a6400_ui_v4_v1.shot_slots[pos];
-        }
-        if(slot>=0 && (unsigned)slot<A6400_ALBUM_SLOTS) {
-            char cap[48];
-            for(unsigned i=0;i<47u;i++)cap[i]=a6400_ui_v4_v1.slot_labels[slot][i];
-            cap[47]=0;
-            if(!ui_v4.album_compare_orig) {
-                snprintf(top,sizeof(top),UI_S_ALB_LUT_TOP,cap[0]?cap:UI_S_ALB_LUT_DEF);
-                snprintf(bot,sizeof(bot),UI_S_ALB_LUT_BOT);
-                v4_draw_album_hud(top,bot,1);
-                v4_publish_display(A6400_DISP_ALBUM,(uint32_t)slot);
-            } else {
-                snprintf(top,sizeof(top),UI_S_ALB_ORIG_TOP,cap[0]?cap:UI_S_ALB_ORIG_DEF);
-                snprintf(bot,sizeof(bot),UI_S_ALB_ORIG_BOT);
-                v4_draw_album_hud(top,bot,0);
-                v4_publish_display(A6400_DISP_NONE,0u);
-            }
-        } else {
-            snprintf(top,sizeof(top),UI_S_ALB_NONE_TOP);
-            snprintf(bot,sizeof(bot),UI_S_ALB_NONE_BOT);
-            v4_draw_album_hud(top,bot,0);
-            v4_publish_display(A6400_DISP_NONE,0u);
-        }
+    uint32_t cnt=a6400_ui_v4_v1.album_count;
+    if(cnt==0u) {
+        ui_v4.album_mode=0;
+        ui_v4.album_is_native=0;
+        v4_hide_native_img();
+        v4_publish_display(A6400_DISP_NONE,0u);
+        sync_layer_active();
+        return;
+    }
+    if(cnt>A6400_ALBUM_SLOTS)cnt=A6400_ALBUM_SLOTS;
+    if(ui_v4.album_idx>=cnt)ui_v4.album_idx=cnt-1u;
+    uint32_t head=a6400_ui_v4_v1.album_head%A6400_ALBUM_SLOTS;
+    uint32_t slot=(head+A6400_ALBUM_SLOTS-(ui_v4.album_idx%A6400_ALBUM_SLOTS))%A6400_ALBUM_SLOTS;
+    char cap[48],top[80],bot[80],path[160];
+    for(unsigned i=0;i<47u;i++)cap[i]=a6400_ui_v4_v1.slot_labels[slot][i];
+    cap[47]=0;
+    snprintf(top,sizeof(top),UI_S_ALB_DIR_TOP,
+             (unsigned)(ui_v4.album_idx+1u),(unsigned)cnt,cap[0]?cap:UI_S_ALB_LUT_DEF);
+    snprintf(bot,sizeof(bot),UI_S_ALB_DIR_BOT);
+    snprintf(path,sizeof(path),"%s/slot_%02u.bin",A6400_PV_DIR_RUNTIME,(unsigned)(slot%A6400_ALBUM_SLOTS));
+    int dw=0,dh=0;
+    int native_ok=(v4_load_bin_to_canvas(path,A6400_ALBUM_W,A6400_ALBUM_H,&dw,&dh)==0);
+    v4_draw_album_hud(top,bot,native_ok);
+    if(native_ok) {
+        int px=(640-dw)/2;
+        int py=40+(400-dh)/2;
+        const float xy[2]={(float)px,(float)py};
+        ui.set_position(ui_v4.img_widget,xy);
+        ui_v4.cache_img_set_size(ui_v4.img_widget,(float)dw,(float)dh);
+        if(ui_v4.sprite_invalidate)ui_v4.sprite_invalidate((unsigned char *)ui_v4.img_widget+0x164u);
+        ui_v4.album_is_native=1;
+        /* Keep external OSD blitter idle while native GEN_CacheInsImg renders zero-flicker. */
+        v4_publish_display(A6400_DISP_NONE,slot);
     } else {
-        uint32_t cnt=a6400_ui_v4_v1.album_count;
-        if(cnt==0u) {
-            ui_v4.album_mode=0;
-            v4_publish_display(A6400_DISP_NONE,0u);
-            ui.layer_active(ui.layer,0);
-            return;
-        }
-        if(cnt>A6400_ALBUM_SLOTS)cnt=A6400_ALBUM_SLOTS;
-        if(ui_v4.album_idx>=cnt)ui_v4.album_idx=cnt-1u;
-        uint32_t head=a6400_ui_v4_v1.album_head%A6400_ALBUM_SLOTS;
-        uint32_t slot=(head+A6400_ALBUM_SLOTS-(ui_v4.album_idx%A6400_ALBUM_SLOTS))%A6400_ALBUM_SLOTS;
-        char cap[48];
-        for(unsigned i=0;i<47u;i++)cap[i]=a6400_ui_v4_v1.slot_labels[slot][i];
-        cap[47]=0;
-        snprintf(top,sizeof(top),UI_S_ALB_DIR_TOP,
-                 (unsigned)(ui_v4.album_idx+1u),(unsigned)cnt,cap[0]?cap:UI_S_ALB_LUT_DEF);
-        snprintf(bot,sizeof(bot),UI_S_ALB_DIR_BOT);
-        v4_draw_album_hud(top,bot,1);
+        ui_v4.album_is_native=0;
+        v4_hide_native_img();
         v4_publish_display(A6400_DISP_ALBUM,slot);
     }
 }
 static void v4_exit_album(void) {
     if(!ui_v4.album_mode)return;
     ui_v4.album_mode=0;
-    ui_v4.album_compare_orig=0;
+    ui_v4.album_is_native=0;
     ui_v4.album_touch_down=0;
+    v4_hide_native_img();
     v4_publish_display(A6400_DISP_NONE,0u);
     if(!ui.view.menu.visible) {
         hide_menu_widgets();
-        ui.layer_active(ui.layer,0);
+        sync_layer_active();
     }
     record("ALBUM_EXIT",0,0);
 }
@@ -634,10 +868,11 @@ static void draw(void *unused,const struct film_menu *menu) {
     v4_dismiss_popup();
     if(ui_v4.album_mode) {
         ui_v4.album_mode=0;
-        ui_v4.album_compare_orig=0;
+        ui_v4.album_is_native=0;
         ui_v4.album_touch_down=0;
         v4_publish_display(A6400_DISP_NONE,0u);
     }
+    v4_hide_native_img();
     hide_toast_widgets();
     ui_toast.visible=0;
     int is_home=(menu->page==FILM_MENU_HOME);
@@ -723,9 +958,7 @@ static void draw(void *unused,const struct film_menu *menu) {
         } else if(is_v4) {
             if(row==0u)snprintf(ui.texts[row+1u],sizeof(ui.texts[0]),UI_S_POPUP_FMT,
                                 a6400_ui_v4_v1.preview_popup_en?UI_S_ON:UI_S_OFF);
-            else if(row==1u)snprintf(ui.texts[row+1u],sizeof(ui.texts[0]),UI_S_ALBUM_FMT,
-                                     a6400_ui_v4_v1.album_preview_en?UI_S_ON:UI_S_OFF);
-            else if(row==2u)snprintf(ui.texts[row+1u],sizeof(ui.texts[0]),UI_S_TOUCH_FMT,
+            else if(row==1u)snprintf(ui.texts[row+1u],sizeof(ui.texts[0]),UI_S_TOUCH_FMT,
                                      !a6400_ui_v4_v1.native_touch_ok?UI_S_TOUCH_UNSUP:
                                      (a6400_ui_v4_v1.native_touch_en?UI_S_ON:UI_S_OFF));
         }
@@ -806,13 +1039,12 @@ static void draw(void *unused,const struct film_menu *menu) {
                 lx=x+84;ly=y+12;lw=w-102;lh=36;
             }
         } else if(is_v4) {
-            if(row<3u) {
+            if(row<2u) {
                 int on=(row==0u)?(a6400_ui_v4_v1.preview_popup_en!=0u):
-                       (row==1u)?(a6400_ui_v4_v1.album_preview_en!=0u):
                        (a6400_ui_v4_v1.native_touch_ok && a6400_ui_v4_v1.native_touch_en);
                 place(ui_theme.row_accents[row],0,x,y,4,h);
-                paint(ui_theme.row_accents[row],on?(row==2u?h_sky:h_orange):h_muted);
-                draw_swiss_toggle(row,x+18,y+18,on,row==2u?h_sky:h_orange);
+                paint(ui_theme.row_accents[row],on?(row==1u?h_sky:h_orange):h_muted);
+                draw_swiss_toggle(row,x+18,y+18,on,row==1u?h_sky:h_orange);
                 lx=x+84;ly=y+12;lw=w-102;lh=36;
             } else {
                 place(ui_theme.row_accents[row],0,x,y,4,h);
@@ -969,17 +1201,19 @@ static void animate(void *self) {
                     ui.set_color(ui_toast.accent,kind==2?k2_c:kind==3?k3_c:k1_c);
                     ui.set_text(ui_toast.label,ui_toast.text);
                     ui.move_last(ui.layer);
-                    ui.layer_active(ui.layer,1);
                     ui_toast.visible=1;
                     ui_toast.until_ms=now+(dur?dur:3000u);
+                    sync_layer_active();
                 } else if(ui_toast.visible) {
-                    ui.layer_active(ui.layer,0);
+                    hide_toast_widgets();
                     ui_toast.visible=0;
+                    sync_layer_active();
                 }
             }
             if(ui_toast.visible && (int32_t)(now-ui_toast.until_ms)>=0) {
-                ui.layer_active(ui.layer,0);
+                hide_toast_widgets();
                 ui_toast.visible=0;
+                sync_layer_active();
             }
         }
     }
@@ -1057,12 +1291,6 @@ static void animate(void *self) {
         draw(0,&ui.view.menu);
         record("V4_POPUP_TOGGLE",(int)a6400_ui_v4_v1.preview_popup_en,0);
     }
-    if(change&FILM_MENU_ALBUM_TOGGLED) {
-        a6400_ui_v4_v1.album_preview_en^=1u;
-        if(!a6400_ui_v4_v1.album_preview_en && ui_v4.album_mode==1)v4_exit_album();
-        draw(0,&ui.view.menu);
-        record("V4_ALBUM_TOGGLE",(int)a6400_ui_v4_v1.album_preview_en,0);
-    }
     if(change&FILM_MENU_TOUCH_TOGGLED) {
         if(a6400_ui_v4_v1.native_touch_ok)a6400_ui_v4_v1.native_touch_en^=1u;
         draw(0,&ui.view.menu);
@@ -1073,23 +1301,20 @@ static void animate(void *self) {
             film_native_view_hide(&ui.view);
             v4_dismiss_popup();
             ui_v4.album_mode=2;
-            ui_v4.album_compare_orig=0;
             ui_v4.album_idx=0u;
             ui_v4.album_touch_down=0;
             v4_album_sync_view();
-            record("V4_ALBUM_BROWSE_OPEN",(int)a6400_ui_v4_v1.album_count,0);
+            record("V4_ALBUM_BROWSE_OPEN",(int)a6400_ui_v4_v1.album_count,ui_v4.album_is_native);
         } else {
             draw(0,&ui.view.menu);
         }
     }
-    /* V4.0 Poll #5: Instant filter preview pop-up card after shot finishes. */
+    /* V4.1 Instant filter preview pop-up card after shot finishes (native zero-flicker). */
     if(a6400_ui_v4_v1.magic==A6400_V4_MAGIC && a6400_ui_v4_v1.latest_seq!=ui_v4.seen_latest_seq) {
         ui_v4.seen_latest_seq=a6400_ui_v4_v1.latest_seq;
         if(a6400_ui_v4_v1.preview_popup_en && !ui.view.menu.visible && !ui_v4.album_mode) {
-            ui_v4.popup_active=1;
-            ui_v4.popup_until_ms=now+A6400_POPUP_SHOW_MS;
-            v4_publish_display(A6400_DISP_POPUP,a6400_ui_v4_v1.album_head);
-            record("V4_POPUP_SHOW",(int)ui_v4.seen_latest_seq,0);
+            v4_show_popup(now);
+            record("V4_POPUP_SHOW",(int)ui_v4.seen_latest_seq,ui_v4.popup_is_native);
         }
     }
     if(ui_v4.popup_active) {
@@ -1099,54 +1324,31 @@ static void animate(void *self) {
             record("V4_POPUP_HIDE",0,0);
         }
     }
-    /* V4.0 Poll #2: In-camera graded album preview (Playback auto-sync + direct browser). */
-    int pb_now=(ui_v4.get_pb_base && ui_v4.get_pb_base()!=0u)?1:0;
-    if(pb_now && !ui_v4.last_pb_active) {
-        if(a6400_ui_v4_v1.album_preview_en && !ui.view.menu.visible &&
-           a6400_ui_v4_v1.album_count>0u && a6400_ui_v4_v1.session_shots>0u) {
-            v4_dismiss_popup();
-            ui_v4.album_mode=1;
-            ui_v4.album_compare_orig=0;
-            ui_v4.album_idx=0u;
-            ui_v4.album_touch_down=0;
-            v4_album_sync_view();
-            record("V4_PB_ALBUM_ENTER",(int)a6400_ui_v4_v1.session_shots,(int)a6400_ui_v4_v1.album_count);
-        }
-    } else if(!pb_now && ui_v4.last_pb_active && ui_v4.album_mode==1) {
-        v4_exit_album();
-    }
-    ui_v4.last_pb_active=pb_now;
+    /* V4.1 Graded Album direct browser (opened ONLY via custom menu's Top-Right tile;
+     * Sony's native Playback button is never hijacked or intercepted). */
     if(ui_v4.album_mode && !ui.view.menu.visible) {
         int nav_left=(ui.key(ui.keys,A6400_KEY_LEFT,0)==1 || ui.key(ui.keys,A6400_KEY_WHEEL_CCW,0)==1);
         int nav_right=(ui.key(ui.keys,A6400_KEY_RIGHT,0)==1 || ui.key(ui.keys,A6400_KEY_WHEEL_CW,0)==1);
-        int nav_center=(ui.key(ui.keys,A6400_KEY_CENTER,0)==1);
         int nav_exit=(menu==1 || ui.key(ui.keys,A6400_KEY_SHUTTER,0)==1 ||
                       ui.key(ui.keys,A6400_KEY_TRASH,0)==1 ||
-                      (ui_v4.album_mode==2 && ui.key(ui.keys,A6400_KEY_PLAY,0)==1));
+                      ui.key(ui.keys,A6400_KEY_PLAY,0)==1);
         int dirty=0;
         if(nav_exit && !ui_v4.last_nav_exit) {
             v4_exit_album();
         } else {
             if(nav_left && !ui_v4.last_nav_left) {
-                unsigned limit=(ui_v4.album_mode==1)?a6400_ui_v4_v1.session_shots:a6400_ui_v4_v1.album_count;
-                if(ui_v4.album_mode==1 && limit>A6400_SESSION_SHOTS_CAP)limit=A6400_SESSION_SHOTS_CAP;
-                if(ui_v4.album_mode==2 && limit>A6400_ALBUM_SLOTS)limit=A6400_ALBUM_SLOTS;
+                unsigned limit=a6400_ui_v4_v1.album_count;
+                if(limit>A6400_ALBUM_SLOTS)limit=A6400_ALBUM_SLOTS;
                 if(limit>0u && ui_v4.album_idx+1u<limit) {
                     ui_v4.album_idx+=1u;
-                    ui_v4.album_compare_orig=0;
                     dirty=1;
                 }
             }
             if(nav_right && !ui_v4.last_nav_right) {
                 if(ui_v4.album_idx>0u) {
                     ui_v4.album_idx-=1u;
-                    ui_v4.album_compare_orig=0;
                     dirty=1;
                 }
-            }
-            if(nav_center && !ui_v4.last_nav_center && ui_v4.album_mode==1) {
-                ui_v4.album_compare_orig^=1;
-                dirty=1;
             }
             if(touch==5) {
                 if(!ui_v4.album_touch_down && x>=0 && x<640 && y>=0 && y<480) {
@@ -1157,29 +1359,23 @@ static void animate(void *self) {
             } else if(touch==6 && ui_v4.album_touch_down) {
                 short tx=ui_v4.album_touch_x;
                 ui_v4.album_touch_down=0;
-                if(ui_v4.album_mode==1) {
-                    ui_v4.album_compare_orig^=1;
-                    dirty=1;
+                unsigned limit=a6400_ui_v4_v1.album_count;
+                if(limit>A6400_ALBUM_SLOTS)limit=A6400_ALBUM_SLOTS;
+                if(tx<200) {
+                    if(limit>0u && ui_v4.album_idx+1u<limit){ui_v4.album_idx+=1u;dirty=1;}
+                } else if(tx>440) {
+                    if(ui_v4.album_idx>0u){ui_v4.album_idx-=1u;dirty=1;}
                 } else {
-                    unsigned limit=a6400_ui_v4_v1.album_count;
-                    if(limit>A6400_ALBUM_SLOTS)limit=A6400_ALBUM_SLOTS;
-                    if(tx<200) {
-                        if(limit>0u && ui_v4.album_idx+1u<limit){ui_v4.album_idx+=1u;dirty=1;}
-                    } else if(tx>440) {
-                        if(ui_v4.album_idx>0u){ui_v4.album_idx-=1u;dirty=1;}
-                    } else {
-                        v4_exit_album();
-                    }
+                    v4_exit_album();
                 }
             }
             if(dirty && ui_v4.album_mode)v4_album_sync_view();
         }
         ui_v4.last_nav_left=nav_left;
         ui_v4.last_nav_right=nav_right;
-        ui_v4.last_nav_center=nav_center;
         ui_v4.last_nav_exit=nav_exit;
     } else {
-        ui_v4.last_nav_left=ui_v4.last_nav_right=ui_v4.last_nav_center=ui_v4.last_nav_exit=0;
+        ui_v4.last_nav_left=ui_v4.last_nav_right=ui_v4.last_nav_exit=0;
         ui_v4.album_touch_down=0;
     }
     /* V4.0 Native MENU Full Touch (MTF2, credit: ivica00). Suppressed whenever our
@@ -1341,6 +1537,8 @@ int a6400_ui_attach_v1(void *system,unsigned tid) {
     } else {
         ui_toast.bg=ui_toast.accent=ui_toast.label=0;
     }
+    ui_v4.popup_border=make(0);
+    v4_hide_native_img();
     hide_menu_widgets();
 #ifdef A6400_CHARO_SHUTTER
     ui_theme.shutter_sound_enabled=1;
@@ -1352,7 +1550,7 @@ int a6400_ui_attach_v1(void *system,unsigned tid) {
     strcpy(ui.texts[0],UI_S_HDR_BOOT);
     for(unsigned i=0;i<A6400_SESSION_SHOTS_CAP;i++)a6400_ui_v4_v1.shot_slots[i]=-1;
     a6400_ui_v4_v1.native_touch_ok=(uint32_t)mtf2_probe_and_init(&ui_v4.mtf2);
-    record("V4_MTF2_INIT",(int)a6400_ui_v4_v1.native_touch_ok,(int)(ui_v4.get_pb_base!=0));
+    record("V4_MTF2_INIT",(int)a6400_ui_v4_v1.native_touch_ok,(int)(ui_v4.cache_img_ctor!=0));
 #ifdef A6400_UI_SETTINGS_DIAGNOSTIC
     strcpy(ui.texts[7],UI_S_HINT_COMBO_RAM);
 #elif defined(A6400_UI_COMBO_DIAGNOSTIC)

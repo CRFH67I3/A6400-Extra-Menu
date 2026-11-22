@@ -222,11 +222,10 @@ void model_init(void) {
     ui.set_position = model_place; ui.panel_size = ui.label_size = model_size;
     ui.set_color = model_color; ui.set_text = model_text;
     for (unsigned i = 0; i < 8; i++) ui.labels[i] = (void *)(uintptr_t)(0x3000u + i);
-    ui_v4.get_pb_base = model_pb_base;
     a6400_ui_v4_v1.native_touch_ok = (uint32_t)mtf2_probe_and_init(&ui_v4.mtf2);
     for (unsigned i = 0; i < A6400_SESSION_SHOTS_CAP; i++) a6400_ui_v4_v1.shot_slots[i] = -1;
     a6400_ui_v4_v1.preview_popup_en = 1u;
-    a6400_ui_v4_v1.album_preview_en = 1u;
+    a6400_ui_v4_v1.album_preview_en = 0u;
     a6400_ui_v4_v1.native_touch_en = 1u;
     a6400_ui_v4_v1.display_mode = A6400_DISP_NONE;
     a6400_ui_v4_v1.display_seq = 0u;
@@ -342,36 +341,14 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
             lib.model_tick(25, 6, 32767, 32767, 0, 0)
             self.assertEqual(lib.model_mtf2_calls(), 1)  # did NOT leak touch to MTF2
 
-            # 4) Playback auto-sync album preview (Poll #2)
-            lib.model_tick(25, 6, 32767, 32767, 0, 0x10)  # Enter Playback
-            self.assertEqual(lib.model_album_mode(), 1)
-            self.assertEqual(v4.display_mode, 2)  # ALBUM active on newest shot (slot 1)
-            self.assertEqual(v4.album_slot, 1)
-            self.assertIn('classic_chrome', lib.model_text_at(0).decode('utf-8'))
-            # Tap screen -> instant Original A/B compare (display_mode=0)
-            lib.model_tick(25, 5, 320, 240, 0, 0x10)
-            lib.model_tick(25, 6, 32767, 32767, 0, 0x10)
-            self.assertEqual(v4.display_mode, 0)
-            self.assertIn('原圖對比', lib.model_text_at(0).decode('utf-8'))
-            # Tap again -> back to LUT preview
-            lib.model_tick(25, 5, 320, 240, 0, 0x10)
-            lib.model_tick(25, 6, 32767, 32767, 0, 0x10)
-            self.assertEqual(v4.display_mode, 2)
-            # Press Left -> shot 1 (LUT OFF -> shot_slots[1] == -1 -> hides LUT overlay!)
-            lib.model_tick(25, 6, 32767, 32767, 0x15, 0x10)
-            lib.model_tick(25, 6, 32767, 32767, 0, 0x10)
-            self.assertEqual(v4.display_mode, 0)
-            self.assertIn('未套濾鏡', lib.model_text_at(0).decode('utf-8'))
-            # Press Left again -> shot 0 (LUT ON -> slot 0!)
-            lib.model_tick(25, 6, 32767, 32767, 0x15, 0x10)
-            lib.model_tick(25, 6, 32767, 32767, 0, 0x10)
-            self.assertEqual(v4.display_mode, 2)
-            self.assertEqual(v4.album_slot, 0)
-            self.assertIn('portra_400', lib.model_text_at(0).decode('utf-8'))
-            # Exit Playback -> cleanly clears overlay
-            lib.model_tick(25, 6, 32767, 32767, 0, 0)
+            # 4) Native Sony Playback must NEVER be hijacked!
+            lib.model_tick(25, 6, 32767, 32767, 0, 0x10)  # Native Playback active
             self.assertEqual(lib.model_album_mode(), 0)
             self.assertEqual(v4.display_mode, 0)
+            lib.model_tick(25, 6, 32767, 32767, 0x15, 0x10)  # Left in native Playback
+            self.assertEqual(lib.model_album_mode(), 0)
+            self.assertEqual(v4.display_mode, 0)
+            lib.model_tick(25, 6, 32767, 32767, 0, 0)
 
             # 5) Direct Graded Album Browser directly from Home Top-Right tile!
             lib.model_open_home()
@@ -422,9 +399,8 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
             lib_sc.model_tick(25, 5, 160, 418, 0, 0)  # Open Details/V4 inside LUT
             lib_sc.model_tick(25, 6, 32767, 32767, 0, 0)
             self.assertEqual(lib_sc.model_text_at(1).decode('utf-8'), '即时预览小窗: 开启')
-            self.assertEqual(lib_sc.model_text_at(2).decode('utf-8'), '机内相册预览: 开启')
-            self.assertEqual(lib_sc.model_text_at(3).decode('utf-8'), '原生MENU触控: 开启')
-            self.assertEqual(lib_sc.model_text_at(4).decode('utf-8'), '恢复胶片默认 (标准/开)')
+            self.assertEqual(lib_sc.model_text_at(2).decode('utf-8'), '原生MENU触控: 开启')
+            self.assertEqual(lib_sc.model_text_at(3).decode('utf-8'), '恢复胶片默认 (标准/开)')
 
     def test_external_osd_preview_blitter_popup_album_and_clear(self):
         with tempfile.TemporaryDirectory() as td:
@@ -533,6 +509,181 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
                 proc.send_signal(signal.SIGTERM)
                 proc.wait(timeout=3)
             self.assertEqual(proc.returncode, 0)
+
+    def test_native_cacheinsimg_zero_flicker_popup_and_album(self):
+        headers = {
+            'dlfcn.h': '#define RTLD_DEFAULT ((void *)0)\n#define RTLD_NOW 2\n#define RTLD_NOLOAD 4\nvoid *dlopen(const char *,int);\nvoid *dlsym(void *,const char *);\nint dlclose(void *);\n',
+            'stdio.h': '#include <stddef.h>\nint snprintf(char *,size_t,const char *,...);\n',
+            'stdlib.h': '#include <stddef.h>\nvoid *calloc(size_t,size_t);\n',
+            'string.h': '#include <stddef.h>\nvoid *memcpy(void *,const void *,size_t);\nvoid *memset(void *,int,size_t);\nchar *strcpy(char *,const char *);\n',
+            'sys/syscall.h': '#define SYS_gettid 224\n#define SYS_clock_gettime 263\n',
+            'time.h': '#define CLOCK_MONOTONIC 1\nstruct timespec {long tv_sec,tv_nsec;};\n',
+            'unistd.h': 'long model_syscall(long,...);\n#define syscall model_syscall\n',
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            pv_dir = d / 'pv'
+            pv_dir.mkdir()
+            # popup.bin: solid red 0xF00F -> RGBA8888 0xFF0000FF (R=0xFF,G=0,B=0,A=0xFF)
+            pop_hdr = struct.pack('<IIII48s', 0x56503441, 240, 160, 1, b'popup')
+            (pv_dir / 'popup.bin').write_bytes(pop_hdr + b'\x0f\xf0' * (240 * 160))
+            # slot_00.bin: solid green 0x0F0F -> RGBA8888 0xFF00FF00 (R=0,G=0xFF,B=0,A=0xFF)
+            alb_hdr = struct.pack('<IIII48s', 0x56503441, 600, 400, 1, b'album0')
+            (pv_dir / 'slot_00.bin').write_bytes(alb_hdr + b'\x0f\x0f' * (600 * 400))
+
+            inc = d / 'inc'
+            (inc / 'sys').mkdir(parents=True)
+            for name, content in headers.items():
+                (inc / name).write_text(content, encoding='utf-8')
+            for name in ('film_menu.h', 'film_native_view.h', 'ui_trial_trace.h',
+                         'film_preview_fmt.h', 'mtf2_native_touch.h'):
+                (inc / name).write_text((ROOT / 'camera' / name).read_text(encoding='utf-8'), encoding='utf-8')
+
+            src = (ROOT / 'camera/native_film_ui_trial3.c').read_text(encoding='utf-8')
+            model_c = r'''
+#include <stdarg.h>
+#include <stddef.h>
+extern int open(const char *, int, ...);
+extern long read(int, void *, size_t);
+extern int close(int);
+#define A6400_MTF2_HOST_MOCK 1
+#define A6400_PV_DIR_RUNTIME "''' + str(pv_dir) + r'''"
+#include "native_film_ui_trial3.c"
+static uint32_t mtf2_host_mock_dispatch(int16_t x, int16_t y, int dx, int dy, int hp) {
+    (void)x;(void)y;(void)dx;(void)dy;(void)hp; return MTF2_ACT_NONE;
+}
+static unsigned model_now_ms = 1000;
+static int model_layer_is_active = 0;
+static float last_img_w = -1.0f, last_img_h = -1.0f;
+static int invalidates = 0, unlocks = 0;
+static uint32_t canvas_rgba[600 * 400];
+static unsigned char menu_marker[64], ticker_marker[64], bmp_marker[64], int_marker[64], border_marker[64];
+static int model_key(void *p, int k, void *d) { (void)p;(void)k;(void)d; return 0; }
+static void model_position(const void *p, unsigned char n, short *x, short *y) { (void)p;(void)n;*x=32767;*y=32767; }
+static int model_state(const void *p, unsigned char a, unsigned char b) { (void)p;(void)a;(void)b; return 6; }
+static void model_layer(void *p, int active) { (void)p; model_layer_is_active = active; }
+static void model_unary(void *p) { (void)p; }
+static void model_set_layer(void *p, const uint32_t *id) { (void)p;(void)id; }
+static void model_place(void *p, const float *xy) { (void)p;(void)xy; }
+static void model_size(void *p, float w, float h) { (void)p;(void)w;(void)h; }
+static void model_cimg_size(void *p, float w, float h) { (void)p; last_img_w = w; last_img_h = h; }
+static void model_color(void *p, const unsigned char *c) { (void)p;(void)c; }
+static void model_text(void *p, const char *s) { (void)p;(void)s; }
+static void *model_sys_get(void *p) { (void)p; return int_marker; }
+static void *model_bmp_get(void *p) { (void)p; return bmp_marker; }
+static uint32_t model_res_id(void *p) { (void)p; return 0x1234u; }
+static int model_bmp_stride(void *p, int16_t *s) { (void)p; *s = 600 * 4; return 0; }
+static int model_bmp_fmt(void *p, int *f) { (void)p; *f = 0; return 0; }
+static int model_bmp_lock(void *p, int fl, void **out) { (void)p;(void)fl; *out = canvas_rgba; return 0; }
+static int model_bmp_unlock(void *p) { (void)p; ++unlocks; return 0; }
+static void model_sprite_set(void *p, uint32_t id, uint32_t fl) { (void)p;(void)id;(void)fl; }
+static void model_sprite_inv(void *p) { (void)p; ++invalidates; }
+static int model_open(const char *p, int f) { return open(p, f); }
+static void *model_get_key_inst(void) { return ui.keys; }
+long model_syscall(long n, ...) {
+    if (n == SYS_gettid) return 380;
+    if (n == SYS_clock_gettime) {
+        va_list ap; va_start(ap, n);
+        int clk = va_arg(ap, int);
+        struct timespec *t = va_arg(ap, struct timespec *);
+        va_end(ap);
+        if (clk == CLOCK_MONOTONIC && t) {
+            t->tv_sec = (long)(model_now_ms / 1000u);
+            t->tv_nsec = (long)((model_now_ms % 1000u) * 1000000u);
+            return 0;
+        }
+    }
+    return 0;
+}
+void n_init(void) {
+    memset(&ui, 0, sizeof(ui));
+    memset(&ui_theme, 0, sizeof(ui_theme));
+    memset(&ui_toast, 0, sizeof(ui_toast));
+    memset(&ui_v4, 0, sizeof(ui_v4));
+    memset(canvas_rgba, 0, sizeof(canvas_rgba));
+    struct film_settings initial = {0, 0, 2, 1};
+    const struct film_native_view_ops ops = {visibility, draw, settings};
+    film_native_view_init(&ui.view, &ops, 0, &initial);
+    ui.system = ui_sys_stub; ui.keys = (void *)0x59150; get_key_instance_fn = model_get_key_inst;
+    ui.tid = 380; ui.running = ui.attached = 1;
+    ui.layer = menu_marker; ui.ticker = ui.ticker_layer = ticker_marker;
+    ui.key = model_key; ui.mouse_position = model_position; ui.mouse_state = model_state;
+    ui.layer_active = model_layer; ui.move_last = model_unary; ui.set_layer = model_set_layer;
+    ui.set_position = model_place; ui.panel_size = ui.label_size = model_size;
+    ui.set_color = model_color; ui.set_text = model_text;
+    ui_v4.popup_border = border_marker;
+    ui_v4.cache_img_ctor = model_unary;
+    ui_v4.cache_img_init = model_unary;
+    ui_v4.cache_img_set_size = model_cimg_size;
+    ui_v4.img_sys_get = model_sys_get;
+    ui_v4.bmp_get_internal = model_bmp_get;
+    ui_v4.get_res_id = model_res_id;
+    ui_v4.bmp_stride = model_bmp_stride;
+    ui_v4.bmp_fmt = model_bmp_fmt;
+    ui_v4.bmp_lock = model_bmp_lock;
+    ui_v4.bmp_unlock = model_bmp_unlock;
+    ui_v4.sprite_set_img = model_sprite_set;
+    ui_v4.sprite_invalidate = model_sprite_inv;
+    ui_v4.pv_open = model_open;
+    ui_v4.pv_read = read;
+    ui_v4.pv_close = close;
+    a6400_ui_v4_v1.preview_popup_en = 1u;
+    a6400_ui_v4_v1.album_count = 1u;
+    a6400_ui_v4_v1.album_head = 0u;
+    a6400_ui_v4_v1.latest_seq = 0u;
+    a6400_ui_v4_v1.display_mode = A6400_DISP_NONE;
+    model_now_ms = 1000; model_layer_is_active = 0; last_img_w = -1.0f; last_img_h = -1.0f;
+    invalidates = 0; unlocks = 0;
+}
+void n_tick(unsigned dt) { model_now_ms += dt; animate(ui.ticker); }
+void n_open_album(void) { ui_v4.album_mode = 2; ui_v4.album_idx = 0; v4_album_sync_view(); }
+void n_exit_album(void) { v4_exit_album(); }
+uint32_t n_canvas_px(unsigned idx) { return canvas_rgba[idx]; }
+int n_layer_active(void) { return model_layer_is_active; }
+int n_img_w(void) { return (int)last_img_w; }
+int n_img_h(void) { return (int)last_img_h; }
+int n_popup_native(void) { return ui_v4.popup_is_native; }
+int n_album_native(void) { return ui_v4.album_is_native; }
+'''
+            body = model_c.replace('#include "native_film_ui_trial3.c"', src).replace('__attribute__((pcs("aapcs")))', '')
+            preamble = 'static unsigned char ui_sys_stub[4096];\n#define _Static_assert(cond, msg)\n'
+            (d / 'nmodel.c').write_text(preamble + body, encoding='utf-8')
+            so_file = d / 'native_pv.so'
+            subprocess.run([
+                'cc', '-std=c11', '-shared', '-fPIC', '-Wall', '-Wextra', '-Werror',
+                '-Wno-unused-function', '-DA6400_UI_TRIAL_MS=0', '-DA6400_UI_DISPLAY_MS=0',
+                '-I', str(inc), '-I', str(d),
+                str(d / 'nmodel.c'), str(ROOT / 'camera/film_native_view.c'),
+                str(ROOT / 'camera/film_menu.c'), '-o', str(so_file),
+            ], check=True)
+            lib = ctypes.CDLL(str(so_file))
+            lib.n_canvas_px.restype = ctypes.c_uint32
+            lib.n_init()
+            v4 = UiV4V1.in_dll(lib, 'a6400_ui_v4_v1')
+
+            # 1) Trigger popup -> native GEN_CacheInsImg renders 240x160 RGBA8888 red, external OSD stays NONE!
+            v4.latest_seq = 1
+            lib.n_tick(25)
+            self.assertEqual(lib.n_popup_native(), 1)
+            self.assertEqual(v4.display_mode, 0)  # external film_preview_osd stays 100% idle!
+            self.assertEqual(lib.n_layer_active(), 1)
+            self.assertEqual((lib.n_img_w(), lib.n_img_h()), (240, 160))
+            self.assertEqual(lib.n_canvas_px(0), 0xFF0000FF)
+            # Expires after 3.5s -> hides canvas (0x0) and deactivates layer!
+            lib.n_tick(3600)
+            self.assertEqual(lib.n_layer_active(), 0)
+            self.assertEqual((lib.n_img_w(), lib.n_img_h()), (0, 0))
+
+            # 2) Open Graded Album -> native GEN_CacheInsImg renders 600x400 RGBA8888 green, external OSD stays NONE!
+            lib.n_open_album()
+            self.assertEqual(lib.n_album_native(), 1)
+            self.assertEqual(v4.display_mode, 0)
+            self.assertEqual(lib.n_layer_active(), 1)
+            self.assertEqual((lib.n_img_w(), lib.n_img_h()), (600, 400))
+            self.assertEqual(lib.n_canvas_px(600 * 200 + 300), 0xFF00FF00)
+            lib.n_exit_album()
+            self.assertEqual(lib.n_layer_active(), 0)
+            self.assertEqual((lib.n_img_w(), lib.n_img_h()), (0, 0))
 
 
 if __name__ == '__main__':

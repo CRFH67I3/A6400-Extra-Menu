@@ -273,8 +273,12 @@ if "!BOOT_OK!"=="0" (
 
 set "PKG_WSL="
 set "HOOK_WSL="
+set "DIAG_WSL="
 if /i "!ACTION!"=="rollback" goto :start_usb_phase
-if /i "!ACTION!"=="diag" goto :start_usb_phase
+if /i "!ACTION!"=="diag" (
+    call :win_to_wsl "!ROOT_DIR!\a6400-camera-log.txt" DIAG_WSL
+    goto :start_usb_phase
+)
 
 call :select_package
 if errorlevel 1 exit /b 1
@@ -338,6 +342,13 @@ call :detach_all_sony
 del /f /q "!TMP_OUT!" "!TMP_JSON!" "!TMP_GUIDS!" >nul 2>&1
 
 if "!DEPLOY_RC!"=="0" (
+    if /i "!ACTION!"=="diag" (
+        echo.
+        echo ========================================================
+        echo   [+] Camera log saved to: !ROOT_DIR!\a6400-camera-log.txt
+        echo ========================================================
+        exit /b 0
+    )
     echo.
     echo ========================================================
     echo   [+] SUCCESS! Windows card reader restored.
@@ -354,7 +365,11 @@ if /i "!ACTION!"=="rollback" (
     exit /b !errorlevel!
 )
 if /i "!ACTION!"=="diag" (
-    "!WSL_EXE!" -d !DISTRO! -- python3 -u /opt/a6400/pmca_deploy_v3_clite.py --pmca-dir /opt/pmca-re --safe-serial --yes --diag
+    if not "!DIAG_WSL!"=="" (
+        "!WSL_EXE!" -d !DISTRO! -- python3 -u /opt/a6400/pmca_deploy_v3_clite.py --pmca-dir /opt/pmca-re --safe-serial --yes --diag --diag-out "!DIAG_WSL!"
+    ) else (
+        "!WSL_EXE!" -d !DISTRO! -- python3 -u /opt/a6400/pmca_deploy_v3_clite.py --pmca-dir /opt/pmca-re --safe-serial --yes --diag
+    )
     exit /b !errorlevel!
 )
 if not "!HOOK_WSL!"=="" (

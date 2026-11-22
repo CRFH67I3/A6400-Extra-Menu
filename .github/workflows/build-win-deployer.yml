@@ -171,6 +171,7 @@ jobs:
 
           write_bat("一鍵開始安裝.bat", "install")
           write_bat("一鍵回滾還原原廠.bat", "rollback")
+          write_bat("一鍵抓取相機Log診斷.bat", "diag")
           write_bat("一鍵清理WSL環境.bat", "cleanup")
 
           readme = "\r\n".join([

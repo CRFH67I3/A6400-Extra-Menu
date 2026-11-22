@@ -169,7 +169,13 @@ typedef void (*beep_play_fn)(void *,int);
 #define A6400_CHARO_DELAY_MS 0u
 #endif
 #ifndef A6400_CHARO_COOLDOWN_MS
-#define A6400_CHARO_COOLDOWN_MS 450u
+#define A6400_CHARO_COOLDOWN_MS 0u
+#endif
+#ifndef A6400_CHARO_HOLD_DELAY_MS
+#define A6400_CHARO_HOLD_DELAY_MS 180u
+#endif
+#ifndef A6400_CHARO_REPEAT_MS
+#define A6400_CHARO_REPEAT_MS 95u
 #endif
 static int charo_sound_id(int mode) {
 #if defined(A6400_CHARO_MULTI) && A6400_CHARO_MULTI
@@ -352,7 +358,9 @@ static struct {
     int shutter_sound_enabled;
     int last_shutter_key;
     int shutter_pending;
+    int shutter_repeating;
     uint32_t shutter_arm_ms;
+    uint32_t shutter_hold_ms;
     uint32_t last_shutter_beep_ms;
 #endif
 } ui_theme;
@@ -1135,6 +1143,7 @@ static void stop_trial(const char *why) {
     ui_toast.visible=0;
 #ifdef A6400_CHARO_SHUTTER
     ui_theme.shutter_pending=0;
+    ui_theme.shutter_repeating=0;
 #endif
     ui.running=0;
     input_snapshot(7);
@@ -1433,7 +1442,7 @@ static void animate(void *self) {
 #else
         ui_theme.shutter_sound_enabled^=1;
 #endif
-        if(!ui_theme.shutter_sound_enabled)ui_theme.shutter_pending=0;
+        if(!ui_theme.shutter_sound_enabled){ui_theme.shutter_pending=0;ui_theme.shutter_repeating=0;}
         draw(0,&ui.view.menu);
         record("CHARO_SOUND_TOGGLE",ui_theme.shutter_sound_enabled,0);
         int preview_id=charo_sound_id(ui_theme.shutter_sound_enabled);
@@ -1444,10 +1453,24 @@ static void animate(void *self) {
         }
     }
     int shutter_down=ui.key(ui.keys,A6400_CHARO_SHUTTER_KEY,0);
-    if(shutter_down==1 && ui_theme.last_shutter_key==0 && ui_theme.shutter_sound_enabled) {
-        ui_theme.shutter_pending=1;
-        ui_theme.shutter_arm_ms=now;
-        record("CHARO_SHUTTER_ARMED",charo_sound_id(ui_theme.shutter_sound_enabled),(int)now);
+    if(shutter_down==1 && ui_theme.shutter_sound_enabled) {
+        if(ui_theme.last_shutter_key==0) {
+            ui_theme.shutter_pending=1;
+            ui_theme.shutter_repeating=0;
+            ui_theme.shutter_arm_ms=now;
+            ui_theme.shutter_hold_ms=now;
+            record("CHARO_SHUTTER_ARMED",charo_sound_id(ui_theme.shutter_sound_enabled),(int)now);
+        } else if(!ui_theme.shutter_pending) {
+            uint32_t wait_ms=ui_theme.shutter_repeating?A6400_CHARO_REPEAT_MS:A6400_CHARO_HOLD_DELAY_MS;
+            if((uint32_t)(now-ui_theme.shutter_hold_ms)>=wait_ms) {
+                ui_theme.shutter_pending=1;
+                ui_theme.shutter_repeating=1;
+                ui_theme.shutter_arm_ms=now;
+                ui_theme.shutter_hold_ms=now;
+            }
+        }
+    } else {
+        ui_theme.shutter_repeating=0;
     }
     ui_theme.last_shutter_key=(shutter_down==1)?1:0;
     if(ui_theme.shutter_pending &&
@@ -1459,9 +1482,12 @@ static void animate(void *self) {
        ) {
         ui_theme.shutter_pending=0;
         int active_id=charo_sound_id(ui_theme.shutter_sound_enabled);
-        if(active_id &&
-           (!ui_theme.last_shutter_beep_ms ||
-            (uint32_t)(now-ui_theme.last_shutter_beep_ms)>=A6400_CHARO_COOLDOWN_MS)) {
+        if(active_id
+#if A6400_CHARO_COOLDOWN_MS > 0
+           && (!ui_theme.last_shutter_beep_ms ||
+               (uint32_t)(now-ui_theme.last_shutter_beep_ms)>=A6400_CHARO_COOLDOWN_MS)
+#endif
+           ) {
             ui_theme.last_shutter_beep_ms=now;
             ui_theme.beep_play(ui.background,active_id);
             record("CHARO_SHUTTER_BEEP",active_id,(int)now);

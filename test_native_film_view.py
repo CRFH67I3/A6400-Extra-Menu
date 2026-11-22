@@ -360,6 +360,24 @@ void model_open_home(void) { ui.view.menu.visible=1; ui.view.menu.page=FILM_MENU
             self.assertEqual(lib.model_row3().decode('utf-8'), '快門: 日文 Charo')
             self.assertEqual((lib.model_beeps(), lib.model_beep_id()), (6, 0x33))
 
+            # Zero-CD rapid single taps fire immediately every time
+            lib.model_tick(50, 6, 32767, 32767, 1)
+            lib.model_tick(30, 6, 32767, 32767, 0)
+            lib.model_tick(50, 6, 32767, 32767, 1)
+            lib.model_tick(30, 6, 32767, 32767, 0)
+            self.assertEqual(lib.model_beeps(), 8)
+
+            # Hi+ continuous hold: fires at press (t=0), then after 180ms hold, then every 95ms!
+            lib.model_tick(20, 6, 32767, 32767, 1)  # press -> beep #9
+            self.assertEqual(lib.model_beeps(), 9)
+            for _ in range(15):  # hold 450ms (15 * 30ms): hits 180ms (+1), 275ms (+1), 370ms (+1)
+                lib.model_tick(30, 6, 32767, 32767, 1)
+            self.assertGreaterEqual(lib.model_beeps(), 12)
+            beeps_before_release = lib.model_beeps()
+            lib.model_tick(30, 6, 32767, 32767, 0)  # release stops burst immediately
+            lib.model_tick(300, 6, 32767, 32767, 0)
+            self.assertEqual(lib.model_beeps(), beeps_before_release)
+
 
 
 if __name__ == '__main__':

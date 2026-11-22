@@ -220,7 +220,8 @@ if !errorlevel! NEQ 0 goto :err_import_failed
 
 :alpine_imported
 del /f /q "!TMP_OUT!" >nul 2>&1
-echo [+] Alpine Linux imported
+echo [+] Alpine Linux imported, waiting for WSL service registration...
+ping -n 3 127.0.0.1 >nul
 goto :alpine_boot_check
 
 :err_import_failed
@@ -237,8 +238,18 @@ exit /b 1
 echo [+] Alpine Linux (!DISTRO!) OK
 
 :alpine_boot_check
-"!WSL_EXE!" -d "!DISTRO!" -- /bin/sh -c "test -e /sys/devices/platform/vhci_hcd.0/status || modprobe vhci-hcd 2>/dev/null || true" <nul
-if !errorlevel! NEQ 0 (
+set "BOOT_OK=0"
+for /l %%B in (1,1,3) do (
+    if "!BOOT_OK!"=="0" (
+        "!WSL_EXE!" -d "!DISTRO!" -- /bin/sh -c "test -e /sys/devices/platform/vhci_hcd.0/status || modprobe vhci-hcd 2>/dev/null || true" <nul
+        if !errorlevel! EQU 0 (
+            set "BOOT_OK=1"
+        ) else (
+            ping -n 3 127.0.0.1 >nul
+        )
+    )
+)
+if "!BOOT_OK!"=="0" (
     echo [X] Cannot boot !DISTRO!. Restart PC and verify BIOS VT-x / SVM is Enabled.
     exit /b 1
 )

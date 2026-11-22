@@ -6,7 +6,7 @@ set "ACTION=%~1"
 if "!ACTION!"=="" set "ACTION=install"
 set "LANG_ARG=%~2"
 
-set "DISTRO=A6400Deployer"
+if not defined DISTRO set "DISTRO=A6400Deployer"
 set "SCRIPT_DIR=%~dp0"
 if "!SCRIPT_DIR:~-1!"=="\" set "SCRIPT_DIR=!SCRIPT_DIR:~0,-1!"
 for %%I in ("!SCRIPT_DIR!\..") do set "ROOT_DIR=%%~fI"
@@ -195,16 +195,31 @@ exit /b 0
 :check_alpine
 echo.
 echo [*] Checking Alpine Linux environment (!DISTRO!)...
-"!WSL_EXE!" --set-default-version 2 <nul >nul 2>&1
-"!WSL_EXE!" -d "!DISTRO!" -- /bin/sh -c "test -f /opt/a6400/pmca_deploy_v3_clite.py" <nul >nul 2>&1
+"!WSL_EXE!" --set-default-version 2 >nul 2>&1
+"!WSL_EXE!" -l -v >nul 2>&1
+"!WSL_EXE!" -d "!DISTRO!" -- /bin/sh -c "test -f /opt/a6400/pmca_deploy_v3_clite.py" >nul 2>&1
 if !errorlevel! EQU 0 goto :alpine_ready
 
-"!WSL_EXE!" --shutdown <nul >nul 2>&1
-"!WSL_EXE!" --unregister "!DISTRO!" <nul >nul 2>&1
+rem Reuse any already-working A6400Deployer_* instance if primary is broken
+"!WSL_EXE!" -l -q >"!TMP_OUT!" 2>nul
+for /f "usebackq delims=" %%D in ("!TMP_OUT!") do (
+    set "_DN=%%D"
+    if /i "!_DN:~0,13!"=="A6400Deployer" (
+        "!WSL_EXE!" -d "%%D" -- /bin/sh -c "test -f /opt/a6400/pmca_deploy_v3_clite.py" >nul 2>&1
+        if !errorlevel! EQU 0 (
+            set "DISTRO=%%D"
+            goto :alpine_ready
+        )
+    )
+)
+del /f /q "!TMP_OUT!" >nul 2>&1
+
+"!WSL_EXE!" --shutdown >nul 2>&1
+"!WSL_EXE!" --unregister "!DISTRO!" >nul 2>&1
 if exist "!INSTALL_BASE!" rmdir /s /q "!INSTALL_BASE!" >nul 2>&1
 echo [*] Importing Alpine Linux (!DISTRO!), takes ~3-5 seconds...
 if not exist "!INSTALL_BASE!" mkdir "!INSTALL_BASE!"
-"!WSL_EXE!" --import "!DISTRO!" "!INSTALL_BASE!" "!ROOTFS_TAR!" --version 2 <nul >"!TMP_OUT!" 2>&1
+"!WSL_EXE!" --import "!DISTRO!" "!INSTALL_BASE!" "!ROOTFS_TAR!" --version 2 >"!TMP_OUT!" 2>&1
 if !errorlevel! EQU 0 goto :alpine_imported
 
 type "!TMP_OUT!"
@@ -215,12 +230,13 @@ set "DISTRO=A6400Deployer_!RUN_ID!"
 set "INSTALL_BASE=!LOCALAPPDATA!\A6400WSL_!RUN_ID!"
 echo [*] Retrying import with fresh instance name !DISTRO!...
 if not exist "!INSTALL_BASE!" mkdir "!INSTALL_BASE!"
-"!WSL_EXE!" --import "!DISTRO!" "!INSTALL_BASE!" "!ROOTFS_TAR!" --version 2 <nul
+"!WSL_EXE!" --import "!DISTRO!" "!INSTALL_BASE!" "!ROOTFS_TAR!" --version 2
 if !errorlevel! NEQ 0 goto :err_import_failed
 
 :alpine_imported
 del /f /q "!TMP_OUT!" >nul 2>&1
-echo [+] Alpine Linux imported, waiting for WSL service registration...
+echo [+] Alpine Linux imported, refreshing WSL service...
+"!WSL_EXE!" -l -v >nul 2>&1
 ping -n 3 127.0.0.1 >nul
 goto :alpine_boot_check
 
@@ -241,7 +257,8 @@ echo [+] Alpine Linux (!DISTRO!) OK
 set "BOOT_OK=0"
 for /l %%B in (1,1,3) do (
     if "!BOOT_OK!"=="0" (
-        "!WSL_EXE!" -d "!DISTRO!" -- /bin/sh -c "test -e /sys/devices/platform/vhci_hcd.0/status || modprobe vhci-hcd 2>/dev/null || true" <nul
+        "!WSL_EXE!" -l -v >nul 2>&1
+        "!WSL_EXE!" -d "!DISTRO!" -- /bin/sh -c "test -e /sys/devices/platform/vhci_hcd.0/status || modprobe vhci-hcd 2>/dev/null || true"
         if !errorlevel! EQU 0 (
             set "BOOT_OK=1"
         ) else (

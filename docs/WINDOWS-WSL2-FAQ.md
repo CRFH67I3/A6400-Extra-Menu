@@ -76,7 +76,25 @@ net start vmcompute
 
 ---
 
-## 四、刷完機或復原原廠後，Windows 連不上相機 / 讀卡機消失
+## 四、匯入失敗：`ERROR_ALREADY_EXISTS` / `ERROR_FILE_NOT_FOUND (ext4.vhdx)` / `WSL_E_DISTRO_NOT_FOUND`
+
+錯誤範例：
+- `Wsl/Service/RegisterDistro/ERROR_ALREADY_EXISTS`（具有所提供名稱的發佈已經存在）
+- `Wsl/Service/CreateInstance/MountVhd/HCS/ERROR_FILE_NOT_FOUND`（找不到 `%LOCALAPPDATA%\A6400WSL\ext4.vhdx`）
+- `Wsl/Service/WSL_E_DISTRO_NOT_FOUND`（剛匯入完成但系統找不到發佈）
+
+**原因**：先前中斷安裝或手動刪除了 `AppData\Local\A6400WSL` 資料夾，導致 WSL 註冊表留下「沒有實體 `.vhdx` 磁碟」的幽靈實例，或 `wslservice` 尚未刷新註冊表。不需要另外選磁碟，照以下任一方式清除幽靈紀錄即可：
+- **解法 A**：直接雙擊資料夾內的 **`一鍵清理WSL環境.bat`**（會自動清除所有 `A6400Deployer*` 註冊紀錄與殘留目錄），清完再雙擊 `一鍵開始安裝.bat`。
+- **解法 B**：在管理員 CMD / PowerShell 執行：
+  ```cmd
+  "C:\Program Files\WSL\wsl.exe" --shutdown
+  "C:\Program Files\WSL\wsl.exe" --unregister A6400Deployer
+  ```
+  （若曾有帶隨機碼的 `A6400Deployer_xxxx`，先用 `wsl -l -v` 查看後一併 `--unregister` 即可。）
+
+---
+
+## 五、刷完機或復原原廠後，Windows 連不上相機 / 讀卡機消失
 
 1. **相機端未離開服務模式（`054C:0336`）**：
    刷機或回滾結束時，相機本身仍停留在 Sony 服務模式。必須 **拔掉 USB 線 → 關機 → 取出電池等 10 秒 → 裝回開機**，相機才會回到正常的大容量儲存讀卡機模式。
@@ -89,7 +107,7 @@ net start vmcompute
 
 ---
 
-## 五、20 秒內未偵測到 Sony 相機 USB（`054c:0ca8 / 0d12 / 0336`）
+## 六、20 秒內未偵測到 Sony 相機 USB（`054c:0ca8 / 0d12 / 0336`）
 
 請逐一確認以下 5 項：
 1. 相機必須 **處於開機狀態**（螢幕亮起）。
@@ -100,7 +118,7 @@ net start vmcompute
 
 ---
 
-## 六、刷機成功後怎麼喚出選單？不要用的 WSL 環境怎麼刪？
+## 七、刷機成功後怎麼喚出選單？不要用的 WSL 環境怎麼刪？
 
 - **冷開機喚出選單**：
   1. 拔掉 USB 線 → 關機 → **取出電池等 10 秒** → 裝回再開機。

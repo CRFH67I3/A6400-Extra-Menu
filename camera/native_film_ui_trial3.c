@@ -110,12 +110,12 @@ typedef int (*pv_close_fn)(int);
 #define UI_S_QUAL_12M           "画质: 12MP 超清"
 #define UI_S_QUAL_6M            "画质: 6MP 高清"
 #define UI_S_QUAL_1M7           "画质: 1.7MP 极速"
-#define UI_S_HDR_BUSY           "V4.1 SLEM | %s | 转档:%u 已转:%u"
-#define UI_S_HDR_IDLE           "V4.1 SLEM | %s | 已转:%u (%u/%u)"
-#define UI_S_HDR_INIT           "V4.1 SLEM (hany) | %s"
-#define UI_S_HDR_BOOT           "V4.1 SLEM (hany) | 关闭"
+#define UI_S_HDR_BUSY           "V4.2.1 SLEM | %s | 转档:%u 已转:%u"
+#define UI_S_HDR_IDLE           "V4.2.1 SLEM | %s | 已转:%u (%u/%u)"
+#define UI_S_HDR_INIT           "V4.2.1 SLEM (hany) | %s"
+#define UI_S_HDR_BOOT           "V4.2.1 SLEM (hany) | 关闭"
 #define UI_S_HDR_LUT            "LUT 设置 | %s"
-#define UI_S_HDR_V4             "细节设置 | V4.1 SLEM (hany)"
+#define UI_S_HDR_V4             "细节设置 | V4.2.1 SLEM (hany)"
 #define UI_S_HDR_STOCKS         "胶片风格 (%u/2)"
 #define UI_S_FOOT_HOME          "hany | 相册:%u张 | 队列 %u/%u"
 #define UI_S_ALBUM_TILE_FMT     "套色相册 (%u张) >"
@@ -125,7 +125,7 @@ typedef int (*pv_close_fn)(int);
 #define UI_S_DEXP_OFF           "双重曝光: 关闭"
 #define UI_S_DEXP_FMT           "双重曝光: %s (%s)"
 #define UI_S_DEXP_TILE_FMT      "双曝: %s (%s) >"
-#define UI_S_DEXP_HDR_FMT       "V4.1 SLEM | 双曝:%s (%s)"
+#define UI_S_DEXP_HDR_FMT       "V4.2.1 SLEM | 双曝:%s (%s)"
 #define UI_S_DEXP_LOCK_LUT      "胶片滤镜: 关闭 (双曝未完锁定)"
 #define UI_S_DEXP_BLOCK_HDR     "双曝 1/2 未拍完，不可开启 LUT!"
 #define UI_S_DEXP_BLOCK_TOAST   "双曝未拍完，无法开启 LUT"
@@ -147,12 +147,12 @@ typedef int (*pv_close_fn)(int);
 #define UI_S_QUAL_12M           "畫質: 12MP 超清"
 #define UI_S_QUAL_6M            "畫質: 6MP 高清"
 #define UI_S_QUAL_1M7           "畫質: 1.7MP 極速"
-#define UI_S_HDR_BUSY           "V4.1 SLEM | %s | 轉檔:%u 已轉:%u"
-#define UI_S_HDR_IDLE           "V4.1 SLEM | %s | 已轉:%u (%u/%u)"
-#define UI_S_HDR_INIT           "V4.1 SLEM (hany) | %s"
-#define UI_S_HDR_BOOT           "V4.1 SLEM (hany) | 關閉"
+#define UI_S_HDR_BUSY           "V4.2.1 SLEM | %s | 轉檔:%u 已轉:%u"
+#define UI_S_HDR_IDLE           "V4.2.1 SLEM | %s | 已轉:%u (%u/%u)"
+#define UI_S_HDR_INIT           "V4.2.1 SLEM (hany) | %s"
+#define UI_S_HDR_BOOT           "V4.2.1 SLEM (hany) | 關閉"
 #define UI_S_HDR_LUT            "LUT 設定 | %s"
-#define UI_S_HDR_V4             "細節設定 | V4.1 SLEM (hany)"
+#define UI_S_HDR_V4             "細節設定 | V4.2.1 SLEM (hany)"
 #define UI_S_HDR_STOCKS         "膠片風格 (%u/2)"
 #define UI_S_FOOT_HOME          "hany | 相冊:%u張 | 佇列 %u/%u"
 #define UI_S_ALBUM_TILE_FMT     "套色相冊 (%u張) >"
@@ -162,7 +162,7 @@ typedef int (*pv_close_fn)(int);
 #define UI_S_DEXP_OFF           "雙重曝光: 關閉"
 #define UI_S_DEXP_FMT           "雙重曝光: %s (%s)"
 #define UI_S_DEXP_TILE_FMT      "雙曝: %s (%s) >"
-#define UI_S_DEXP_HDR_FMT       "V4.1 SLEM | 雙曝:%s (%s)"
+#define UI_S_DEXP_HDR_FMT       "V4.2.1 SLEM | 雙曝:%s (%s)"
 #define UI_S_DEXP_LOCK_LUT      "膠片濾鏡: 關閉 (雙曝未完鎖定)"
 #define UI_S_DEXP_BLOCK_HDR     "雙曝 1/2 未拍完，不可開啟 LUT!"
 #define UI_S_DEXP_BLOCK_TOAST   "雙曝未拍完，無法開啟 LUT"
@@ -374,9 +374,20 @@ static struct {
     int album_touch_down;
     short album_touch_x, album_touch_y;
     int mtf2_wait_release;
+    uint32_t mtf2_last_probe_ms;
     uint32_t seen_dexp_pending;
     uint32_t dexp_blocked_until_ms;
 } ui_v4;
+
+static void record(const char *event,int a,int b);
+
+static void v4_reprobe_mtf2(uint32_t now) {
+    if(a6400_ui_v4_v1.native_touch_ok)return;
+    ui_v4.mtf2_last_probe_ms=now;
+    a6400_ui_v4_v1.native_touch_ok=(uint32_t)mtf2_probe_and_init(&ui_v4.mtf2);
+    if(a6400_ui_v4_v1.native_touch_ok)
+        record("V4_MTF2_REPROBE_OK",(int)a6400_ui_v4_v1.native_touch_ok,0);
+}
 
 static struct {
     void *bg, *accent, *label;
@@ -1454,8 +1465,19 @@ static void animate(void *self) {
         draw(0,&ui.view.menu);
         record("V4_POPUP_TOGGLE",(int)a6400_ui_v4_v1.preview_popup_en,0);
     }
+    if(ui.view.menu.visible && ui.view.menu.page==FILM_MENU_V4 &&
+       !a6400_ui_v4_v1.native_touch_ok &&
+       (uint32_t)(now-ui_v4.mtf2_last_probe_ms)>=1000u) {
+        v4_reprobe_mtf2(now);
+        if(a6400_ui_v4_v1.native_touch_ok)draw(0,&ui.view.menu);
+    }
     if(change&FILM_MENU_TOUCH_TOGGLED) {
-        if(a6400_ui_v4_v1.native_touch_ok)a6400_ui_v4_v1.native_touch_en^=1u;
+        if(!a6400_ui_v4_v1.native_touch_ok) {
+            v4_reprobe_mtf2(now);
+            if(a6400_ui_v4_v1.native_touch_ok)a6400_ui_v4_v1.native_touch_en=1u;
+        } else {
+            a6400_ui_v4_v1.native_touch_en^=1u;
+        }
         draw(0,&ui.view.menu);
         record("V4_TOUCH_TOGGLE",(int)a6400_ui_v4_v1.native_touch_en,(int)a6400_ui_v4_v1.native_touch_ok);
     }
@@ -1554,6 +1576,10 @@ static void animate(void *self) {
     }
     int allow_mtf2=(a6400_ui_v4_v1.native_touch_en!=0u) &&
                    !v4_busy_before && !v4_busy_now && !ui_v4.mtf2_wait_release;
+    if(allow_mtf2 && !a6400_ui_v4_v1.native_touch_ok && touch==5 &&
+       (uint32_t)(now-ui_v4.mtf2_last_probe_ms)>=2000u) {
+        v4_reprobe_mtf2(now);
+    }
     if(mtf2_on_touch_poll(&ui_v4.mtf2,allow_mtf2,touch,x,y)!=MTF2_ACT_NONE) {
         a6400_ui_v4_v1.native_touch_hits=ui_v4.mtf2.hits;
         record("MTF2_ACT",(int)ui_v4.mtf2.last_action,(int)ui_v4.mtf2.hits);

@@ -316,7 +316,8 @@ if "!ATTACHED!"=="0" (
     goto :cleanup_session
 )
 
-ping -n 2 127.0.0.1 >nul
+call :wait_linux_usb
+call :sync_deployer_scripts
 echo running>"!WATCH_LOCK!"
 start "" /b cmd /c call "!WATCH_CMD!" "!USBIPD_EXE!" "!WATCH_LOCK!" >nul 2>&1
 
@@ -325,12 +326,25 @@ call :run_python_deployer
 set "DEPLOY_RC=!errorlevel!"
 
 if "!DEPLOY_RC!"=="1" (
-    echo [*] Camera switched to Service Mode [054c:0336], re-attaching and retrying...
-    ping -n 4 127.0.0.1 >nul
-    call :attach_sony_once
-    ping -n 2 127.0.0.1 >nul
-    call :run_python_deployer
-    set "DEPLOY_RC=!errorlevel!"
+    for /l %%R in (1,1,2) do (
+        if "!DEPLOY_RC!"=="1" (
+            echo [*] Camera switched to Service Mode [054c:0336], waiting to re-attach [retry %%R/2]...
+            set "REATTACH_OK=0"
+            for /l %%W in (1,1,18) do (
+                if "!REATTACH_OK!"=="0" (
+                    call :attach_sony_once
+                    if "!ATTACH_HIT!"=="1" (
+                        set "REATTACH_OK=1"
+                    ) else (
+                        ping -n 2 127.0.0.1 >nul
+                    )
+                )
+            )
+            call :wait_linux_usb
+            call :run_python_deployer
+            set "DEPLOY_RC=!errorlevel!"
+        )
+    )
 )
 
 :cleanup_session
@@ -349,11 +363,20 @@ if "!DEPLOY_RC!"=="0" (
         echo ========================================================
         exit /b 0
     )
+    if /i "!ACTION!"=="rollback" (
+        echo.
+        echo ========================================================
+        echo   [+] FACTORY RESTORE COMPLETE! Windows card reader restored.
+        echo   Next: Unplug USB -^> Power off -^> Pull battery 10s -^>
+        echo         Power on. Camera is now 100%% stock factory state.
+        echo ========================================================
+        exit /b 0
+    )
     echo.
     echo ========================================================
     echo   [+] SUCCESS! Windows card reader restored.
     echo   Next: Unplug USB -^> Power off -^> Pull battery 10s -^>
-    echo         Power on, wait 35-40s -^> Tap screen once -^>
+    echo         Power on, wait 5-10s -^> Tap screen once -^>
     echo         Wait 2s -^> Hold MENU + Magnifier for 2s!
     echo ========================================================
 )
@@ -537,23 +560,49 @@ if exist "!TMP_OUT!" (
 )
 exit /b 0
 
+:sync_deployer_scripts
+if exist "!SCRIPT_DIR!\pmca_deploy_v3_clite.py" (
+    call :win_to_wsl "!SCRIPT_DIR!" TOOLS_WSL
+    if not "!TOOLS_WSL!"=="" (
+        "!WSL_EXE!" -d !DISTRO! -- /bin/sh -c "cp -f '!TOOLS_WSL!/pmca_deploy_v3_clite.py' /opt/a6400/pmca_deploy_v3_clite.py && (test ! -f '!TOOLS_WSL!/build_autoexec_hook.py' || cp -f '!TOOLS_WSL!/build_autoexec_hook.py' /opt/a6400/build_autoexec_hook.py) && chmod 755 /opt/a6400/pmca_deploy_v3_clite.py && rm -rf /opt/a6400/__pycache__" <nul >nul 2>&1
+    )
+)
+exit /b 0
+
+:wait_linux_usb
+for /l %%U in (1,1,6) do (
+    "!WSL_EXE!" -d !DISTRO! -- /bin/sh -c "grep -qi 054c /sys/bus/usb/devices/*/idVendor 2>/dev/null" <nul >nul 2>&1
+    if !errorlevel! EQU 0 exit /b 0
+    ping -n 2 127.0.0.1 >nul
+)
+exit /b 0
+
 :attach_sony_once
 set "ATTACH_HIT=0"
 "!USBIPD_EXE!" list >"!TMP_OUT!" 2>nul
-for /f "usebackq tokens=1,2" %%A in ("!TMP_OUT!") do (
-    set "_VP=%%B"
-    set "_HIT=0"
-    if /i "!_VP!"=="054c:0ca8" set "_HIT=1"
-    if /i "!_VP!"=="054c:0d12" set "_HIT=1"
-    if /i "!_VP!"=="054c:0336" set "_HIT=1"
-    if "!_HIT!"=="1" (
-        "!USBIPD_EXE!" bind --force --busid %%A >nul 2>&1
-        "!USBIPD_EXE!" attach --wsl --busid %%A >nul 2>&1
-        if !errorlevel! EQU 0 (
-            echo [+] Attached camera %%B bus %%A to Linux
-            set "ATTACH_HIT=1"
-        ) else (
-            "!USBIPD_EXE!" list 2>nul | findstr /i "%%A" | findstr /i "Attached" >nul 2>&1 && set "ATTACH_HIT=1"
+for /f "usebackq delims=" %%L in ("!TMP_OUT!") do (
+    set "_LINE=%%L"
+    for /f "tokens=1,2" %%A in ("%%L") do (
+        set "_VP=%%B"
+        set "_HIT=0"
+        if /i "!_VP!"=="054c:0ca8" set "_HIT=1"
+        if /i "!_VP!"=="054c:0d12" set "_HIT=1"
+        if /i "!_VP!"=="054c:0336" set "_HIT=1"
+        if "!_HIT!"=="1" (
+            if not "!_LINE:Attached=!"=="!_LINE!" (
+                set "ATTACH_HIT=1"
+            ) else (
+                if not "!_LINE:Not shared=!"=="!_LINE!" (
+                    "!USBIPD_EXE!" bind --force --busid %%A >nul 2>&1
+                )
+                "!USBIPD_EXE!" attach --wsl --busid %%A >nul 2>&1
+                if !errorlevel! EQU 0 (
+                    echo [+] Attached camera %%B bus %%A to Linux
+                    set "ATTACH_HIT=1"
+                ) else (
+                    "!USBIPD_EXE!" list 2>nul | findstr /i "%%A" | findstr /i "Attached" >nul 2>&1 && set "ATTACH_HIT=1"
+                )
+            )
         )
     )
 )

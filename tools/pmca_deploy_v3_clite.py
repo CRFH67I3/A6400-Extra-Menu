@@ -25,47 +25,60 @@ def use_safe_serial(safe_serial=None):
 
 def run_cmd(cam, cmd, timeout=15.0, fast=False, retry_on_none=True, safe_serial=None, tag=None):
     dev = cam.dev
-    attempts = 2 if retry_on_none else 1
+    attempts = 3 if retry_on_none else 1
     out_bytes = b""
     rc = None
+    last_exc = None
     marker_prefix = f"__PMCA_RC_{tag}:" if tag else "__PMCA_RC:"
     pat = re.compile(re.escape(marker_prefix.encode()) + rb"(\d+)__")
     chunked_write = use_safe_serial(safe_serial)
     for attempt in range(attempts):
         if attempt > 0:
-            # Recover from a potentially truncated line before retrying once.
+            # Recover from a potentially truncated line or transient USB glitch before retrying.
             try:
                 dev.writeTerminal(b"\x03\n")
-                time.sleep(0.2)
+                time.sleep(0.25)
                 dev.readTerminal()
             except Exception:
-                pass
+                time.sleep(0.25)
         payload = f"{cmd};R=$?;echo;echo {marker_prefix}${{R}}__\n".encode()
         out = bytearray()
-        if chunked_write and len(payload) > 48:
-            # SonySenserDevice.writeTerminal loops at 0x40 (64B) with 0ms delay.
-            # Slicing at 48B (< 64B) guarantees 1 USB packet per write + echo drain.
-            for i in range(0, len(payload), 48):
-                dev.writeTerminal(payload[i:i + 48])
-                time.sleep(0.02)
-                if i + 48 < len(payload):
-                    try:
-                        ech = dev.readTerminal()
-                        if ech:
-                            out.extend(ech)
-                    except Exception:
-                        pass
-        else:
-            dev.writeTerminal(payload)
+        try:
+            if chunked_write and len(payload) > 48:
+                # SonySenserDevice.writeTerminal loops at 0x40 (64B) with 0ms delay.
+                # Slicing at 48B (< 64B) guarantees 1 USB packet per write + echo drain.
+                for i in range(0, len(payload), 48):
+                    dev.writeTerminal(payload[i:i + 48])
+                    time.sleep(0.02)
+                    if i + 48 < len(payload):
+                        try:
+                            ech = dev.readTerminal()
+                            if ech:
+                                out.extend(ech)
+                        except Exception:
+                            pass
+            else:
+                dev.writeTerminal(payload)
+        except Exception as exc:
+            last_exc = exc
+            time.sleep(0.25)
+            continue
         end = time.monotonic() + timeout
         post_rc_deadline = None
         rc = None
         quiet = 0
+        read_errs = 0
         while time.monotonic() < end:
             try:
                 chunk = dev.readTerminal()
-            except Exception:
-                break
+                read_errs = 0
+            except Exception as exc:
+                last_exc = exc
+                read_errs += 1
+                if read_errs >= 3:
+                    break
+                time.sleep(0.05)
+                continue
             if chunk:
                 out.extend(chunk)
                 quiet = 0
@@ -87,6 +100,8 @@ def run_cmd(cam, cmd, timeout=15.0, fast=False, retry_on_none=True, safe_serial=
         out_bytes = bytes(out)
         if rc is not None:
             break
+    if rc is None and not out_bytes and last_exc is not None:
+        return f"[usb_err={last_exc}]", None
     return out_bytes.decode("latin1", errors="replace"), rc
 
 
@@ -148,18 +163,31 @@ def build_install_steps(has_hook, extra_entries):
 
 
 def build_rollback_steps():
-    steps = []
-    for path in ("/etc/ld.so.preload", "/tmp/autoexec.sh", "/tmp/a6400-film-boot-v15.tar", HOOK_CAMERA_PATH):
-        steps.append(f"P={path}; B=$P.pre-v3c-backup")
-        steps.append("test -f $B && /bin/busybox mv $B $P || /bin/busybox rm -f $P")
-    for extra in (
+    # True factory restore: strip any a6400-autoexec entry from /etc/ld.so.preload
+    # (removing the file if empty, matching stock Sony) and remove all mod files
+    # plus any .pre-v3c-backup copies created by previous upgrades (e.g. V3.9 -> V4.1).
+    steps = [
+        "/bin/busybox grep -v a6400-autoexec /etc/ld.so.preload > /etc/ld.so.preload.tmp 2>/dev/null || true",
+        "test -s /etc/ld.so.preload.tmp && /bin/busybox mv /etc/ld.so.preload.tmp /etc/ld.so.preload || /bin/busybox rm -f /etc/ld.so.preload /etc/ld.so.preload.tmp",
+        "/bin/busybox rm -f /etc/ld.so.preload.pre-v3c-backup",
+    ]
+    for path in (
+        HOOK_CAMERA_PATH,
+        f"{HOOK_CAMERA_PATH}.pre-v3c-backup",
+        "/tmp/autoexec.sh",
+        "/tmp/autoexec.sh.pre-v3c-backup",
+        "/tmp/a6400-film-boot-v15.tar",
+        "/tmp/a6400-film-boot-v15.tar.pre-v3c-backup",
         "/tmp/a6400-charo-bind.elf",
+        "/tmp/a6400-charo-bind.elf.pre-v3c-backup",
         "/tmp/a6400-charo-shutter.pcm",
+        "/tmp/a6400-charo-shutter.pcm.pre-v3c-backup",
         "/tmp/a6400-charo-connect.pcm",
         "/tmp/a6400-charo-push.pcm",
         "/tmp/a6400-hook-err.log",
+        "/tmp/a6400-ui-hang.log",
     ):
-        steps.append(f"/bin/busybox rm -f {extra}")
+        steps.append(f"/bin/busybox rm -f {path}")
     steps.append("/bin/busybox sync")
     return steps
 
@@ -600,6 +628,10 @@ def main():
             try:
                 for idx, step in enumerate(build_rollback_steps()):
                     must_cmd(cam, step, f"ROLLBACK_{idx}", timeout=20.0)
+                pre_after = must_cmd(cam, "/bin/busybox cat /etc/ld.so.preload 2>/dev/null || true", "VERIFY_ROLLBACK_PRELOAD")
+                if "a6400-autoexec" in pre_after:
+                    raise RuntimeError(f"ROLLBACK verify failed: a6400-autoexec still in /etc/ld.so.preload: {pre_after[-200:]}")
+                must_cmd(cam, "test ! -f /tmp/autoexec.sh && test ! -f /etc/a6400-autoexec.so", "VERIFY_ROLLBACK_CLEAN")
                 print("V3_CLITE_ROLLBACK_OK", flush=True)
                 rb_ok = True
             finally:

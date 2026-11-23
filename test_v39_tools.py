@@ -132,7 +132,13 @@ class V39ToolsTests(unittest.TestCase):
         rb = '\n'.join(deployer.build_rollback_steps())
         self.assertIn('/tmp/a6400-charo-connect.pcm', rb)
         self.assertIn('/tmp/a6400-charo-push.pcm', rb)
+        self.assertIn('/etc/ld.so.preload.pre-v3c-backup', rb)
+        self.assertIn('/tmp/autoexec.sh.pre-v3c-backup', rb)
+        self.assertNotIn('mv $B $P', rb)
         self.assertNotIn('/tmp/a6400-autoexec.so', rb)
+        watch_cmd = (Path(__file__).resolve().parent / 'tools/usbipd_watch.cmd').read_text()
+        self.assertIn('_LINE:Attached=', watch_cmd)
+        self.assertIn('_LINE:Not shared=', watch_cmd)
         src_deploy = (Path(__file__).resolve().parent / 'tools/pmca_deploy_v3_clite.py').read_text()
         self.assertNotIn('CLEAN_LEGACY_HOOK', src_deploy)
 

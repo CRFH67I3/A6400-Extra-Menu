@@ -1,6 +1,6 @@
 # Windows WSL2 全離線一鍵包 — 常見問題與排錯指南 (FAQ)
 
-> 適用版本：`A6400-A6100-v3.9-sslf-Win-WSL-Offline.zip`（含內建微軟官方 `wsl.2.4.13.0.x64.msi`、`usbipd-win.msi` 與極輕量 Alpine Linux）與 `Lite` 輕量版。
+> 適用版本：`A6400-A6100-v4.1-SLEM-hany-Win-WSL-Offline.zip`（含內建微軟官方 `wsl.2.4.13.0.x64.msi`、`usbipd-win.msi` 與極輕量 Alpine Linux）。
 
 ---
 
@@ -85,10 +85,10 @@ net start vmcompute
 
 **原因**：先前中斷安裝或手動刪除了 `AppData\Local\A6400WSL` 資料夾，導致 WSL 註冊表留下「沒有實體 `.vhdx` 磁碟」的幽靈實例，或 `wslservice` 尚未刷新註冊表。不需要另外選磁碟，照以下任一方式清除幽靈紀錄即可：
 - **解法 A**：直接雙擊資料夾內的 **`一鍵清理WSL環境.bat`**（會自動清除所有 `A6400Deployer*` 註冊紀錄與殘留目錄），清完再雙擊 `一鍵開始安裝.bat`。
-- **解法 B**：在管理員 CMD / PowerShell 執行：
-  ```cmd
-  "C:\Program Files\WSL\wsl.exe" --shutdown
-  "C:\Program Files\WSL\wsl.exe" --unregister A6400Deployer
+- **解法 B**：在**管理員 PowerShell** 執行以下兩行（請完整複製包含最前面的 `& ` 符號）：
+  ```powershell
+  & "C:\Program Files\WSL\wsl.exe" --shutdown
+  & "C:\Program Files\WSL\wsl.exe" --unregister A6400Deployer
   ```
   （若曾有帶隨機碼的 `A6400Deployer_xxxx`，先用 `wsl -l -v` 查看後一併 `--unregister` 即可。）
 
@@ -97,13 +97,13 @@ net start vmcompute
 ## 五、刷完機或復原原廠後，Windows 連不上相機 / 讀卡機消失
 
 1. **相機端未離開服務模式（`054C:0336`）**：
-   刷機或回滾結束時，相機本身仍停留在 Sony 服務模式。必須 **拔掉 USB 線 → 關機 → 取出電池等 10 秒 → 裝回開機**，相機才會回到正常的大容量儲存讀卡機模式。
+   刷機或回滾結束時，相機本身仍停留在 Sony 服務模式。必須 **拔掉 USB 線 → 關機 → 取出電池等 10 秒 → 裝回開機**，相機才會回到正常的大容量儲存讀卡機模式（回滾原廠後也務必拔電池 10 秒清空記憶體，避免舊版常駐程式殘留）。
 2. **舊版腳本殘留 `usbipd` 持久佔用（`PersistedGuid`）**：
-   若曾經使用較早版本並在中途切過 `054C:0CA8 → 054C:0336`，`usbipd` 可能仍綁著離線的 `054C:0CA8` 裝置。請在**管理員 PowerShell** 執行這一行立刻釋放所有佔用：
+   若曾經使用較早版本並在中途切過 `054C:0CA8 → 054C:0336`，`usbipd` 可能仍綁著離線的 `054C:0CA8` 裝置。請在**管理員 PowerShell** 執行這一行立刻釋放所有佔用（**注意最前面必須保留 `& `，且不要複製任何多餘標題**）：
    ```powershell
-   "C:\Program Files\usbipd-win\usbipd.exe" unbind --all
+   & "C:\Program Files\usbipd-win\usbipd.exe" unbind --all
    ```
-   （最新版 `tools\wsl_deploy.ps1` 已內建自動清除離線 `PersistedGuid`，刷完／回滾完會自動解除。）
+   （若在新開的視窗中已套用系統 PATH，也可以直接執行 `usbipd unbind --all`。最新版 `tools\wsl_deploy.cmd` 已內建自動解除綁定與清除離線 `PersistedGuid`，正常刷完／回滾完會自動恢復。）
 
 ---
 
@@ -122,7 +122,7 @@ net start vmcompute
 
 - **冷開機喚出選單**：
   1. 拔掉 USB 線 → 關機 → **取出電池等 10 秒** → 裝回再開機。
-  2. 開機等待 **35～40 秒** → **輕觸螢幕並鬆開一次** → 等 **2 秒** → **長按「MENU + 放大鏡」2 秒** 即可叫出膠片選單。
+  2. 每次開機等待約 **5～10 秒**（剛刷完首次冷開機建議等 **10～15 秒**）→ **輕觸螢幕並鬆開一次** → 等 **1～2 秒** → **長按「MENU + 放大鏡」2 秒** 即可叫出膠片選單。
   3. 記憶卡需確保最上層已建好空資料夾 `/A6400/TEST/`。
 - **清理佔用的微型 Linux**：
   刷機完成後，雙擊資料夾內的 **`一鍵清理WSL環境.bat`** 即可一鍵卸載 `A6400Deployer` 並釋放磁碟空間（完全不影響相機端已裝好的功能）。

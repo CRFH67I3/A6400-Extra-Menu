@@ -91,6 +91,7 @@ static int mtf2_match8(uint32_t addr, const unsigned char expected[8]) {
 static uint32_t mtf2_find_module_base(const char *suffix) {
     int fd = (int)syscall(SYS_open, "/proc/self/maps", 0, 0);
     if (fd < 0) return 0u;
+    size_t slen = strlen(suffix);
     char buf[1024], line[256];
     unsigned pos = 0u;
     uint32_t found = 0u;
@@ -100,7 +101,8 @@ static uint32_t mtf2_find_module_base(const char *suffix) {
             char c = buf[i];
             if (c == '\n') {
                 line[pos] = 0;
-                if (pos >= 32u && strstr(line, "r-xp 00000000") && strstr(line, suffix)) {
+                if (pos >= 32u && pos >= slen && strstr(line, "r-xp 00000000") &&
+                    strcmp(line + pos - slen, suffix) == 0) {
                     uint32_t v = 0u;
                     unsigned k = 0u;
                     for (; k < pos && line[k] != '-'; ++k) {
@@ -138,7 +140,7 @@ static int mtf2_probe_and_init(struct mtf2_ctx *ctx) {
     if (!dladdr(vsm_sym, &i_vu2) || !i_vu2.dli_fbase) return 0;
     uint32_t obj_b = (uint32_t)(uintptr_t)i_obj.dli_fbase;
     uint32_t vu2_b = (uint32_t)(uintptr_t)i_vu2.dli_fbase;
-    uint32_t cc_b = mtf2_find_module_base("CautionConfig.so");
+    uint32_t cc_b = mtf2_find_module_base("/CautionConfig.so");
     if (!cc_b) return 0;
 
     /* Module-relative profile table (ILCE-6400 / ILCE-6100). Each entry is

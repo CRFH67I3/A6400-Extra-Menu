@@ -259,7 +259,7 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
             for name, content in headers.items():
                 (inc / name).write_text(content, encoding='utf-8')
             for name in ('film_menu.h', 'film_native_view.h', 'ui_trial_trace.h',
-                         'film_preview_fmt.h', 'mtf2_native_touch.h'):
+                         'film_preview_fmt.h', 'mtf2_native_touch.h', 'film_album_index.h'):
                 (inc / name).write_text((ROOT / 'camera' / name).read_text(encoding='utf-8'), encoding='utf-8')
             src = (ROOT / 'camera/native_film_ui_trial3.c').read_text(encoding='utf-8')
             body = model_c.replace('#include "native_film_ui_trial3.c"', src).replace('__attribute__((pcs("aapcs")))', '')
@@ -356,7 +356,7 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
             lib.model_tick(25, 5, 450, 150, 0, 0)  # Top-Right tile -> direct album browse!
             lib.model_tick(25, 6, 32767, 32767, 0, 0)
             self.assertEqual(lib.model_album_mode(), 2)
-            self.assertEqual(v4.display_mode, 2)
+            self.assertEqual(v4.display_mode, 0)  # loading covers live view; OSD stays idle
             self.assertEqual(v4.album_slot, 1)  # newest graded slot
             # Tap left third -> older graded slot (slot 0)
             lib.model_tick(25, 5, 80, 240, 0, 0)
@@ -527,16 +527,17 @@ int model_menu_visible(void) { return ui.view.menu.visible; }
             # popup.bin: solid red 0xF00F -> RGBA8888 0xFF0000FF (R=0xFF,G=0,B=0,A=0xFF)
             pop_hdr = struct.pack('<IIII48s', 0x56503441, 240, 160, 1, b'popup')
             (pv_dir / 'popup.bin').write_bytes(pop_hdr + b'\x0f\xf0' * (240 * 160))
-            # slot_00.bin: solid green 0x0F0F -> RGBA8888 0xFF00FF00 (R=0,G=0xFF,B=0,A=0xFF)
+            # slot_00.bin stays the instant-preview ring sample. current.bin is the one decoded album image.
             alb_hdr = struct.pack('<IIII48s', 0x56503441, 600, 400, 1, b'album0')
             (pv_dir / 'slot_00.bin').write_bytes(alb_hdr + b'\x0f\x0f' * (600 * 400))
+            (pv_dir / 'current.bin').write_bytes(alb_hdr + b'\x0f\x0f' * (600 * 400))
 
             inc = d / 'inc'
             (inc / 'sys').mkdir(parents=True)
             for name, content in headers.items():
                 (inc / name).write_text(content, encoding='utf-8')
             for name in ('film_menu.h', 'film_native_view.h', 'ui_trial_trace.h',
-                         'film_preview_fmt.h', 'mtf2_native_touch.h'):
+                         'film_preview_fmt.h', 'mtf2_native_touch.h', 'film_album_index.h'):
                 (inc / name).write_text((ROOT / 'camera' / name).read_text(encoding='utf-8'), encoding='utf-8')
 
             src = (ROOT / 'camera/native_film_ui_trial3.c').read_text(encoding='utf-8')
@@ -645,6 +646,11 @@ void n_init(void) {
     a6400_ui_v4_v1.album_head = 0u;
     a6400_ui_v4_v1.latest_seq = 0u;
     a6400_ui_v4_v1.display_mode = A6400_DISP_NONE;
+    a6400_ui_v4_v1.album_view_seq = 1u;
+    a6400_ui_v4_v1.album_view_slot = 0u;
+    a6400_ui_v4_v1.album_ready_seq = 1u;
+    a6400_ui_v4_v1.album_ready_slot = 0u;
+    for(unsigned i=0;i<13u;i++)a6400_ui_v4_v1.album_label[i]="F0000001.JPG"[i];
     model_now_ms = 1000; model_layer_is_active = 0; last_img_w = -1.0f; last_img_h = -1.0f;
     last_param_fmt = -1; invalidates = 0; unlocks = 0;
 }
@@ -692,17 +698,16 @@ int n_album_native(void) { return ui_v4.album_is_native; }
             self.assertEqual(lib.n_layer_active(), 0)
             self.assertEqual((lib.n_img_w(), lib.n_img_h()), (0, 0))
 
-            # 2) Open Graded Album -> native RGBA4444 (fmt=7) 608x400 (600px centered + 4px margins)
+            # 2) Album bitmap is 448x400: 600x400 preview with width at 3/4 so a
+            #    3:2 photo is 3:2 on the 16:9 LCD. Mock row pitch stays 608.
             lib.n_open_album()
             self.assertEqual(lib.n_album_native(), 1)
             self.assertEqual(lib.n_param_fmt(), 7)
             self.assertEqual(v4.display_mode, 0)
             self.assertEqual(lib.n_layer_active(), 1)
-            self.assertEqual((lib.n_img_w(), lib.n_img_h()), (608, 400))
-            self.assertEqual(lib.n_alb_px(608 * 200 + 0), 0x112F)     # left 4px obsidian margin
-            self.assertEqual(lib.n_alb_px(608 * 200 + 4), 0x0F0F)     # image start
-            self.assertEqual(lib.n_alb_px(608 * 200 + 603), 0x0F0F)   # image end
-            self.assertEqual(lib.n_alb_px(608 * 200 + 607), 0x112F)   # right 4px obsidian margin
+            self.assertEqual((lib.n_img_w(), lib.n_img_h()), (448, 400))
+            self.assertEqual(lib.n_alb_px(608 * 200 + 0), 0x0F0F)
+            self.assertEqual(lib.n_alb_px(608 * 200 + 447), 0x0F0F)
             lib.n_exit_album()
             self.assertEqual(lib.n_layer_active(), 0)
             self.assertEqual((lib.n_img_w(), lib.n_img_h()), (0, 0))

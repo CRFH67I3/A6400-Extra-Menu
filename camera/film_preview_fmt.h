@@ -32,7 +32,10 @@
 #define A6400_PV_DIR            "/tmp_bt/a6400-pv"
 #define A6400_PV_STAGED         "/tmp_bt/a6400-pv/latest.pkg"
 #define A6400_PV_POPUP          "/tmp_bt/a6400-pv/popup.bin"
+#define A6400_PV_CURRENT        "/tmp_bt/a6400-pv/current.bin"
+#define A6400_PV_ALBUM_INDEX    "/tmp_bt/a6400-pv/album.idx"
 #define A6400_PV_JOB_FILE       "/tmp_bt/a6400-film-job/preview.bin"
+#define A6400_PV_JOB_INPUT      "/tmp_bt/a6400-film-job/input.jpg"
 
 #define A6400_DISP_NONE         0u
 #define A6400_DISP_POPUP        1u
@@ -68,11 +71,19 @@ struct a6400_ui_v4_v1 {
     uint32_t native_touch_hits;/* diagnostic count of native MENU touch actions */
     /* Daemon-published fields (written before latest_seq): */
     uint32_t latest_seq;       /* bumped by daemon after publishing popup + slot */
-    uint32_t album_count;      /* 0..16 valid slots in session ring */
-    uint32_t album_head;       /* 0..15 index of most recent slot */
+    uint32_t album_count;      /* TEST index length, 0..1024 */
+    uint32_t album_head;       /* 0..15 index of most recent instant-preview slot */
     uint32_t session_shots;    /* total shots (APPLIED + OFF) since boot */
     int8_t   shot_slots[A6400_SESSION_SHOTS_CAP]; /* -1 if LUT OFF, else 0..15 */
-    char     slot_labels[A6400_ALBUM_SLOTS][48];  /* per-slot UTF-8 caption */
+    char     slot_labels[A6400_ALBUM_SLOTS][48];  /* legacy ring captions; album labels come from album.idx */
+    uint32_t album_truncated;  /* 1 if TEST has more graded JPEGs than the index cap */
+    uint32_t album_ready_seq;  /* daemon: matches album_view_seq when current.bin is ready */
+    uint32_t album_ready_slot; /* daemon: index within the sorted TEST list */
+    uint32_t album_scan_done;  /* daemon: echoes album_scan_req after a TEST listing attempt */
+    char     album_label[48];  /* daemon: filename of current.bin */
+    uint32_t album_view_seq;   /* UI: bumped when the visible TEST index changes */
+    uint32_t album_view_slot;  /* UI: sorted-index of the JPEG to decode */
+    uint32_t album_scan_req;   /* UI: bumped to ask the daemon to list TEST again */
 };
 
 /* Pack 8-bit RGB to little-endian A6400 OSD RGBA4444 (R:15..12 G:11..8 B:7..4 A:3..0)

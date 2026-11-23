@@ -415,6 +415,84 @@ static int author_write_all(int fd,const void *buf,unsigned bytes) {
     return 0;
 }
 
+/* Orientation lives at the start of Exif. A large APP1 thumbnail must not hide it. */
+static unsigned author_file_orientation(const unsigned char *data,unsigned size) {
+    unsigned at=(size>=2u && data[0]==0xff && data[1]==0xd8)?2u:0u;
+    while(at+4u<=size && data[at]==0xff) {
+        unsigned marker=data[at+1];
+        if(marker==0xd9u || marker==0xdau) return 1u;
+        unsigned length=((unsigned)data[at+2]<<8)|data[at+3];
+        if(length<2u) return 1u;
+        unsigned avail=size-(at+2u);
+        if(marker==0xe1u && avail>=8u &&
+           data[at+4]=='E' && data[at+5]=='x' && data[at+6]=='i' && data[at+7]=='f') {
+            unsigned use=length<=avail?length:avail;
+            if(use>1024u) use=1024u;
+            unsigned char seg[2u+1024u];
+            seg[0]=0xff; seg[1]=0xe1;
+            for(unsigned i=0;i<use;i++) seg[2u+i]=data[at+2u+i];
+            seg[2]=(unsigned char)(use>>8); seg[3]=(unsigned char)use;
+            return author_metadata_orientation(seg,2u+use);
+        }
+        if(length>avail) return 1u;
+        at+=length+2u;
+    }
+    return 1u;
+}
+
+/* One 600x400 album preview. Does not rerun the film grade. */
+static int author_album_preview_path(const char *jpeg_path,const char *out_path,const char *label) {
+#ifndef A6400_FILM_HOST
+    if(!jpeg_path || strcmp(jpeg_path,A6400_PV_JOB_INPUT) ||
+       !out_path || strcmp(out_path,A6400_PV_CURRENT)) return 2;
+#endif
+    int fd=sys_open(jpeg_path,O_RDONLY|O_NOFOLLOW,0);
+    if(fd<0) return 3;
+    long size=sys_lseek(fd,0,2);
+    if(size<=0 || (unsigned long)size>MAX_INPUT_BYTES || sys_lseek(fd,0,0)!=0) {
+        sys_close(fd); return 3;
+    }
+    /* A partial copy still decodes as flat filler blocks; require the closing EOI. */
+    unsigned char eoi[2]={0,0};
+    if(size<4 || sys_lseek(fd,size-2,0)!=size-2 || sys_read(fd,eoi,2)!=2 ||
+       eoi[0]!=0xff || eoi[1]!=0xd9) {
+        sys_close(fd); return 7;
+    }
+    unsigned char *orient_buf=(unsigned char *)xalloc(8192u);
+    unsigned orient=1u;
+    if(orient_buf) {
+        if(sys_lseek(fd,0,0)==0) {
+            long n=sys_read(fd,orient_buf,8192u);
+            if(n>4) orient=author_file_orientation(orient_buf,(unsigned)n);
+        }
+        xfree(orient_buf,8192u);
+    }
+    author_image image;
+    int decoded=author_decode(fd,0,(unsigned)size,1,&image);
+    int closed=sys_close(fd);
+    if(decoded || closed) {image.clear(); return decoded?decoded:3;}
+    uint16_t *alb=(uint16_t *)xalloc(A6400_ALBUM_BYTES);
+    if(!alb) {image.clear(); return 5;}
+    author_pack_preview_box(image.pixels,image.width,image.height,orient,alb,A6400_ALBUM_W,A6400_ALBUM_H,0);
+    struct a6400_preview_hdr hdr;
+    memset(&hdr,0,sizeof(hdr));
+    hdr.magic=A6400_PV_MAGIC;
+    hdr.width=A6400_ALBUM_W;
+    hdr.height=A6400_ALBUM_H;
+    if(label) {
+        unsigned n=0;
+        while(label[n] && n+1u<sizeof(hdr.label)) {hdr.label[n]=label[n]; ++n;}
+    }
+    int pfd=sys_open(out_path,O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW,0600);
+    int ok=pfd>=0 && !author_write_all(pfd,&hdr,(unsigned)sizeof(hdr)) &&
+        !author_write_all(pfd,alb,A6400_ALBUM_BYTES);
+    if(pfd>=0 && sys_close(pfd)) ok=0;
+    if(!ok && pfd>=0) sys_unlink(out_path);
+    xfree(alb,A6400_ALBUM_BYTES);
+    image.clear();
+    return ok?0:6;
+}
+
 static void author_emit_preview_pkg(const char *preview_path,const unsigned char *rgb,
                                     int img_w,int img_h,unsigned orient) {
     if (!preview_path || !preview_path[0] || !rgb || img_w<1 || img_h<1) return;

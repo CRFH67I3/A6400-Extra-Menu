@@ -264,6 +264,12 @@ int main(int argc,char **argv) {
         printf("FILM_READY portra_400 cinestill_800t fuji_provia kodak_gold tri_x_400 classic_chrome agfa_ultra_100 polaroid_669 fuji_acros polaroid_px680\n");return 0;
     }
 #ifdef A6400_FILM_JOB
+    if(argc==5 && !strcmp(argv[1],"--album-preview")) {
+        int rc=author_album_preview_path(argv[2],argv[3],argv[4]);
+        if(rc){printf("FILM_ALBUM_PREVIEW_FAIL rc=%d\n",rc);return 1;}
+        printf("FILM_ALBUM_PREVIEW_OK\n");
+        return 0;
+    }
     if(argc==3 && !strcmp(argv[1],"--verify")) {
 #ifndef A6400_FILM_HOST
         if(!film_input_path(argv[2])) {printf("FILM_ERROR path_policy\n");return 1;}

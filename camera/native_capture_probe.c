@@ -465,15 +465,15 @@ static int native_item(struct transport *t,const char *directory,int first,struc
             /* Captured on the first cold-media root FFirst. Only this exact
              * version record, once after the header and before any outcome,
              * may precede a complete successful directory entry. */
-            if(!first || strcmp(directory,"ms:/DCIM") || headers!=1u ||
-               outcome_started || wd_version++ || !wd_version_line(value,bytes))invalid_version=1;
+            if(!first || (strcmp(directory,"ms:/DCIM") && strcmp(directory,"ms:/A6400/TEST")) ||
+               headers!=1u || outcome_started || wd_version++ || !wd_version_line(value,bytes))invalid_version=1;
         }
         else if(bytes>=7u && !memcmp(value,"[CACHE]",7u)) {
             /* Captured during a USB mode transition, ahead of a complete
              * successful FNext entry. Accept only this exact ordered group;
              * an isolated cache error must never become a valid entry. */
-            if(first || strncmp(directory,"ms:/DCIM/",9u) || headers!=1u ||
-               outcome_started || getstill)invalid_cache=1;
+            if(first || (strncmp(directory,"ms:/DCIM/",9u) && strcmp(directory,"ms:/A6400/TEST")) ||
+               headers!=1u || outcome_started || getstill)invalid_cache=1;
             if(!cache_notice && line_equals(value,bytes,
                 "[CACHE]BUFFER SIZE TOO SMALL : 00000000"))cache_notice=1u;
             else if(cache_notice==1u && line_equals(value,bytes,
@@ -486,8 +486,8 @@ static int native_item(struct transport *t,const char *directory,int first,struc
              * Never discard arbitrary callbacks, mixed outcomes or suffixes. */
             if(cache_notice==2u && line_equals(value,bytes,"[MprIf] Callback EnterStillPb"))
                 cache_notice=3u;
-            else if(first || strncmp(directory,"ms:/DCIM/",9u) || headers!=1u ||
-               outcome_started || cache_notice || getstill++ ||
+            else if(first || (strncmp(directory,"ms:/DCIM/",9u) && strcmp(directory,"ms:/A6400/TEST")) ||
+               headers!=1u || outcome_started || cache_notice || getstill++ ||
                !line_equals(value,bytes,"[MprIf] Callback GetStillAttrInfo"))invalid_callback=1;
         }
         else if((bytes>=15u && !memcmp(value,"FindFirst Retry",15u)) ||

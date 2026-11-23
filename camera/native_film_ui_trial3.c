@@ -4,6 +4,7 @@
  */
 #define _GNU_SOURCE
 #include "film_native_view.h"
+#include "film_album_index.h"
 #include "film_preview_fmt.h"
 #include <dlfcn.h>
 #include <stddef.h>
@@ -119,6 +120,9 @@ typedef int (*pv_close_fn)(int);
 #define UI_S_HDR_STOCKS         "胶片风格 (%u/2)"
 #define UI_S_FOOT_HOME          "hany | 相册:%u张 | 队列 %u/%u"
 #define UI_S_ALBUM_TILE_FMT     "套色相册 (%u张) >"
+#define UI_S_ALBUM_TILE_MORE    "套色相册 (%u张+) >"
+#define UI_S_ALB_LOADING        "读取中"
+#define UI_S_ALB_DIR_WAIT       "[套色相册 %u/%u]"
 #define UI_S_POPUP_FMT          "即时预览小窗: %s"
 #define UI_S_TOUCH_FMT          "原生MENU触控: %s"
 #define UI_S_TOUCH_UNSUP        "不支持"
@@ -143,6 +147,9 @@ typedef int (*pv_close_fn)(int);
 #define UI_S_HDR_STOCKS         "膠片風格 (%u/2)"
 #define UI_S_FOOT_HOME          "hany | 相冊:%u張 | 佇列 %u/%u"
 #define UI_S_ALBUM_TILE_FMT     "套色相冊 (%u張) >"
+#define UI_S_ALBUM_TILE_MORE    "套色相冊 (%u張+) >"
+#define UI_S_ALB_LOADING        "讀取中"
+#define UI_S_ALB_DIR_WAIT       "[套色相冊 %u/%u]"
 #define UI_S_POPUP_FMT          "即時預覽小窗: %s"
 #define UI_S_TOUCH_FMT          "原生MENU觸控: %s"
 #define UI_S_TOUCH_UNSUP        "不支援"
@@ -293,7 +300,9 @@ volatile struct a6400_ui_v4_v1 a6400_ui_v4_v1 = {
     A6400_DISP_NONE, 0u, 0u,
     0u, 0u,
     0u, 0u, 0u, 0u,
-    {0}, {{0}}
+    {0}, {{0}},
+    0u, 0u, 0u, 0u, {0},
+    0u, 0u, 0u
 };
 
 struct v4_native_slot {
@@ -326,6 +335,9 @@ static struct {
     struct v4_native_slot pop_slot;
     struct v4_native_slot alb_slot;
     uint32_t seen_latest_seq;
+    uint32_t seen_album_ready;
+    uint32_t seen_album_count;
+    uint32_t seen_album_trunc;
     int popup_active;
     int popup_is_native;
     uint32_t popup_until_ms;
@@ -762,6 +774,16 @@ static int v4_load_bin_to_slot(struct v4_native_slot *slot,const int dims[][2],i
     }
     int is32=(stride>=slot->w*4);
     unsigned dst_h=(unsigned)slot->h;
+    for(unsigned y=0;y<dst_h;y++) {
+        unsigned char *drow=(unsigned char *)dst+(size_t)y*(size_t)stride;
+        if(is32) {
+            uint32_t *d=(uint32_t *)drow;
+            for(unsigned x=0;x<(unsigned)slot->w;x++)d[x]=0xff12100eu;
+        } else {
+            uint16_t *d=(uint16_t *)drow;
+            for(unsigned x=0;x<(unsigned)slot->w;x++)d[x]=0x112Fu;
+        }
+    }
     uint16_t row_buf[A6400_ALBUM_W];
     unsigned next_dy=0u;
     int ok=1;
@@ -857,29 +879,52 @@ static void v4_album_sync_view(void) {
     if(cnt==0u) {
         ui_v4.album_mode=0;
         ui_v4.album_is_native=0;
+        a6400_ui_v4_v1.album_view_seq=0;
+        __sync_synchronize();
         v4_hide_native_img();
         v4_publish_display(A6400_DISP_NONE,0u);
         sync_layer_active();
         return;
     }
-    if(cnt>A6400_ALBUM_SLOTS)cnt=A6400_ALBUM_SLOTS;
+    cnt=film_album_browse_count(cnt);
     if(ui_v4.album_idx>=cnt)ui_v4.album_idx=cnt-1u;
-    uint32_t head=a6400_ui_v4_v1.album_head%A6400_ALBUM_SLOTS;
-    uint32_t slot=(head+A6400_ALBUM_SLOTS-(ui_v4.album_idx%A6400_ALBUM_SLOTS))%A6400_ALBUM_SLOTS;
-    char cap[48],top[80],bot[80],path[160];
-    for(unsigned i=0;i<47u;i++)cap[i]=a6400_ui_v4_v1.slot_labels[slot][i];
-    cap[47]=0;
-    snprintf(top,sizeof(top),UI_S_ALB_DIR_TOP,
-             (unsigned)(ui_v4.album_idx+1u),(unsigned)cnt,cap[0]?cap:UI_S_ALB_LUT_DEF);
+    uint32_t slot=cnt-1u-ui_v4.album_idx;
+    if(a6400_ui_v4_v1.album_view_seq==0u || a6400_ui_v4_v1.album_view_slot!=slot) {
+        a6400_ui_v4_v1.album_view_slot=slot;
+        __sync_synchronize();
+        a6400_ui_v4_v1.album_view_seq+=1u;
+    }
+    int ready=a6400_ui_v4_v1.album_ready_seq==a6400_ui_v4_v1.album_view_seq &&
+        a6400_ui_v4_v1.album_ready_slot==slot && a6400_ui_v4_v1.album_label[0];
+    char path[160];
+    snprintf(path,sizeof(path),"%s/current.bin",A6400_PV_DIR_RUNTIME);
+    /* Widths stay multiples of 16 for GEN_QRCode RGBA4444. The 16:9 LCD is a
+     * 640x480 buffer, so one pixel is 4/3 as wide as it is tall and a 3:2
+     * file drawn 1:1 looks stretched. These slots take that width down to
+     * 3/4; the bars on the left and right are the uncovered background. */
+    static const int alb_dims[3][2]={{448,400},{368,320},{224,200}};
+    int native_ok=ready && v4_load_bin_to_slot(&ui_v4.alb_slot,alb_dims,3,path,A6400_ALBUM_W,A6400_ALBUM_H)==0;
+    char top[80],bot[80];
+    if(native_ok) {
+        snprintf(top,sizeof(top),UI_S_ALB_DIR_TOP,
+                 (unsigned)(ui_v4.album_idx+1u),(unsigned)cnt,a6400_ui_v4_v1.album_label);
+    } else {
+        snprintf(top,sizeof(top),UI_S_ALB_DIR_WAIT,
+                 (unsigned)(ui_v4.album_idx+1u),(unsigned)cnt);
+    }
     snprintf(bot,sizeof(bot),UI_S_ALB_DIR_BOT);
-    snprintf(path,sizeof(path),"%s/slot_%02u.bin",A6400_PV_DIR_RUNTIME,(unsigned)(slot%A6400_ALBUM_SLOTS));
-    /* 16-pixel aligned widths matching Sony GEN_QRCode RGBA4444 requirements. */
-    static const int alb_dims[3][2]={{608,400},{480,320},{304,200}};
-    int native_ok=(v4_load_bin_to_slot(&ui_v4.alb_slot,alb_dims,3,path,A6400_ALBUM_W,A6400_ALBUM_H)==0);
-    v4_draw_album_hud(top,bot,native_ok);
+    v4_draw_album_hud(top,bot,1);
+    if(!native_ok) {
+        char mid[48];
+        if(!ready || !a6400_ui_v4_v1.album_label[0])snprintf(mid,sizeof(mid),"%s",UI_S_ALB_LOADING);
+        else snprintf(mid,sizeof(mid),"%s",a6400_ui_v4_v1.album_label);
+        snprintf(ui.texts[1],sizeof(ui.texts[1]),"%s",mid);
+        place(ui.labels[1],1,240,210,160,36);
+        ui.set_text(ui.labels[1],ui.texts[1]);
+    }
     if(native_ok) {
         int px=(640-ui_v4.alb_slot.w)/2;
-        int py=40+(400-ui_v4.alb_slot.h)/2;
+        int py=(int)A6400_ALBUM_BAND_Y0+((int)A6400_ALBUM_BAND_H-ui_v4.alb_slot.h)/2;
         const float xy[2]={(float)px,(float)py};
         ui.set_position(ui_v4.alb_slot.widget,xy);
         ui_v4.cache_img_set_size(ui_v4.alb_slot.widget,(float)ui_v4.alb_slot.w,(float)ui_v4.alb_slot.h);
@@ -890,7 +935,7 @@ static void v4_album_sync_view(void) {
     } else {
         ui_v4.album_is_native=0;
         v4_hide_native_img();
-        v4_publish_display(A6400_DISP_ALBUM,slot);
+        v4_publish_display(A6400_DISP_NONE,slot);
     }
 }
 static void v4_exit_album(void) {
@@ -898,6 +943,8 @@ static void v4_exit_album(void) {
     ui_v4.album_mode=0;
     ui_v4.album_is_native=0;
     ui_v4.album_touch_down=0;
+    a6400_ui_v4_v1.album_view_seq=0;
+    __sync_synchronize();
     v4_hide_native_img();
     v4_publish_display(A6400_DISP_NONE,0u);
     if(!ui.view.menu.visible) {
@@ -927,6 +974,8 @@ static void draw(void *unused,const struct film_menu *menu) {
         ui_v4.album_mode=0;
         ui_v4.album_is_native=0;
         ui_v4.album_touch_down=0;
+        a6400_ui_v4_v1.album_view_seq=0;
+        __sync_synchronize();
         v4_publish_display(A6400_DISP_NONE,0u);
     }
     v4_hide_native_img();
@@ -1001,8 +1050,9 @@ static void draw(void *unused,const struct film_menu *menu) {
         /* Live RAM text overrides */
         if(is_home) {
             if(row==1u) {
-                snprintf(ui.texts[row+1u],sizeof(ui.texts[0]),UI_S_ALBUM_TILE_FMT,
-                         (unsigned)a6400_ui_v4_v1.album_count);
+                unsigned shown=film_album_browse_count(a6400_ui_v4_v1.album_count);
+                snprintf(ui.texts[row+1u],sizeof(ui.texts[0]),
+                         a6400_ui_v4_v1.album_truncated?UI_S_ALBUM_TILE_MORE:UI_S_ALBUM_TILE_FMT,shown);
             } else if(row==2u) {
 #ifdef A6400_CHARO_SHUTTER
                 int custom=(a6400_ui_status_v1.magic==0x53544156u && a6400_ui_status_v1.custom_charo);
@@ -1355,6 +1405,7 @@ static void animate(void *self) {
         record("V4_TOUCH_TOGGLE",(int)a6400_ui_v4_v1.native_touch_en,(int)a6400_ui_v4_v1.native_touch_ok);
     }
     if(change&FILM_MENU_ALBUM_BROWSE) {
+        a6400_ui_v4_v1.album_scan_req+=1u;
         if(a6400_ui_v4_v1.album_count>0u) {
             film_native_view_hide(&ui.view);
             v4_dismiss_popup();
@@ -1385,6 +1436,12 @@ static void animate(void *self) {
     /* V4.1 Graded Album direct browser (opened ONLY via custom menu's Top-Right tile;
      * Sony's native Playback button is never hijacked or intercepted). */
     if(ui_v4.album_mode && !ui.view.menu.visible) {
+        if(a6400_ui_v4_v1.album_ready_seq!=ui_v4.seen_album_ready ||
+           a6400_ui_v4_v1.album_count!=ui_v4.seen_album_count) {
+            ui_v4.seen_album_ready=a6400_ui_v4_v1.album_ready_seq;
+            ui_v4.seen_album_count=a6400_ui_v4_v1.album_count;
+            v4_album_sync_view();
+        }
         int nav_left=(ui.key(ui.keys,A6400_KEY_LEFT,0)==1 || ui.key(ui.keys,A6400_KEY_WHEEL_CCW,0)==1);
         int nav_right=(ui.key(ui.keys,A6400_KEY_RIGHT,0)==1 || ui.key(ui.keys,A6400_KEY_WHEEL_CW,0)==1);
         int nav_exit=(menu==1 || ui.key(ui.keys,A6400_KEY_SHUTTER,0)==1 ||
@@ -1395,8 +1452,7 @@ static void animate(void *self) {
             v4_exit_album();
         } else {
             if(nav_left && !ui_v4.last_nav_left) {
-                unsigned limit=a6400_ui_v4_v1.album_count;
-                if(limit>A6400_ALBUM_SLOTS)limit=A6400_ALBUM_SLOTS;
+                unsigned limit=film_album_browse_count(a6400_ui_v4_v1.album_count);
                 if(limit>0u && ui_v4.album_idx+1u<limit) {
                     ui_v4.album_idx+=1u;
                     dirty=1;
@@ -1417,8 +1473,7 @@ static void animate(void *self) {
             } else if(touch==6 && ui_v4.album_touch_down) {
                 short tx=ui_v4.album_touch_x;
                 ui_v4.album_touch_down=0;
-                unsigned limit=a6400_ui_v4_v1.album_count;
-                if(limit>A6400_ALBUM_SLOTS)limit=A6400_ALBUM_SLOTS;
+                unsigned limit=film_album_browse_count(a6400_ui_v4_v1.album_count);
                 if(tx<200) {
                     if(limit>0u && ui_v4.album_idx+1u<limit){ui_v4.album_idx+=1u;dirty=1;}
                 } else if(tx>440) {
@@ -1435,6 +1490,13 @@ static void animate(void *self) {
     } else {
         ui_v4.last_nav_left=ui_v4.last_nav_right=ui_v4.last_nav_exit=0;
         ui_v4.album_touch_down=0;
+        if(ui.view.menu.visible && ui.view.menu.page==FILM_MENU_HOME &&
+           (a6400_ui_v4_v1.album_count!=ui_v4.seen_album_count ||
+            a6400_ui_v4_v1.album_truncated!=ui_v4.seen_album_trunc)) {
+            ui_v4.seen_album_count=a6400_ui_v4_v1.album_count;
+            ui_v4.seen_album_trunc=a6400_ui_v4_v1.album_truncated;
+            draw(0,&ui.view.menu);
+        }
     }
     /* V4.0 Native MENU Full Touch (MTF2, credit: ivica00). Suppressed whenever our
      * Film Menu, Album Preview, or Instant Pop-up is active (or until the finger
@@ -1633,6 +1695,7 @@ int a6400_ui_attach_v1(void *system,unsigned tid) {
     strcpy(ui.texts[0],UI_S_HDR_BOOT);
     for(unsigned i=0;i<A6400_SESSION_SHOTS_CAP;i++)a6400_ui_v4_v1.shot_slots[i]=-1;
     a6400_ui_v4_v1.native_touch_ok=(uint32_t)mtf2_probe_and_init(&ui_v4.mtf2);
+    a6400_ui_v4_v1.album_scan_req+=1u;
     record("V4_MTF2_INIT",(int)a6400_ui_v4_v1.native_touch_ok,(int)(ui_v4.cache_img_ctor!=0));
 #ifdef A6400_UI_SETTINGS_DIAGNOSTIC
     strcpy(ui.texts[7],UI_S_HINT_COMBO_RAM);

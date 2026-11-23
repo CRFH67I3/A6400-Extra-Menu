@@ -106,11 +106,12 @@ PY
 CC=arm-linux-gnueabihf-gcc
 COMMON="-march=armv7-a+fp -mfpu=vfpv3-d16 -mfloat-abi=hard -mthumb -Os -fno-unwind-tables -fno-asynchronous-unwind-tables -ffunction-sections -fdata-sections -Wall -Wextra -Werror -fno-stack-protector -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
 $CC $COMMON -std=c11 -fPIE -I"$OUT" -c "$ROOT/camera/film_capture_daemon.c" -o "$OUT/capture-daemon.o"
+$CC $COMMON -std=c11 -fPIE -I"$ROOT/camera" -c "$ROOT/camera/film_album_index.c" -o "$OUT/album-index.o"
 $CC $COMMON -std=c11 -fPIE -I"$ROOT/camera" -c "$ROOT/camera/film_settings_maps.c" -o "$OUT/settings-maps.o"
 $CC $COMMON -std=c11 -fPIE -I"$ROOT/camera" -c "$ROOT/camera/film_runtime_log.c" -o "$OUT/runtime-log.o"
 $CC $COMMON -c "$ROOT/camera/film_settings_start.S" -o "$OUT/start.o"
 $CC -mfloat-abi=hard -nostdlib -pie -Wl,--gc-sections,-s,-e,_start,-z,now,--dynamic-linker=/lib/ld-linux.so.3 \
- "$OUT/start.o" "$OUT/capture-daemon.o" "$OUT/settings-maps.o" "$OUT/runtime-log.o" -Wl,--no-as-needed "$LIBS/libc-2.11.2.so" -lgcc \
+ "$OUT/start.o" "$OUT/capture-daemon.o" "$OUT/settings-maps.o" "$OUT/runtime-log.o" "$OUT/album-index.o" -Wl,--no-as-needed "$LIBS/libc-2.11.2.so" -lgcc \
  -o "$OUT/a6400-film-capture-daemon.elf"
 arm-linux-gnueabihf-readelf -lWdVs "$OUT/a6400-film-capture-daemon.elf" > "$OUT/elf-compatibility.txt"
 python3 - "$OUT/elf-compatibility.txt" <<'PY'

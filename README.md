@@ -4,11 +4,16 @@
 
 *Sony A6400 V3.9 SSLF 自製觸控浮層選單：頂部顯示即時已轉張數與 `/1024` 佇列進度、Sony Alpha 橘金高亮、膠片細節與快門聲切換、繁體中文介面與左下角即時處理進度提示條（Toast HUD）。*
 
-以 **MENU＋放大鏡** 召喚自製觸控浮層選單，在 Sony A6400（FW 2.00；亦支援 **Sony A6100 / ILCE-6100** 實機部署）機身上純 RAM 掛載管理 LUT 開關、10 款膠片模擬、**`1.7MP 極速` / `6MP 高清` 雙畫質切換**、**「膠片細節」顆粒強度 (`0–3`) 與底片光暈 (`開/關`) 獨立調節**，以及左下角即時處理進度提示條的研究專案。
+以 **MENU＋放大鏡** 召喚自製觸控浮層選單，在 Sony A6400 / A6100（`ILCE-6400` / `ILCE-6100`）機身上純 RAM 掛載管理 LUT 開關、10 款膠片模擬、**`1.7MP 極速` / `6MP 高清` / `12MP 超清` 三段畫質切換**、**「膠片細節」顆粒強度 (`0–3`) 與底片光暈 (`開/關`) 獨立調節**、**100% 保留 Sony 原廠相簿＋原生零閃屏即時預覽小窗與專屬套色相冊**，以及 **原生 MENU 全觸控（MTF2）** 的研究專案。
 
-**最新版本：V3.9 SSLF（Sony Super LUT FILM，2026-11-20；前代實機冷開機實拍基準為 V3.5.1 Fast SP）**
+**最新版本：V4.1 SLEM (`hany`)（2026-11-23）**
 
-- **V3.9 SSLF 主機端加速與穩定性升級**：
+- **V4.1 SLEM (`hany`) 重點升級**：
+  - **哈蘇瑞士工業風 2×2 田字格選單（無自動隱藏）**：左上 `LUT 設定`、右上 `套色相冊`、左下 `快門聲`／`細節設定`、右下 `畫質`，操作直覺且不再 20 秒自動收合。
+  - **100% 保留原廠回看相簿（`▶`）＋ 原生零閃屏 `RGBA4444` 預覽**：徹底不挾持 Sony 原廠播放鍵；已套色照片由選單右上角「套色相冊」（`608×400`）專屬瀏覽，拍完右下角自動彈出 `240×160` 即時預覽小窗。
+  - **新增 `12MP 超清`（`4240×2826`）＋ 原生 MENU 全觸控（MTF2）＋ 零冷卻 Hi+ 連拍快門音**：支援 `1.7MP / 6MP / 12MP` 三段畫質切換與 Sony 原生 MENU 全頁觸控開關（基於相對 RVA 與 10 組機器碼指紋驗證，安全自適應）。
+  - **A6400 / A6100 跨韌體相容性強化 & WSL2 一鍵包修復**：動態掃描 `libObj.so` 觸控掛載點與 `BMP_*`/`GEN_CacheInsImg` 介面、唯讀 `/usr` ARM32 ELF 驗證、真原廠回滾清除 `.pre-v3c-backup`、修復 `usbipd` 重複 `bind --force` 斷線，並於安裝器與 FAQ 加入**亮紅字「必開相機藍牙功能 = 開（飛航模式 = 關，無需配對手機）＋ 觸控操作 = 開」**提醒。
+- **V3.9 SSLF 基準（前代穩定版）**：
   - **`vendor/picojpeg.c` 位元等價倍速最佳化（無 NEON）**：實作 32-bit MSB 位元緩衝、暫存器快取 AC 解碼、DC-only EOB 快速通道與 `rt.c` 32-bit 字組 `memset`，`6MP` 解碼 CPU 於主機 `A6409675-original.JPG` 實測 **`decode_ms: 249 ms → 138 ms`**（全流程 `304 ms → 194 ms`，與 V3.5.1 輸出 JPEG 位元 100% 一致）。
   - **開機掛載與必開藍牙說明（`/etc/a6400-autoexec.so`）**：`HOOK_STUB` 與 `bootstrap-local.sh` 內建 `/tmp_bt` 掛載備援與 `/tmp/a6400-hook-err.log` 單行診斷；**實機確認 Sony A6400 / A6100 仍必須開啟「藍牙功能 = 開」（飛航模式 = 關，無需配對手機）**，開機時系統才會啟動藍牙子進程觸發 `/etc/ld.so.preload`（同時須開啟「觸控操作 = 開」）。
   - **多組自訂快門音（Sony 24 kHz SDS ADPCM）／佇列 HUD／防截斷與 A6100/Windows 安全部署工具**：選用支援三組音檔槽位循環切換（`0x33 日文 Charo`、`0x34 Bling Bling / SD自訂`、`0x35 iPhone 快門`）與 `A:/A6400/CHARO.PCM`（須為 Sony 24 kHz SDS 32-byte ADPCM、`<= 29,760` B 原地安全覆寫）；新增 `a6400_ui_status_v1` 顯示即時轉檔數／`1024` 佇列進度；`pmca_deploy_v3_clite.py` 全命令 `<= 180` 字元分塊、掛載獨立 `2048k tmpfs` 並保護 `/etc` 與 `/tmp` 共享 `/dev/nflasha10` Inode，並內建 Windows 自動啟用（亦可用 `--safe-serial` 手動啟用）之 **`100 B / 20 ms` 分片寫入、`echo` + `wc -l` 冪等防重複寫入與 `__B64_L__` 行數校對**（實測支援 Sony A6100，含 `--rollback`、`--diag` 與 `/disable_hook` 升級指引）。
@@ -33,7 +38,8 @@
 
 | 版本 | 重點里程碑與數據 |
 | --- | --- |
-| **V3.9 SSLF（最新開發版）**<br>`Sony Super LUT FILM` | 1. **免藍牙開機掛載 `/tmp_bt` ＋ 共享 Inode 防護**：`HOOK_STUB` 與 `bootstrap-local.sh` 於 `/tmp_bt` 唯讀時自動掛載 `size=2048k tmpfs` 並寫入 `/tmp/a6400-hook-err.log`；`pmca_deploy_v3_clite.py` 全數分塊 `<= 180` 字元、以 `/tmp_bt/v3c_up` 避開 1MiB `/tmp_bt` 上限、保護 `/etc` 與 `/tmp` 共享 `/dev/nflasha10` 不誤刪掛勾，並提供 `--rollback` / `--diag` 與已安裝機身之 `/disable_hook` PMCA 防卡死升級規範。<br>2. **位元等價 `picojpeg.c` 加速 + `rt.c` 字組 `memset`**：32-bit 位元流與 register AC 解碼使主機 6MP `decode_ms` 降至 `138 ms`（較原版 `249 ms` 降幅 44.6%，位元完全一致）。<br>3. **守護行程與 MPR 相容性補強**：`CAPTURE_WAIT_MS=4000u`、`CAPTURE_BASELINE_INTERVAL_MS=750u`、`CAPTURE_STABLE_MS=800u`；略過非錯誤 `[AVIMMGR]`／`[MprCnv]` 雜訊；修正 `RAM_JOB_READ_RETRY` 後 `uncertain=1` 誤停，並於 `scan == -2`（`media_unavailable`）主動 `transport_stop` 釋放 `mpr_monio.elf`。<br>4. **多組 24 kHz Sony SDS 快門音與即時狀態 HUD**：選單支援多組音效槽位切換及 `IFSYS sound` 讀取 `A:/A6400/CHARO.PCM`（24 kHz Sony SDS ADPCM，`<= 29,760 B`）原地覆寫 `tmpfs`；新增 `a6400_ui_status_v1` 顯示已轉張數與 `1024` 佇列進度。 |
+| **V4.1 SLEM (`hany`)（最新實機驗收版）**<br>`Sony LUT Extra Menu` | 1. **哈蘇 2×2 田字格選單（無自動隱藏）＋ 100% 保留原廠相簿（`▶`）**：專屬「套色相冊」（`608×400`）與右下 `240×160` 原生 `RGBA4444` 零閃屏即時預覽小窗。<br>2. **`12MP 超清`（`4240×2826`）＋ 原生 MENU 全觸控（MTF2）＋ 零冷卻 Hi+ 連拍快門音**。<br>3. **A6400 / A6100 跨韌體相容性強化 & WSL2 真原廠回滾**：動態掃描 `libObj.so` 掛載點、`BMP_*` thunk、唯讀 `/usr` ELF 驗證；修復 `usbipd` 重複 `bind --force` 與回滾殘留 `.pre-v3c-backup`；安裝器與 FAQ 醒目紅字提示必開「藍牙功能 = 開」與「觸控操作 = 開」。 |
+| **V3.9 SSLF**<br>`Sony Super LUT FILM` | 1. **開機掛載 `/tmp_bt` 備援 ＋ 共享 Inode 防護**：`HOOK_STUB` 與 `bootstrap-local.sh` 內建 `size=2048k tmpfs` 備援與 `/tmp/a6400-hook-err.log` 診斷；`pmca_deploy_v3_clite.py` 全數分塊 `<= 180` 字元、以 `/tmp_bt/v3c_up` 避開 1MiB `/tmp_bt` 上限、保護 `/etc` 與 `/tmp` 共享 `/dev/nflasha10` 不誤刪掛勾，並提供 `--rollback` / `--diag`。<br>2. **位元等價 `picojpeg.c` 加速 + `rt.c` 字組 `memset`**：32-bit 位元流與 register AC 解碼使主機 6MP `decode_ms` 降至 `138 ms`（較原版 `249 ms` 降幅 44.6%，位元完全一致）。<br>3. **守護行程與 MPR 相容性補強**：`CAPTURE_WAIT_MS=4000u`、`CAPTURE_BASELINE_INTERVAL_MS=750u`、`CAPTURE_STABLE_MS=800u`；略過非錯誤 `[AVIMMGR]`／`[MprCnv]` 雜訊；修正 `RAM_JOB_READ_RETRY` 後 `uncertain=1` 誤停，並於 `scan == -2`（`media_unavailable`）主動 `transport_stop` 釋放 `mpr_monio.elf`。<br>4. **多組 24 kHz Sony SDS 快門音與即時狀態 HUD**：選單支援多組音效槽位切換及 `IFSYS sound` 讀取 `A:/A6400/CHARO.PCM`（24 kHz Sony SDS ADPCM，`<= 29,760 B`）原地覆寫 `tmpfs`；新增 `a6400_ui_status_v1` 顯示已轉張數與 `1024` 佇列進度。 |
 | **V3.5.1 Fast SP（實機已驗證）**<br>`package=5b079b295c2a7a27` | 1. 浮層新增第 3 列 **「膠片細節」**（`FILM_MENU_DETAILS` 子分頁）：獨立調整 **顆粒強度 `0–3`**（`無 (加速)`／`輕微`／`標準`／`濃厚`）與 **底片光暈 `開 / 關`**（關光暈時直接略過模糊遮罩計算 `mask_kib=0`）＋ 一鍵 `恢復細節預設`。<br>2. `vendor/jpge.cpp` 開啟 `-O3`、精簡 `DCT_MUL`、移除子閾值係數 64-bit 乘法、`inline put_bits`、`noinline flush_output_buffer`。<br>3. `camera/author_film.c` 預先縮放 `bell_scaled[256]` 並將光暈水平模糊改為 **`O(1)` 滑動視窗**。<br>4. `camera/film_ram_job.sh` 改用 `busybox ls -ln` 單次 `lstat` 取代 `wc -c`。<br>5. 實機實測：**`1.7MP` `5.65~5.95 s`**、**`6MP` `17.49 s`**。 |
 | **V3.5 Fast**<br>`package=ff85fe8a9a317b68` | 引入 `picojpeg` 8-bit Huffman 快表與 `6MP`（`3000×2000`）真半尺度 IDCT（跳過 8×8 完整運算直接取 DC/半尺度像素），`6MP` 由 `33.41 s` 降至 `20.96 s`，`1.7MP` 實測 `8.16 s`。 |
 | **V3.4 Base LTR**<br>`package=2bdd6b742789b8e7` | 新增主選單左下角 **`畫質: 1.7MP 極速 / 6MP 高清`** 一鍵切換、`F<原檔後4碼><3碼亂數>.JPG` 原圖編號直觀對應、以及完整 RAM 任務分段計時 `RAM_JOB_TIMING`。 |

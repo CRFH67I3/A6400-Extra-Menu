@@ -1,6 +1,38 @@
 # 更新日誌（Changelog）
 
-本文件記錄 **A6400 Extra-Menu** 各版本在 Sony ILCE-6400（FW `Ver. 2.00`）實機與主機端的功能演進、效能調校、重大問題修復與驗證紀錄。
+本文件記錄 **A6400 Extra-Menu** 各版本在 Sony ILCE-6400 / ILCE-6100 實機與主機端的功能演進、效能調校、重大問題修復與驗證紀錄。
+
+---
+
+## [V4.1 SLEM (hany)] - 2026-11-23（Sony LUT Extra Menu）
+
+> 實機驗收基準：Sony ILCE-6400（FW `Ver. 2.00`）繁體版 `package=dfa7580185a22524`／公開純淨版 `82e0803acccb631b`（簡體版 `12e10d4d18d68e6e`／`dc2e836c204d4180`）
+
+### 新增功能（Added）
+- **哈蘇瑞士工業風 2×2 田字格主選單（無自動隱藏）**：
+  - [`camera/film_menu.c`](camera/film_menu.c)、[`camera/film_native_view.c`](camera/film_native_view.c)、[`camera/native_film_ui_trial3.c`](camera/native_film_ui_trial3.c) 全新設計 2×2 清晰佈局（左上 `LUT 設定`、右上 `套色相冊`、左下 `快門聲`／`細節設定`、右下 `畫質`）與單頁雙欄 10 款膠片風格清單，取消 20 秒自動隱藏，讓調整參數不再中斷。
+- **100% 保留原廠回看相簿（`▶`）＋ 原生零閃屏真彩色預覽（`RGBA4444`）**：
+  - 徹底不挾持 Sony 原廠播放鍵；已套色照片改由自製選單右上角「套色相冊」專屬瀏覽（`608×400`），拍完轉檔完成後於右下角自動彈出 `240×160` 即時預覽小窗。
+  - [`camera/film_preview_osd.c`](camera/film_preview_osd.c) 與 [`camera/native_film_ui_trial3.c`](camera/native_film_ui_trial3.c) 改採 `GEN_CacheInsImg`＋`CreateImageParam(fmt=7)` 原生硬體圖層直接繪製，完全零閃屏、零色偏。
+- **三段畫質新增 `12MP 超清`（`4240×2826`）**：
+  - [`camera/author_fast_jpeg.h`](camera/author_fast_jpeg.h) 與 [`camera/film_jpeg.cpp`](camera/film_jpeg.cpp) 新增 `12MP 超清` 檔位（可於 `1.7MP 極速` / `6MP 高清` / `12MP 超清` 之間一鍵切換）。
+- **整合原生 MENU 全觸控（MTF2）**：
+  - [`camera/mtf2_native_touch.h`](camera/mtf2_native_touch.h) 在既有 Appframework UI 執行緒直接驅動 Sony 原生 `MENU` 全頁觸控、滑動翻頁與彈窗點選，並可於選單內獨立開關（改採模組相對 RVA＋10 組機器碼指紋驗證＋精確 `/CautionConfig.so` 比對，不相容機型自動安全靜默停用）。
+- **零冷卻＋長按 Hi+ 高速連拍快門音（`A-A-A-A-A-B-C`）**：
+  - 取消快門音效觸發冷卻限制並加入長按連拍重複節拍（`hold=180ms`、`repeat=95ms`），單拍與高速連拍跟手不卡音（公開版預設不含私人 `.pcm` 音檔）。
+
+### 跨韌體相容性強化（Compatibility — Sony A6400 / A6100）
+- **動態掃描與只讀 `/usr` ARM32 ELF 校驗**：
+  - [`camera/film_native_command.c`](camera/film_native_command.c) 與 [`camera/native_capture_probe.c`](camera/native_capture_probe.c) 保留原定雜湊快速通道，並加入原始 `SYS_fstat64`/`SYS_stat64`＋`/proc/mounts` 唯讀 `/usr` ARM32 ELF 驗證（無額外 GLIBC 符號相依），跨 A6400 / A6100 韌體免重編。
+  - [`camera/native_ui_load_guard.c`](camera/native_ui_load_guard.c) 導入三層觸控掛載搜尋（A6400/A6100 快速偏移 → `WidgetSystem::postMouseRelease` 符號鄰域掃描 → 全 `libObj.so` RX 唯一簽章掃描）。
+  - [`camera/native_film_ui_trial3.c`](camera/native_film_ui_trial3.c) 加入 `BMP_*` vtable thunk 與 `GEN_CacheInsImg::clearImage` 動態掃描及 `GEN_Label` 字型防禦回退。
+  - [`tools/build_autoexec_hook.py`](tools/build_autoexec_hook.py) 與 [`tools/pmca_deploy_v3_clite.py`](tools/pmca_deploy_v3_clite.py) 改為動態 `.text` 區段修補並支援備援宿主函式庫（`libcompassutil.so` / `libInfraNfc.so`）。
+  - [`host-tests/film-runtime-v2-templates/runtime-start.sh`](host-tests/film-runtime-v2-templates/runtime-start.sh) 調降執行緒穩定門檻（`174 → 120`）以兼容 A6100 並要求連續 3 秒穩定。
+
+### 問題修復（Fixed）
+- **修復回滾原廠後仍殘留舊版選單**：[`tools/pmca_deploy_v3_clite.py`](tools/pmca_deploy_v3_clite.py) 改為徹底清除 `/etc/ld.so.preload` 內的 `a6400-autoexec` 條目與所有 `.pre-v3c-backup` 檔案並做回滾驗證（不再還原升級前的舊版備份）。
+- **修復 Windows WSL2 `PREP_UP_FILE failed rc=None` 與 `054C:0336` 重掛逾時**：[`tools/usbipd_watch.cmd`](tools/usbipd_watch.cmd) 與 [`tools/wsl_deploy.cmd`](tools/wsl_deploy.cmd) 停止對已 `Attached` 裝置重複執行 `usbipd bind --force`，新增 18 秒重掛輪詢、Linux `/sys/bus/usb` 可見性確認與既有 WSL 實例自動腳本同步。
+- **修復 FAQ PowerShell 語法錯誤與明確規範「必開藍牙＋必開觸控」**：補上 PowerShell `& ` 呼叫運算子，並於安裝器黑視窗與 [`docs/WINDOWS-WSL2-FAQ.md`](docs/WINDOWS-WSL2-FAQ.md) 加入醒目紅色警告提醒開啟相機 `藍牙功能 = 開`（`飛航模式 = 關`，無需配對手機）與 `觸控操作 = 開`。
 
 ---
 

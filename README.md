@@ -23,13 +23,13 @@
 
 > **本專案仍在持續開發與演進。** 主要文件使用繁體中文，採 **PolyForm Noncommercial 1.0.0**（非商業用途之原始碼公開授權，正式條款見 [LICENSE](LICENSE)，中文重點見 [授權說明](docs/授權說明.md)）。已驗證的功能、硬體限制（含 Cortex-A5 無 NEON 實測確認）與操作邊界請參閱 [功能狀態與限制](docs/功能狀態.md) 與 [開發與架構細節](docs/開發與架構細節.md)。
 
-> ### 📘 快速入口：從 GitHub 原始碼完整建置／部署 V3.9 SSLF ＋ 開發細節
-> - **[Windows WSL2 全離線一鍵包 — 常見問題與排錯指南（docs/WINDOWS-WSL2-FAQ.md）](docs/WINDOWS-WSL2-FAQ.md)** — 收錄 Win11 `HCS_E_SERVICE_NOT_AVAILABLE`（TIA Portal / `hypervisorlaunchtype off` / `vmcompute 1060`）、`DISM` / `OptionalFeatures` 卡「正在尋找所需文件」（`/LimitAccess` 解法）、資料夾含 `(1)` 括號提權閃退與 `usbipd unbind --all` 復原讀卡機等實戰排錯。
+> ### 📘 快速入口：從 GitHub 原始碼完整建置／部署 V4.1 SLEM (`hany`) ＋ 開發細節
+> - **[Windows WSL2 全離線一鍵包 — 常見問題與排錯指南（docs/WINDOWS-WSL2-FAQ.md）](docs/WINDOWS-WSL2-FAQ.md)** — 收錄 **必開相機「藍牙功能 = 開」與「觸控操作 = 開」**、Win11 `HCS_E_SERVICE_NOT_AVAILABLE`（TIA Portal / `hypervisorlaunchtype off` / `vmcompute 1060`）、`DISM` / `OptionalFeatures` 卡「正在尋找所需文件」（`/LimitAccess` 解法）、資料夾含 `(1)` 括號提權閃退與 `usbipd unbind --all` 復原讀卡機等實戰排錯。
 > - **[從原始碼建置、部署與操作規範（docs/部署與操作規範.md）](docs/部署與操作規範.md)** — 收錄從源碼交叉編譯、全自動 PMCA 寫入（自動偵測並修補全新機身開機掛勾 `/etc/a6400-autoexec.so`）、`--rollback` / `--diag` 一鍵救援、**SD 卡 `/A6400/CHARO.PCM` 自訂音效**、**日常使用限制（最新資料夾 1,024 張上限／15.94 MiB／exFAT 與 FAT32 皆可用／`/A6400/TEST/`）**，以及 **[第六節完整實戰排雷手冊](docs/部署與操作規範.md#六完整實戰排雷手冊部署過程中所有常見異常與解決對策)**。
-> - **[更新日誌（CHANGELOG.md）](CHANGELOG.md)** — 完整記錄 V0 → V3.9 SSLF 的版本演進、效能數據與實機修復項目。
-> - **[開發與架構細節（docs/開發與架構細節.md）](docs/開發與架構細節.md)** — 完整記錄 V3.1 → V3.9 SSLF 演進脈絡、硬體 `/proc/cpuinfo`（無 NEON）、解碼/編碼/Shell 各階段拆解、`1120-byte` UI 快照 ABI 與 `manifest.json` 欄位說明。
+> - **[更新日誌（CHANGELOG.md）](CHANGELOG.md)** — 完整記錄 V0 → V4.1 SLEM (`hany`) 的版本演進、效能數據與實機修復項目。
+> - **[開發與架構細節（docs/開發與架構細節.md）](docs/開發與架構細節.md)** — 完整記錄 V3.1 → V4.1 演進脈絡、硬體 `/proc/cpuinfo`（無 NEON）、解碼/編碼/Shell 各階段拆解、`1120-byte` UI 快照 ABI 與 `manifest.json` 欄位說明。
 > - **[社群實戰指南：A6400-V3.x 升級工作流程與經驗教訓（docs/A6400-V3.x升級工作流程與經驗教訓.md）](docs/A6400-V3.x升級工作流程與經驗教訓.md)** — 感謝 **阿杰** 貢獻同一台 A6400 連續四次升級實戰筆記（Windows 驅動包累積排查、SCSI INQUIRY 判據、上傳確認機制與排錯速查表）。
-> - **📦 [前往 GitHub Releases 下載預編譯包（繁體中文正式版 `v3.9-sslf`）](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/latest)**（簡體中文分支見 [`v3.9-sslf-sc`](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/tag/v3.9-sslf-sc)；**請注意：繁體版須將相機系統語言設為「繁體中文」，簡體版須設為「简体中文」以免原廠字型缺字**）
+> - **📦 [前往 GitHub Releases 下載最新預編譯包（V4.1 SLEM `hany` 公開雙語版 `v4.1-slem-hany`）](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/latest)**（內含繁簡雙語 Windows WSL2 全離線一鍵包及 TC/SC 開機包；**請注意：繁體版須將相機系統語言設為「繁體中文」，簡體版須設為「简体中文」以免原廠字型缺字，並務必開啟相機「藍牙功能 = 開」與「觸控操作 = 開」**）
 > - **🔊 自訂快門音效（公開版預設不含音效，`charo=0`）**：公開倉庫與 Release 預設未隨附私人 `.pcm` 音效檔；**AI 或操作者在部署前應先詢問使用者是否需要導入快門音效（最多 3 個 `.mp3`）**——不需要則直接跳過，需要則由 AI 自動轉成 **單聲道 24 kHz Sony 32-byte SDS ADPCM**（`<= 29,760 / 24,768 / 18,560 B`）並完成重建與無需人工干預的一鍵刷入（詳見 [`docs/部署與操作規範.md`](docs/部署與操作規範.md#步驟-0ai部署前必問是否導入自訂快門音效最多-3-個確認後全程自動部署)）。
 
 ---

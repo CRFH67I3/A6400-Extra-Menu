@@ -1,0 +1,93 @@
+name: 建置 Windows 免 WSL2 免 Zadig 單檔部署器 (No-WSL)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-hook-stub:
+    name: 編譯純開源 ARM hook-stub.bin
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 tools/check_public_tree.py
+      - run: |
+          sudo apt-get update && sudo apt-get install -y binutils-arm-linux-gnueabihf
+          python3 tools/build_autoexec_hook.py --emit-stub hook-stub.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nowsl-hook-stub
+          path: hook-stub.bin
+
+  build-win-exe:
+    name: 編譯 a6400_win_deploy.exe (PyInstaller + libusb0.dll)
+    needs: build-hook-stub
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: 取得本專案源碼
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: repo
+          persist-credentials: false
+
+      - name: 下載開源 hook-stub.bin
+        uses: actions/download-artifact@v4
+        with:
+          name: nowsl-hook-stub
+
+      - name: 下載官方 libusb-win32 (libusb0.dll)
+        shell: pwsh
+        run: |
+          curl.exe -fL "https://github.com/mcuee/libusb-win32/releases/download/release_1.4.0.0/libusb-win32-bin-1.4.0.0.zip" -o libusb0.zip
+          7z x libusb0.zip -y | Out-Null
+          $dll = Get-ChildItem -Recurse -Path libusb-win32* -Filter "libusb0.dll" | Where-Object { $_.FullName -match "amd64" } | Select-Object -First 1
+          if (-not $dll) { throw "Missing amd64 libusb0.dll" }
+          Copy-Item $dll.FullName .\libusb0.dll
+
+      - name: 設定 Python 並打包 a6400_win_deploy.exe
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: PyInstaller 建置與冒煙測試
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller requests asn1crypto "axmlparserpy==0.0.4" certifi comtypes pycparser pycryptodomex pyusb pywin32 pyyaml tlslite-ng
+          git clone --depth 1 https://github.com/ma1co/Sony-PMCA-RE.git pmca-re
+          pyinstaller --onefile --console --name a6400_win_deploy `
+            --paths repo/tools --paths pmca-re `
+            --hidden-import config `
+            --hidden-import build_autoexec_hook `
+            --hidden-import usb.backend.libusb0 `
+            --collect-submodules pmca `
+            --collect-all axmlparserpy `
+            --collect-submodules Cryptodome `
+            --collect-submodules asn1crypto `
+            --collect-submodules tlslite `
+            --collect-submodules yaml `
+            --collect-submodules comtypes `
+            --collect-all certifi `
+            --collect-all usb `
+            --add-data "pmca-re/certs;certs" `
+            --add-data "hook-stub.bin;." `
+            --add-binary "libusb0.dll;." `
+            repo/tools/win_oneclick_entry.py
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Copy-Item dist\a6400_win_deploy.exe out\
+          Copy-Item libusb0.dll out\
+          Copy-Item hook-stub.bin out\
+          .\out\a6400_win_deploy.exe --smoke-test
+
+      - name: 上傳 a6400_win_deploy 成品
+        uses: actions/upload-artifact@v4
+        with:
+          name: a6400-win-nowsl-exe
+          path: out/
+          retention-days: 7

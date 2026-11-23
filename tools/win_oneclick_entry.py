@@ -113,6 +113,37 @@ def select_package_dir(root, lang="", interactive=None):
     raise FileNotFoundError(f"找不到開機套件目錄：{pkg_single}")
 
 
+def _enable_win_vt():
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if k32.GetConsoleMode(h, ctypes.byref(mode)):
+            if k32.SetConsoleMode(h, mode.value | 0x0004):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def print_bt_red_warning():
+    use_ansi = _enable_win_vt() or sys.platform != "win32"
+    r = "\033[91;1m" if use_ansi else ""
+    z = "\033[0m" if use_ansi else ""
+    print(
+        f"{r}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+        "  【重要必開！】相機一定要開啟「藍牙功能 = 開」(飛航模式 = 關)！\n"
+        "  [IMPORTANT] CAMERA BLUETOOTH MUST BE ON (Airplane=OFF)!\n"
+        "  - 完全不用配對手機，只要切到「開」；不開藍牙 100% 沒選單！\n"
+        "  - 同時確認「觸控操作 = 開」，刷完拔電池 10 秒再輕觸螢幕！\n"
+        f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!{z}",
+        flush=True,
+    )
+
+
 def main():
     if "-h" in sys.argv[1:] or "--help" in sys.argv[1:]:
         sys.exit(run_deployer_argv(["pmca_deploy_v3_clite.py", "--help"]))
@@ -132,13 +163,15 @@ def main():
     if sys.stdin.isatty() and not any(a in sys.argv[1:] for a in ("--diag", "--rollback", "--smoke-test")):
         print(
             "========================================================\n"
-            "  A6400 / A6100 Windows 免 Zadig 一鍵部署工具 (V3.9 SSLF)\n"
+            "  A6400 / A6100 Windows 免 WSL2 / 免 Zadig 一鍵部署工具\n"
+            "  版本：V4.1 SLEM (hany) — 無需 WSL2、無需安裝 Python\n"
             "  1. 安裝時可選擇「繁體中文」或「簡體中文」介面\n"
             "  2. 相機設為：USB連線 = 大容量儲存、USB LUN = 多重\n"
             "  3. 記憶卡先建好 /A6400/TEST/，插線後靜置 8 秒再繼續\n"
             "========================================================",
             flush=True,
         )
+        print_bt_red_warning()
 
     lang, rem = parse_lang_arg(sys.argv[1:])
     wdi_exe = root / "wdi-simple.exe"
@@ -184,6 +217,19 @@ def main():
         if windrv.ensure_service_driver(wdi_exe):
             time.sleep(2.0)
             rc = run_deployer_argv(argv)
+    if rc == 0:
+        print_bt_red_warning()
+        print(
+            "========================================================\n"
+            "  [+] 安裝完成！接下來請依序操作：\n"
+            "  1. 拔掉 USB 線 -> 確認相機「藍牙功能 = 開」且「觸控操作 = 開」\n"
+            "  2. 關機 -> 取出電池等 10 秒 -> 裝回再開機\n"
+            "  3. 開機靜置等 10 秒 -> 輕觸螢幕並放開一次 -> 等 2 秒\n"
+            "  4. 同時長按「MENU + 放大鏡(AEL)」2 秒即可叫出選單！\n"
+            "  ※ 如需讓電腦恢復正常讀卡機，請雙擊「一鍵還原預設讀卡機.bat」。\n"
+            "========================================================",
+            flush=True,
+        )
     sys.exit(rc)
 
 

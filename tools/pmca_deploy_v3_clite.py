@@ -418,13 +418,27 @@ def read_camera_file_b64(cam, remote_path, chunk_bytes=3072, hash_algo="sha256",
     return data
 
 
+HOOK_HOST_FALLBACKS = (
+    "/usr/lib/libcompassutil.so",
+    "/usr/lib/libInfraNfc.so",
+)
+
+
 def build_hook_from_camera(cam, stub_bytes, remote_path="/usr/lib/libAK8975.so", hash_algo="sha256", b64_mode="busybox"):
-    """Pull camera's stock libAK8975.so, patch with open-source ARM stub, and return (so_bytes, sha256)."""
+    """Pull camera's stock preload host SO (libAK8975.so first, with A6100/A6400 fallbacks),
+    patch with open-source ARM stub, and return (so_bytes, sha256)."""
     import build_autoexec_hook as hook_builder
 
-    src_bytes = read_camera_file_b64(cam, remote_path, hash_algo=hash_algo, b64_mode=b64_mode)
-    patched = hook_builder.patch_libak8975(src_bytes, stub_bytes)
-    return patched, hashlib.sha256(patched).hexdigest()
+    candidates = [remote_path] + [p for p in HOOK_HOST_FALLBACKS if p != remote_path]
+    last_err = None
+    for cand in candidates:
+        try:
+            src_bytes = read_camera_file_b64(cam, cand, hash_algo=hash_algo, b64_mode=b64_mode)
+            patched = hook_builder.patch_libak8975(src_bytes, stub_bytes)
+            return patched, hashlib.sha256(patched).hexdigest()
+        except Exception as exc:
+            last_err = exc
+    raise last_err
 
 
 def build_deploy_tgz(boot_sh, boot_tar, hook_bytes, extra_items):

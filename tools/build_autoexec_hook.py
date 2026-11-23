@@ -229,35 +229,43 @@ def patch_libak8975(src_bytes, code_bytes):
     e_shstrndx = struct.unpack_from("<H", so, 0x32)[0]
     shstr_off = u32(so, e_shoff + e_shstrndx * e_shentsize + 0x10)
 
-    text_off = rodata_off = dyn_off = dyn_size = None
+    text_addr = text_off = text_size = rodata_off = dyn_off = dyn_size = None
     for i in range(e_shnum):
         sh = e_shoff + i * e_shentsize
         name_off = u32(so, sh + 0x00)
         name_end = so.index(b"\x00", shstr_off + name_off)
         name = so[shstr_off + name_off:name_end].decode("ascii", errors="replace")
         sh_type = u32(so, sh + 0x04)
+        sh_addr = u32(so, sh + 0x0C)
         sh_offset = u32(so, sh + 0x10)
         sh_size = u32(so, sh + 0x14)
         if name == ".text":
-            text_off = sh_offset
+            text_addr, text_off, text_size = sh_addr, sh_offset, sh_size
         elif name == ".rodata":
             rodata_off = sh_offset
         if sh_type == 6:
             dyn_off, dyn_size = sh_offset, sh_size
 
-    if text_off != PATCH_ADDR:
-        raise ValueError(f".text at {text_off:#x}, expected {PATCH_ADDR:#x}")
-    if rodata_off is None or PATCH_ADDR + len(code_bytes) >= rodata_off:
+    if text_off is None or text_addr is None or text_size is None:
+        raise ValueError("No .text section found")
+    if (text_off & 3) != 0 or (text_addr & 3) != 0:
+        raise ValueError(f".text not 4-byte aligned: off={text_off:#x} addr={text_addr:#x}")
+    if len(code_bytes) > text_size or text_off + len(code_bytes) > len(so):
+        raise ValueError("Hook constructor exceeds .text section")
+    if rodata_off is not None and text_off < rodata_off and text_off + len(code_bytes) >= rodata_off:
         raise ValueError("Hook constructor would overrun into .rodata")
     if dyn_off is None:
         raise ValueError("No .dynamic section found")
 
-    so[PATCH_ADDR:PATCH_ADDR + len(code_bytes)] = code_bytes
+    so[text_off:text_off + len(code_bytes)] = code_bytes
 
     null_off = None
     off = dyn_off
     while off < dyn_off + dyn_size:
-        if u32(so, off) == 0:
+        tag = u32(so, off)
+        if tag == 12:
+            raise ValueError("Host library already defines DT_INIT")
+        if tag == 0:
             null_off = off
             break
         off += 8
@@ -266,8 +274,8 @@ def patch_libak8975(src_bytes, code_bytes):
     if so[null_off + 8:null_off + 16] != b"\x00" * 8:
         raise ValueError("Slot after DT_NULL is not zero")
 
-    struct.pack_into("<II", so, null_off, 12, PATCH_ADDR)  # DT_INIT
-    struct.pack_into("<II", so, null_off + 8, 0, 0)       # DT_NULL
+    struct.pack_into("<II", so, null_off, 12, text_addr)   # DT_INIT
+    struct.pack_into("<II", so, null_off + 8, 0, 0)        # DT_NULL
     return bytes(so)
 
 

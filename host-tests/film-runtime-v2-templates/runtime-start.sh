@@ -154,9 +154,9 @@ if test "$prev_threads" != fixture; then
         "$BB" sleep 1
         curr_threads=$(threads_of)
         case "$curr_threads" in ''|*[!0-9]*) curr_threads=0;; esac
-        if test "$curr_threads" -ge 174 && test "$curr_threads" = "$prev_threads"; then
+        if test "$curr_threads" -ge 120 && test "$curr_threads" = "$prev_threads"; then
             stable_hits=$((stable_hits+1))
-            test "$stable_hits" -ge 2 && break
+            test "$stable_hits" -ge 3 && break
         else
             stable_hits=0
         fi

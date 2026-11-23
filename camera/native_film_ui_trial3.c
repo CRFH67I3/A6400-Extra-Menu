@@ -396,6 +396,33 @@ static void *api(const char *name,uint32_t offset) {
     if(!p){record("API_MISMATCH",(int)offset,0);return 0;}
     return p;
 }
+static uintptr_t decode_t32_branch(uintptr_t pc_addr,uint16_t hw0,uint16_t hw1) {
+    uint32_t S=(hw0>>10)&1u,imm10=hw0&0x3ffu;
+    uint32_t J1=(hw1>>13)&1u,J2=(hw1>>11)&1u,imm11=hw1&0x7ffu;
+    uint32_t I1=~(J1^S)&1u,I2=~(J2^S)&1u;
+    int32_t imm25=(int32_t)((S<<24)|(I1<<23)|(I2<<22)|(imm10<<12)|(imm11<<1));
+    if(S)imm25-=(int32_t)(1u<<25);
+    return (pc_addr+4u)+(uintptr_t)imm25;
+}
+static int is_bmp_vtbl_thunk(uintptr_t fn_even,uint16_t vtbl_ldr) {
+    const uint16_t *p=(const uint16_t *)fn_even;
+    if(p[0]!=0xb580u || p[1]!=0xaf00u)return 0;
+    for(unsigned k=8u;k<=19u;k++) {
+        if(p[k]==0x6803u && p[k+1]==vtbl_ldr && p[k+2]==0x4798u)return 1;
+    }
+    return 0;
+}
+static void *find_bmp_thunk(uintptr_t bmp_base,const char *sym_name,
+                            uintptr_t fast_off,uint16_t vtbl_ldr) {
+    void *sym=dlsym(RTLD_DEFAULT,sym_name);
+    if(sym)return sym;
+    uintptr_t even_base=bmp_base & ~1u;
+    if(is_bmp_vtbl_thunk(even_base+fast_off,vtbl_ldr))return (void *)((even_base+fast_off)|1u);
+    for(uintptr_t off=0u;off<=0xa00u;off+=2u) {
+        if(is_bmp_vtbl_thunk(even_base+off,vtbl_ldr))return (void *)((even_base+off)|1u);
+    }
+    return 0;
+}
 static __attribute__((noinline)) int resolve(void) {
 #define API(member,type,name,offset) do {ui.member=(type)api(name,offset);if(!ui.member)return -1;}while(0)
     API(widget_ctor,ctor_fn,"_ZN2ux6wgtsys6WidgetC1Ev",0x5ed5ad);
@@ -442,38 +469,29 @@ static __attribute__((noinline)) int resolve(void) {
         void *bmp_create=dlsym(RTLD_DEFAULT,"BMP_Create");
         if(bmp_create) {
             uintptr_t bb=(uintptr_t)bmp_create;
-            uintptr_t s=bb+0x3fcu;
-            uintptr_t f=bb+0x45cu;
-            uintptr_t l=bb+0x57cu;
-            uintptr_t u=bb+0x5acu;
-            if(*(const uint16_t *)(s & ~1u)==0xb580u)ui_v4.bmp_stride=(bmp_stride_fn)s;
-            if(*(const uint16_t *)(f & ~1u)==0xb580u)ui_v4.bmp_fmt=(bmp_fmt_fn)f;
-            if(*(const uint16_t *)(l & ~1u)==0xb580u)ui_v4.bmp_lock=(bmp_lock_fn)l;
-            if(*(const uint16_t *)(u & ~1u)==0xb580u)ui_v4.bmp_unlock=(bmp_unlock_fn)u;
+            ui_v4.bmp_stride=(bmp_stride_fn)find_bmp_thunk(bb,"BMP_GetRowBytes",0x3fcu,0x6a1bu);
+            ui_v4.bmp_fmt=(bmp_fmt_fn)find_bmp_thunk(bb,"BMP_GetFormat",0x45cu,0x6a9bu);
+            ui_v4.bmp_lock=(bmp_lock_fn)find_bmp_thunk(bb,"BMP_WriteLockBits",0x57cu,0x6cdbu);
+            ui_v4.bmp_unlock=(bmp_unlock_fn)find_bmp_thunk(bb,"BMP_WriteUnlockBits",0x5acu,0x6d1bu);
         }
         void *cimg_clear=dlsym(RTLD_DEFAULT,"_ZN15GEN_CacheInsImg10clearImageEN6stella6CColorE");
         if(cimg_clear) {
-            uintptr_t bl_addr=((uintptr_t)cimg_clear & ~1u)+0x3au;
-            const uint16_t *bins=(const uint16_t *)bl_addr;
-            if((bins[0]&0xf800u)==0xf000u && (bins[1]&0xd000u)==0xd000u) {
-                uint32_t S=(bins[0]>>10)&1u,imm10=bins[0]&0x3ffu;
-                uint32_t J1=(bins[1]>>13)&1u,J2=(bins[1]>>11)&1u,imm11=bins[1]&0x7ffu;
-                uint32_t I1=~(J1^S)&1u,I2=~(J2^S)&1u;
-                int32_t imm25=(int32_t)((S<<24)|(I1<<23)|(I2<<22)|(imm10<<12)|(imm11<<1));
-                if(S)imm25-=(int32_t)(1u<<25);
-                uintptr_t tgt=(bl_addr+4u)+(uintptr_t)imm25;
-                if(*(const uint16_t *)tgt==0xf1b1u)ui_v4.sprite_set_img=(sprite_set_img_fn)(tgt|1u);
-            }
-            uintptr_t b_addr=((uintptr_t)cimg_clear & ~1u)+0x44u;
-            const uint16_t *ins=(const uint16_t *)b_addr;
-            if((ins[0]&0xf800u)==0xf000u && (ins[1]&0xd000u)==0x9000u) {
-                uint32_t S=(ins[0]>>10)&1u,imm10=ins[0]&0x3ffu;
-                uint32_t J1=(ins[1]>>13)&1u,J2=(ins[1]>>11)&1u,imm11=ins[1]&0x7ffu;
-                uint32_t I1=~(J1^S)&1u,I2=~(J2^S)&1u;
-                int32_t imm25=(int32_t)((S<<24)|(I1<<23)|(I2<<22)|(imm10<<12)|(imm11<<1));
-                if(S)imm25-=(int32_t)(1u<<25);
-                uintptr_t tgt=(b_addr+4u)+(uintptr_t)imm25;
-                if(*(const uint16_t *)tgt==0xb5f0u)ui_v4.sprite_invalidate=(ctor_fn)(tgt|1u);
+            uintptr_t clr_base=(uintptr_t)cimg_clear & ~1u;
+            for(uintptr_t off=0x08u;off<=0x70u;off+=2u) {
+                uintptr_t pc=clr_base+off;
+                const uint16_t *ins=(const uint16_t *)pc;
+                if(!ui_v4.sprite_set_img &&
+                   (ins[0]&0xf800u)==0xf000u && (ins[1]&0xd000u)==0xd000u) {
+                    const uint16_t *prev=(const uint16_t *)(pc-6u);
+                    if(prev[0]==0x2280u || prev[1]==0x2280u || prev[2]==0x2280u) {
+                        uintptr_t tgt=decode_t32_branch(pc,ins[0],ins[1]);
+                        if(*(const uint16_t *)tgt==0xf1b1u)ui_v4.sprite_set_img=(sprite_set_img_fn)(tgt|1u);
+                    }
+                } else if(!ui_v4.sprite_invalidate &&
+                          (ins[0]&0xf800u)==0xf000u && (ins[1]&0xd000u)==0x9000u) {
+                    uintptr_t tgt=decode_t32_branch(pc,ins[0],ins[1]);
+                    if(*(const uint16_t *)tgt==0xb5f0u)ui_v4.sprite_invalidate=(ctor_fn)(tgt|1u);
+                }
             }
         }
     }
@@ -1512,9 +1530,17 @@ static void *make(int label) {
              * rejects it. Retain the constructor's unset sixth entry. */
             static const uint32_t attributes[6]={0x02076000,0x0207a00f,
                 0x0207a000,0x02066027,0x02076002,0xffffffff};
+            void *ctor_font=*(void **)((unsigned char *)p+0x1f4);
             memcpy((unsigned char *)p+0x2b4,attributes,sizeof(attributes));
             record("LABEL_FONT_BEFORE",(int)(uintptr_t)p,0);
             ui.set_font(p,attributes[0]);
+            if(!*(void **)((unsigned char *)p+0x1f4)) {
+                static const uint32_t fb_fonts[3]={0x0207a00f,0x0207a000,0x02076002};
+                for(unsigned fi=0;fi<3u && !*(void **)((unsigned char *)p+0x1f4);fi++)
+                    ui.set_font(p,fb_fonts[fi]);
+                if(!*(void **)((unsigned char *)p+0x1f4) && ctor_font)
+                    *(void **)((unsigned char *)p+0x1f4)=ctor_font;
+            }
             record("LABEL_FONT_AFTER",*(int *)((unsigned char *)p+0x1f4),0);
             if(!*(void **)((unsigned char *)p+0x1f4))return 0;
         }

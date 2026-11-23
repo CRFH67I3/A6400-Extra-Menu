@@ -73,6 +73,27 @@ class V39ToolsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             hook_builder.patch_libak8975(bytes(buf), b'A' * 0x200)
 
+    def test_patch_libak8975_supports_dynamic_text_offset(self):
+        text_off = 0x1040
+        rodata_off = 0x1340
+        dyn_off = 0x1380
+        shstr_off = 0x1400
+        shoff = 0x1480
+        shstr = b'\x00.text\x00.rodata\x00.dynamic\x00.shstrtab\x00'
+        buf = bytearray(shoff + 5 * 40)
+        buf[0:4] = b'\x7fELF'
+        struct.pack_into('<I', buf, 0x20, shoff)
+        struct.pack_into('<HHH', buf, 0x2E, 40, 5, 4)
+        struct.pack_into('<IIIIII', buf, shoff + 1 * 40, 1, 1, 6, text_off, text_off, 0x300)
+        struct.pack_into('<IIIIII', buf, shoff + 2 * 40, 7, 1, 2, rodata_off, rodata_off, 0x20)
+        struct.pack_into('<IIIIII', buf, shoff + 3 * 40, 15, 6, 3, dyn_off, dyn_off, 0x40)
+        struct.pack_into('<IIIIII', buf, shoff + 4 * 40, 24, 3, 0, 0, shstr_off, len(shstr))
+        buf[shstr_off:shstr_off + len(shstr)] = shstr
+        payload = b'\x00\xf0\x20\xe3' * 16
+        patched = hook_builder.patch_libak8975(bytes(buf), payload)
+        self.assertEqual(patched[text_off:text_off + len(payload)], payload)
+        self.assertEqual(struct.unpack_from('<II', patched, dyn_off), (12, text_off))
+
     def test_deployer_commands_stay_under_180_chars_and_retry_rc_none(self):
         cmds = []
         cmds.extend(deployer.build_backup_steps())

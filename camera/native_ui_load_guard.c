@@ -47,7 +47,7 @@ static struct mod_cand rx_mods[RX_MOD_COUNT];
 static struct mod_cand rw_mods[RW_MOD_COUNT];
 
 static pid_t target_pid;
-static uint32_t obj_rx_lo_addr, obj_rx_hi_addr;
+static uint32_t obj_rx_lo_addr, obj_rx_hi_addr, obj_anchor_addr;
 static uint32_t addr_code, addr_state, addr_hook, addr_dlopen, addr_dlsym;
 static uint32_t code_cands[MAX_MODS], state_cands[MAX_MODS];
 static unsigned code_cand_count, state_cand_count;
@@ -250,6 +250,16 @@ static int resolve_maps(void) {
 
     if (resolve_elf_sym(dl_path, dl_rx_lo, "dlopen", &addr_dlopen) != 0) return 0;
     if (resolve_elf_sym(dl_path, dl_rx_lo, "dlsym", &addr_dlsym) != 0) return 0;
+    obj_anchor_addr = 0;
+    if (rx_mods[0].path[0]) {
+        uint32_t sym_addr = 0;
+        if (resolve_elf_sym(rx_mods[0].path, obj_rx_lo_addr,
+                "_ZN2ux6wgtsys12WidgetSystem16postMouseReleaseEhhNS_4core8MsecTimeE", &sym_addr) == 0 ||
+            resolve_elf_sym(rx_mods[0].path, obj_rx_lo_addr,
+                "_ZNK2ux6wgtsys12WidgetSystem13getMouseStateEhh", &sym_addr) == 0) {
+            obj_anchor_addr = sym_addr & ~1u;
+        }
+    }
     addr_hook = obj_rx_lo_addr + hook_offsets[0];
     return 1;
 }
@@ -257,6 +267,31 @@ static int resolve_maps(void) {
 static int is_branch_stub(const unsigned char *buf) {
     return buf[0] == 0xdf && buf[1] == 0xf8 && buf[2] == 0x00 && buf[3] == 0xf0 &&
            buf[8] == 0x00 && buf[9] == 0xbf && buf[10] == 0x00 && buf[11] == 0xbf;
+}
+
+static int scan_hook_range(int fd, uint32_t scan_lo, uint32_t scan_hi, int op, uint32_t *out_found) {
+    unsigned char chunk[4096 + 12];
+    uint32_t found = 0;
+    unsigned matches = 0;
+    for (uint32_t base = scan_lo; base + 12u <= scan_hi; base += 4096u) {
+        uint32_t rem = scan_hi - base;
+        unsigned want = rem > sizeof(chunk) ? (unsigned)sizeof(chunk) : (unsigned)rem;
+        if (pread(fd, chunk, want, base) != (int)want) continue;
+        unsigned limit = (want >= 12u) ? (want - 11u) : 0u;
+        if (limit > 4096u) limit = 4096u;
+        for (unsigned j = 0; j < limit; j += 2u) {
+            int hit = (op == 2) ? is_branch_stub(chunk + j) : (memcmp(chunk + j, original, 12u) == 0);
+            if (hit) {
+                found = base + j;
+                if (++matches > 1u) return -1;
+            }
+        }
+    }
+    if (matches == 1u) {
+        *out_found = found;
+        return 0;
+    }
+    return -1;
 }
 
 static int probe_hook(int fd, uint32_t obj_rx_lo, uint32_t obj_rx_hi, int op) {
@@ -270,27 +305,16 @@ static int probe_hook(int fd, uint32_t obj_rx_lo, uint32_t obj_rx_hi, int op) {
             return 0;
         }
     }
-    uint32_t scan_lo = obj_rx_lo + 0x580000u;
-    uint32_t scan_hi = obj_rx_lo + 0x680000u;
-    if (scan_hi > obj_rx_hi) scan_hi = obj_rx_hi;
-    unsigned char chunk[1024 + 12];
     uint32_t found = 0;
-    unsigned matches = 0;
-    for (uint32_t base = scan_lo; base + 12u <= scan_hi; base += 1024u) {
-        uint32_t rem = scan_hi - base;
-        unsigned want = rem > sizeof(chunk) ? (unsigned)sizeof(chunk) : (unsigned)rem;
-        if (pread(fd, chunk, want, base) != (int)want) continue;
-        unsigned limit = (want >= 12u) ? (want - 11u) : 0u;
-        if (limit > 1024u) limit = 1024u;
-        for (unsigned j = 0; j < limit; j += 2u) {
-            int hit = (op == 2) ? is_branch_stub(chunk + j) : (memcmp(chunk + j, original, 12u) == 0);
-            if (hit) {
-                found = base + j;
-                if (++matches > 1u) return -1;
-            }
+    if (obj_anchor_addr >= obj_rx_lo && obj_anchor_addr < obj_rx_hi) {
+        uint32_t a_lo = (obj_anchor_addr > obj_rx_lo + 0x40000u) ? (obj_anchor_addr - 0x40000u) : obj_rx_lo;
+        uint32_t a_hi = (obj_anchor_addr + 0x40000u < obj_rx_hi) ? (obj_anchor_addr + 0x40000u) : obj_rx_hi;
+        if (scan_hook_range(fd, a_lo, a_hi, op, &found) == 0) {
+            addr_hook = found;
+            return 0;
         }
     }
-    if (matches == 1u) {
+    if (scan_hook_range(fd, obj_rx_lo, obj_rx_hi, op, &found) == 0) {
         addr_hook = found;
         return 0;
     }

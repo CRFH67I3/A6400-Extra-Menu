@@ -44,6 +44,14 @@ struct mtf2_point {
     float y;
 };
 
+struct mtf2_profile {
+    uint32_t ev_ctor, op_new, evmgr_push, inh_mode, evmgr_ptr, vm_ptr;
+    uint32_t apply_pop, main_st, popup_up, popup_down, binding, cancel_pop;
+    uint32_t enter_sel, refresh, pop_open, confirm_pop, set_pop_row;
+    uint32_t view_vtbl, menu_vtbl;
+    uint32_t idx_child, sel_idx, set_sel_idx, node_vtbl;
+};
+
 struct mtf2_ctx {
     int supported;
     int was_pressed;
@@ -57,6 +65,10 @@ struct mtf2_ctx {
 #if defined(__arm__) && !defined(A6400_MTF2_HOST_MOCK)
     uint32_t (*lookup)(uint32_t, uint32_t, uint32_t, uint32_t *);
     int (*is_hit)(uint32_t, const struct mtf2_point *);
+    uint32_t obj_base;
+    uint32_t vu2_base;
+    uint32_t cc_base;
+    const struct mtf2_profile *prof;
 #endif
 };
 
@@ -76,6 +88,40 @@ static int mtf2_match8(uint32_t addr, const unsigned char expected[8]) {
     return memcmp((const void *)(uintptr_t)addr, expected, 8u) == 0;
 }
 
+static uint32_t mtf2_find_module_base(const char *suffix) {
+    int fd = (int)syscall(SYS_open, "/proc/self/maps", 0, 0);
+    if (fd < 0) return 0u;
+    char buf[1024], line[256];
+    unsigned pos = 0u;
+    uint32_t found = 0u;
+    ssize_t n;
+    while (!found && (n = (ssize_t)syscall(SYS_read, fd, buf, sizeof(buf))) > 0) {
+        for (ssize_t i = 0; i < n; ++i) {
+            char c = buf[i];
+            if (c == '\n') {
+                line[pos] = 0;
+                if (pos >= 32u && strstr(line, "r-xp 00000000") && strstr(line, suffix)) {
+                    uint32_t v = 0u;
+                    unsigned k = 0u;
+                    for (; k < pos && line[k] != '-'; ++k) {
+                        char h = line[k];
+                        unsigned d = (h >= '0' && h <= '9') ? (unsigned)(h - '0') :
+                                     (h >= 'a' && h <= 'f') ? (unsigned)(h - 'a' + 10) : 16u;
+                        if (d >= 16u) { k = 0u; break; }
+                        v = (v << 4) | d;
+                    }
+                    if (k >= 6u) { found = v; break; }
+                }
+                pos = 0u;
+            } else if (pos + 1u < sizeof(line)) {
+                line[pos++] = c;
+            }
+        }
+    }
+    (void)syscall(SYS_close, fd);
+    return found;
+}
+
 static int mtf2_probe_and_init(struct mtf2_ctx *ctx) {
     memset(ctx, 0, sizeof(*ctx));
     void *lookup_sym = dlsym(RTLD_DEFAULT,
@@ -88,12 +134,24 @@ static int mtf2_probe_and_init(struct mtf2_ctx *ctx) {
     Dl_info i_obj, i_vu2, i_cc;
     memset(&i_obj, 0, sizeof(i_obj));
     memset(&i_vu2, 0, sizeof(i_vu2));
-    memset(&i_cc, 0, sizeof(i_cc));
-    if (!dladdr(lookup_sym, &i_obj) || i_obj.dli_fbase != (void *)0x05d18000u) return 0;
-    if (!dladdr(vsm_sym, &i_vu2) || i_vu2.dli_fbase != (void *)0x155e6000u) return 0;
-    if (!dladdr((void *)0x16925c16u, &i_cc) || i_cc.dli_fbase != (void *)0x1615f000u) return 0;
+    if (!dladdr(lookup_sym, &i_obj) || !i_obj.dli_fbase) return 0;
+    if (!dladdr(vsm_sym, &i_vu2) || !i_vu2.dli_fbase) return 0;
+    uint32_t obj_b = (uint32_t)(uintptr_t)i_obj.dli_fbase;
+    uint32_t vu2_b = (uint32_t)(uintptr_t)i_vu2.dli_fbase;
+    uint32_t cc_b = mtf2_find_module_base("CautionConfig.so");
+    if (!cc_b) return 0;
 
-    /* Exact 8-byte machine-code fingerprints from ILCE-6400 v2.00 libObj.so & viewUnified2.so. */
+    /* Module-relative profile table (ILCE-6400 / ILCE-6100). Each entry is
+     * guarded by 10 exact 8-byte machine-code fingerprints + dladdr base check. */
+    static const struct mtf2_profile profiles[1] = {
+        { /* ILCE-6400 v2.00 */
+            0x000fce20u, 0x000fd974u, 0x00100d5cu, 0x00606814u, 0x01371984u, 0x014257ecu,
+            0x00212ca4u, 0x005aa534u, 0x005ab34cu, 0x005ab376u, 0x005ab430u, 0x005ab84cu,
+            0x005ac044u, 0x005ac110u, 0x005afb60u, 0x005b038au, 0x005b0f10u,
+            0x008e2270u, 0x009391d0u,
+            0x007c6bc6u, 0x007c6c16u, 0x007c70dau, 0x00ab93e8u
+        }
+    };
     static const unsigned char fp_ev_ctor[8]     = {0x12,0xc6,0x8f,0xe2,0x6d,0xca,0x8c,0xe2};
     static const unsigned char fp_op_new[8]      = {0x12,0xc6,0x8f,0xe2,0x6d,0xca,0x8c,0xe2};
     static const unsigned char fp_evmgr_push[8]  = {0x78,0x47,0xc0,0x46,0x12,0xc6,0x8f,0xe2};
@@ -105,60 +163,75 @@ static int mtf2_probe_and_init(struct mtf2_ctx *ctx) {
     static const unsigned char fp_pop_open[8]    = {0x00,0xf5,0xc8,0x40,0x80,0xb5,0x00,0xaf};
     static const unsigned char fp_set_pop_row[8] = {0xb0,0xb5,0x00,0xaf,0x04,0x46,0x0d,0x46};
 
-    if (!mtf2_match8(0x05e14e20u, fp_ev_ctor) ||
-        !mtf2_match8(0x05e15974u, fp_op_new) ||
-        !mtf2_match8(0x05e18d5cu, fp_evmgr_push) ||
-        !mtf2_match8(0x0631e814u, fp_inh_mode) ||
-        !mtf2_match8(0x157f8ca4u, fp_apply_pop) ||
-        !mtf2_match8(0x15b90534u, fp_main_st) ||
-        !mtf2_match8(0x15b91430u, fp_binding) ||
-        !mtf2_match8(0x15b92110u, fp_refresh) ||
-        !mtf2_match8(0x15b95b60u, fp_pop_open) ||
-        !mtf2_match8(0x15b96f10u, fp_set_pop_row)) {
-        return 0;
+    for (unsigned pi = 0u; pi < sizeof(profiles) / sizeof(profiles[0]); ++pi) {
+        const struct mtf2_profile *p = &profiles[pi];
+        memset(&i_cc, 0, sizeof(i_cc));
+        if (!dladdr((void *)(uintptr_t)(cc_b + p->sel_idx), &i_cc) ||
+            i_cc.dli_fbase != (void *)(uintptr_t)cc_b) {
+            continue;
+        }
+        if (mtf2_match8(obj_b + p->ev_ctor, fp_ev_ctor) &&
+            mtf2_match8(obj_b + p->op_new, fp_op_new) &&
+            mtf2_match8(obj_b + p->evmgr_push, fp_evmgr_push) &&
+            mtf2_match8(obj_b + p->inh_mode, fp_inh_mode) &&
+            mtf2_match8(vu2_b + p->apply_pop, fp_apply_pop) &&
+            mtf2_match8(vu2_b + p->main_st, fp_main_st) &&
+            mtf2_match8(vu2_b + p->binding, fp_binding) &&
+            mtf2_match8(vu2_b + p->refresh, fp_refresh) &&
+            mtf2_match8(vu2_b + p->pop_open, fp_pop_open) &&
+            mtf2_match8(vu2_b + p->set_pop_row, fp_set_pop_row)) {
+            ctx->lookup = (uint32_t (*)(uint32_t, uint32_t, uint32_t, uint32_t *))lookup_sym;
+            ctx->is_hit = (int (*)(uint32_t, const struct mtf2_point *))ishit_sym;
+            ctx->obj_base = obj_b;
+            ctx->vu2_base = vu2_b;
+            ctx->cc_base = cc_b;
+            ctx->prof = p;
+            ctx->supported = 1;
+            return 1;
+        }
     }
-
-    ctx->lookup = (uint32_t (*)(uint32_t, uint32_t, uint32_t, uint32_t *))lookup_sym;
-    ctx->is_hit = (int (*)(uint32_t, const struct mtf2_point *))ishit_sym;
-    ctx->supported = 1;
-    return 1;
+    return 0;
 }
 
-static void mtf2_sync_refresh(uint32_t menu) {
-    void (*binding)(uint32_t) = (void (*)(uint32_t))(uintptr_t)0x15b91431u;
-    void (*refresh)(uint32_t, uint32_t) = (void (*)(uint32_t, uint32_t))(uintptr_t)0x15b92111u;
+static void mtf2_sync_refresh(const struct mtf2_ctx *ctx, uint32_t menu) {
+    void (*binding)(uint32_t) =
+        (void (*)(uint32_t))(uintptr_t)(ctx->vu2_base + ctx->prof->binding + 1u);
+    void (*refresh)(uint32_t, uint32_t) =
+        (void (*)(uint32_t, uint32_t))(uintptr_t)(ctx->vu2_base + ctx->prof->refresh + 1u);
     binding(menu);
     refresh(menu, 0u);
 }
 
-static uint32_t mtf2_find_setting_menu_view(uint32_t menu) {
+static uint32_t mtf2_find_setting_menu_view(const struct mtf2_ctx *ctx, uint32_t menu) {
     uint32_t vid = mtf2_rd32(menu, 0x14cu);
-    uint32_t vm = mtf2_rd32(0x0713d7ecu, 0u);
+    uint32_t vm = mtf2_rd32(ctx->obj_base + ctx->prof->vm_ptr, 0u);
     if (!vm) return 0u;
     int cnt = (int)mtf2_rd32(vm, 0u);
     uint32_t entries = mtf2_rd32(vm, 0x20u);
     if (!entries || cnt <= 0 || cnt > 128) return 0u;
+    uint32_t view_vtbl = ctx->vu2_base + ctx->prof->view_vtbl;
     for (int i = 0; i < cnt; i++) {
         uint32_t ent = entries + (uint32_t)i * 16u;
         uint32_t vwrap = mtf2_rd32(ent, 4u);
         if (!vwrap || mtf2_rd32(ent, 8u) != vid) continue;
-        if (mtf2_rd32(vwrap, 0u) == 0x15ec8270u) return vwrap;
+        if (mtf2_rd32(vwrap, 0u) == view_vtbl) return vwrap;
         uint32_t inner = mtf2_rd32(vwrap, 0x18u);
-        if (inner && mtf2_rd32(inner, 0u) == 0x15ec8270u) return inner;
+        if (inner && mtf2_rd32(inner, 0u) == view_vtbl) return inner;
     }
     return 0u;
 }
 
-static void mtf2_push_async_event(uint32_t event_id, uint8_t ev_type) {
-    uint32_t mgr_ptr = mtf2_rd32(0x07089984u, 0u);
+static void mtf2_push_async_event(const struct mtf2_ctx *ctx, uint32_t event_id, uint8_t ev_type) {
+    uint32_t mgr_ptr = mtf2_rd32(ctx->obj_base + ctx->prof->evmgr_ptr, 0u);
     if (!mgr_ptr) return;
     uint32_t mgr = mtf2_rd32(mgr_ptr, 0u);
     if (!mgr || !event_id) return;
-    void *(*op_new)(uint32_t) = (void *(*)(uint32_t))(uintptr_t)0x05e15974u;
+    void *(*op_new)(uint32_t) =
+        (void *(*)(uint32_t))(uintptr_t)(ctx->obj_base + ctx->prof->op_new);
     void (*ev_ctor)(void *, uint32_t, uint8_t, uint8_t) =
-        (void (*)(void *, uint32_t, uint8_t, uint8_t))(uintptr_t)0x05e14e20u;
+        (void (*)(void *, uint32_t, uint8_t, uint8_t))(uintptr_t)(ctx->obj_base + ctx->prof->ev_ctor);
     void (*evmgr_push)(uint32_t, void *, uint32_t) =
-        (void (*)(uint32_t, void *, uint32_t))(uintptr_t)0x05e18d5du;
+        (void (*)(uint32_t, void *, uint32_t))(uintptr_t)(ctx->obj_base + ctx->prof->evmgr_push + 1u);
     void *ev = op_new(16u);
     if (!ev) return;
     ev_ctor(ev, event_id, ev_type, 1u);
@@ -169,16 +242,22 @@ static uint32_t mtf2_handle_popup(struct mtf2_ctx *ctx, uint32_t menu,
                                   int16_t x, int16_t y, int dx, int dy, int has_press) {
     uint32_t popup = menu + 0xfb20u;
     uint32_t pnode = mtf2_rd32(popup, 0x6490u);
-    if (!pnode || mtf2_rd32(pnode, 0u) != 0x16c183e8u) return MTF2_ACT_NONE;
+    uint32_t node_vtbl = ctx->cc_base + ctx->prof->node_vtbl;
+    if (!pnode || mtf2_rd32(pnode, 0u) != node_vtbl) return MTF2_ACT_NONE;
 
-    void (*cancel_popup)(uint32_t) = (void (*)(uint32_t))(uintptr_t)0x15b9184du;
-    void (*popup_up)(uint32_t) = (void (*)(uint32_t))(uintptr_t)0x15b9134du;
-    void (*popup_down)(uint32_t) = (void (*)(uint32_t))(uintptr_t)0x15b91377u;
+    void (*cancel_popup)(uint32_t) =
+        (void (*)(uint32_t))(uintptr_t)(ctx->vu2_base + ctx->prof->cancel_pop + 1u);
+    void (*popup_up)(uint32_t) =
+        (void (*)(uint32_t))(uintptr_t)(ctx->vu2_base + ctx->prof->popup_up + 1u);
+    void (*popup_down)(uint32_t) =
+        (void (*)(uint32_t))(uintptr_t)(ctx->vu2_base + ctx->prof->popup_down + 1u);
     void (*set_popup_row)(uint32_t, uint32_t) =
-        (void (*)(uint32_t, uint32_t))(uintptr_t)0x15b96f11u;
-    void (*confirm_popup)(uint32_t) = (void (*)(uint32_t))(uintptr_t)0x15b9638bu;
-    void (*apply_popup)(uint32_t) = (void (*)(uint32_t))(uintptr_t)0x157f8ca5u;
-    uint32_t view = mtf2_find_setting_menu_view(menu);
+        (void (*)(uint32_t, uint32_t))(uintptr_t)(ctx->vu2_base + ctx->prof->set_pop_row + 1u);
+    void (*confirm_popup)(uint32_t) =
+        (void (*)(uint32_t))(uintptr_t)(ctx->vu2_base + ctx->prof->confirm_pop + 1u);
+    void (*apply_popup)(uint32_t) =
+        (void (*)(uint32_t))(uintptr_t)(ctx->vu2_base + ctx->prof->apply_pop + 1u);
+    uint32_t view = mtf2_find_setting_menu_view(ctx, menu);
 
     unsigned total = mtf2_rd32(pnode, 8u);
     unsigned vis_cnt = mtf2_rd8(popup, 0x6480u);
@@ -211,7 +290,7 @@ static uint32_t mtf2_handle_popup(struct mtf2_ctx *ctx, uint32_t menu,
     if ((!ctx->is_hit(popup + 0x64cu, &pt) || x < 80 || x > 560 || y < 32 || y > 456) &&
         !ctx->is_hit(popup + 0x60d8u, &pt) && !ctx->is_hit(popup + 0x5c04u, &pt) &&
         !ctx->is_hit(popup + 0x2780u, &pt)) {
-        if (view) mtf2_push_async_event(0x15010102u, 4u);
+        if (view) mtf2_push_async_event(ctx, 0x15010102u, 4u);
         else cancel_popup(menu);
         return MTF2_ACT_POPUP_CANCEL;
     }
@@ -220,17 +299,22 @@ static uint32_t mtf2_handle_popup(struct mtf2_ctx *ctx, uint32_t menu,
 
 static uint32_t mtf2_dispatch_release(struct mtf2_ctx *ctx,
                                       int16_t x, int16_t y, int dx, int dy, int has_press) {
-    if (!ctx->supported || x == 32767 || y == 32767) return MTF2_ACT_NONE;
+    if (!ctx->supported || !ctx->prof || x == 32767 || y == 32767) return MTF2_ACT_NONE;
 
     uint32_t err = ~0u;
     uint32_t menu = ctx->lookup(0xaadca2c7u, 0xdfdc8dddu, 0xa056f604u, &err);
-    if (err || !menu || mtf2_rd32(menu, 0u) != 0x15f1f1d0u || mtf2_rd32(menu, 0x1cu) != menu) {
+    uint32_t menu_vtbl = ctx->vu2_base + ctx->prof->menu_vtbl;
+    uint32_t node_vtbl = ctx->cc_base + ctx->prof->node_vtbl;
+    if (err || !menu || mtf2_rd32(menu, 0u) != menu_vtbl || mtf2_rd32(menu, 0x1cu) != menu) {
         return MTF2_ACT_NONE;
     }
 
-    int (*main_state)(uint32_t) = (int (*)(uint32_t))(uintptr_t)0x15b90535u;
-    int (*inherited_mode)(uint32_t) = (int (*)(uint32_t))(uintptr_t)0x0631e815u;
-    int (*popup_open)(uint32_t) = (int (*)(uint32_t))(uintptr_t)0x15b95b61u;
+    int (*main_state)(uint32_t) =
+        (int (*)(uint32_t))(uintptr_t)(ctx->vu2_base + ctx->prof->main_st + 1u);
+    int (*inherited_mode)(uint32_t) =
+        (int (*)(uint32_t))(uintptr_t)(ctx->obj_base + ctx->prof->inh_mode + 1u);
+    int (*popup_open)(uint32_t) =
+        (int (*)(uint32_t))(uintptr_t)(ctx->vu2_base + ctx->prof->pop_open + 1u);
     if (mtf2_rd8(menu, 0x21u) != 2u || inherited_mode(menu) > 2) {
         return MTF2_ACT_NONE;
     }
@@ -242,16 +326,16 @@ static uint32_t mtf2_dispatch_release(struct mtf2_ctx *ctx,
     if (!main_state(menu)) return MTF2_ACT_NONE;
 
     uint32_t root = mtf2_rd32(menu, 0x186acu);
-    if (!root || mtf2_rd32(root, 0u) != 0x16c183e8u) return MTF2_ACT_NONE;
+    if (!root || mtf2_rd32(root, 0u) != node_vtbl) return MTF2_ACT_NONE;
 
     int (*selected_index)(uint32_t, unsigned *) =
-        (int (*)(uint32_t, unsigned *))(uintptr_t)0x16925c17u;
+        (int (*)(uint32_t, unsigned *))(uintptr_t)(ctx->cc_base + ctx->prof->sel_idx + 1u);
     int (*indexed_child)(uint32_t, unsigned, uint32_t *) =
-        (int (*)(uint32_t, unsigned, uint32_t *))(uintptr_t)0x16925bc7u;
+        (int (*)(uint32_t, unsigned, uint32_t *))(uintptr_t)(ctx->cc_base + ctx->prof->idx_child + 1u);
     int (*set_selected_index)(uint32_t, unsigned) =
-        (int (*)(uint32_t, unsigned))(uintptr_t)0x169260dbu;
+        (int (*)(uint32_t, unsigned))(uintptr_t)(ctx->cc_base + ctx->prof->set_sel_idx + 1u);
     int (*enter_selected)(uint32_t, uint32_t) =
-        (int (*)(uint32_t, uint32_t))(uintptr_t)0x15b92045u;
+        (int (*)(uint32_t, uint32_t))(uintptr_t)(ctx->vu2_base + ctx->prof->enter_sel + 1u);
 
     unsigned tabs = mtf2_rd32(root, 8u), tab_sel = 0;
     if (tabs < 1u || tabs > MTF2_MAX_TABS ||
@@ -266,7 +350,7 @@ static uint32_t mtf2_dispatch_release(struct mtf2_ctx *ctx,
         for (unsigned i = 0; i < tabs; i++) {
             if (ctx->is_hit(menu + 0x0b9cu + i * 0x220u, &pt)) {
                 if (i + 1u != tab_sel && set_selected_index(root, i + 1u) == 1) {
-                    mtf2_sync_refresh(menu);
+                    mtf2_sync_refresh(ctx, menu);
                 }
                 return MTF2_ACT_TAB;
             }
@@ -277,7 +361,7 @@ static uint32_t mtf2_dispatch_release(struct mtf2_ctx *ctx,
 
     uint32_t tab_node = 0;
     if (indexed_child(root, tab_sel, &tab_node) != 1 || !tab_node ||
-        mtf2_rd32(tab_node, 0u) != 0x16c183e8u) {
+        mtf2_rd32(tab_node, 0u) != node_vtbl) {
         return MTF2_ACT_NONE;
     }
 
@@ -286,7 +370,7 @@ static uint32_t mtf2_dispatch_release(struct mtf2_ctx *ctx,
     if (pages < 1u || pages > MTF2_MAX_PAGES ||
         selected_index(tab_node, &page_sel) != 1 || page_sel < 1u || page_sel > pages ||
         indexed_child(tab_node, page_sel, &page_node) != 1 || !page_node ||
-        mtf2_rd32(page_node, 0u) != 0x16c183e8u) {
+        mtf2_rd32(page_node, 0u) != node_vtbl) {
         return MTF2_ACT_NONE;
     }
 
@@ -305,14 +389,14 @@ static uint32_t mtf2_dispatch_release(struct mtf2_ctx *ctx,
             if (page_sel > 1u) set_selected_index(tab_node, page_sel - 1u);
             else set_selected_index(root, tab_sel > 1u ? tab_sel - 1u : tabs);
         }
-        mtf2_sync_refresh(menu);
+        mtf2_sync_refresh(ctx, menu);
         return MTF2_ACT_SWIPE_PAGE;
     }
 
     for (unsigned p = 0; p < pages; p++) {
         if (ctx->is_hit(menu + 0x166b4u + p * 0x220u, &pt)) {
             if (p + 1u != page_sel && set_selected_index(tab_node, p + 1u) == 1) {
-                mtf2_sync_refresh(menu);
+                mtf2_sync_refresh(ctx, menu);
             }
             return MTF2_ACT_PAGE;
         }
@@ -322,13 +406,13 @@ static uint32_t mtf2_dispatch_release(struct mtf2_ctx *ctx,
         if (ctx->is_hit(menu + 0x9350u + r * 0x1118u, &pt)) {
             if (r + 1u != row_sel) {
                 if (set_selected_index(page_node, r + 1u) == 1) {
-                    mtf2_sync_refresh(menu);
+                    mtf2_sync_refresh(ctx, menu);
                 }
                 return MTF2_ACT_ROW_SELECT;
             }
-            uint32_t view = mtf2_find_setting_menu_view(menu);
+            uint32_t view = mtf2_find_setting_menu_view(ctx, menu);
             if (view) {
-                mtf2_push_async_event(0x15010052u, 4u);
+                mtf2_push_async_event(ctx, 0x15010052u, 4u);
             } else {
                 uint32_t leaf = 0;
                 if (indexed_child(page_node, r + 1u, &leaf) == 1 && leaf) {

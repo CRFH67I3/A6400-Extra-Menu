@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -138,18 +139,98 @@ static int stop_requested(void) {
     if(fd>=0){close(fd);return 1;}
     return errno==ENOENT?0:-1;
 }
+static int probe_usr_ro_mounted(void) {
+    char buf[4096];
+    int fd=open("/proc/mounts",O_RDONLY);
+    if(fd<0)return 0;
+    ssize_t n=read(fd,buf,sizeof(buf)-1u);
+    close(fd);
+    if(n<=0)return 0;
+    buf[n]=0;
+    for(char *p=buf;*p;) {
+        char *nl=strchr(p,'\n');
+        if(nl)*nl=0;
+        char *sp1=strchr(p,' ');
+        if(sp1 && !strncmp(sp1+1,"/usr ",5)) {
+            char *sp2=strchr(sp1+6,' ');
+            if(sp2 && (!strncmp(sp2+1,"ro,",3) || !strncmp(sp2+1,"ro ",3)))return 1;
+        }
+        if(!nl)break;
+        p=nl+1;
+    }
+    return 0;
+}
+static int probe_elf32_arm_exec(const unsigned char *eh,unsigned len) {
+    if(len<52u)return 0;
+    if(eh[0]!=0x7fu || eh[1]!='E' || eh[2]!='L' || eh[3]!='F')return 0;
+    if(eh[4]!=1u || eh[5]!=1u)return 0;
+    unsigned etype=(unsigned)eh[16]|((unsigned)eh[17]<<8);
+    unsigned emach=(unsigned)eh[18]|((unsigned)eh[19]<<8);
+    return (etype==2u || etype==3u) && emach==40u;
+}
+static int probe_fd_meta(int fd,uint64_t *dev,uint32_t *mode,uint32_t *uid) {
+#if defined(__linux__) && defined(__arm__)
+    unsigned char raw[128];
+    memset(raw,0,sizeof(raw));
+    if(syscall(SYS_fstat64,fd,raw)!=0)return -1;
+    memcpy(dev,raw+0,8);
+    memcpy(mode,raw+16,4);
+    memcpy(uid,raw+24,4);
+    return 0;
+#else
+    struct stat st;
+    if(fstat(fd,&st)!=0)return -1;
+    *dev=(uint64_t)st.st_dev;*mode=(uint32_t)st.st_mode;*uid=(uint32_t)st.st_uid;
+    return 0;
+#endif
+}
+static int probe_path_dev(const char *path,uint64_t *dev) {
+#if defined(__linux__) && defined(__arm__)
+    unsigned char raw[128];
+    memset(raw,0,sizeof(raw));
+    if(syscall(SYS_stat64,path,raw)!=0)return -1;
+    memcpy(dev,raw+0,8);
+    return 0;
+#else
+    struct stat st;
+    if(stat(path,&st)!=0)return -1;
+    *dev=(uint64_t)st.st_dev;
+    return 0;
+#endif
+}
 static int monitor_matches(void) {
-    unsigned char b[512];unsigned count=0;uint32_t h=2166136261u;
+    unsigned char b[512],ehdr[52];
+    unsigned count=0,ehdr_have=0;
+    uint32_t h=2166136261u;
     int fd=open(CAPTURE_MONITOR,O_RDONLY|O_NOFOLLOW|O_NONBLOCK);
     if(fd<0)return 0;
+    uint64_t fdev=0,udev=0;uint32_t fmode=0,fuid=1;
+    int stat_ok=(probe_fd_meta(fd,&fdev,&fmode,&fuid)==0);
     ssize_t n;
     while((n=read(fd,b,sizeof(b)))>0) {
+        if(count>262144u || (unsigned)n>262144u-count){close(fd);return 0;}
+        if(ehdr_have<sizeof(ehdr)) {
+            unsigned take=(unsigned)sizeof(ehdr)-ehdr_have;
+            if((unsigned)n<take)take=(unsigned)n;
+            memcpy(ehdr+ehdr_have,b,take);
+            ehdr_have+=take;
+        }
         count+=(unsigned)n;
-        if(count>(CAPTURE_MONITOR_BYTES>6776u?CAPTURE_MONITOR_BYTES:6776u)){close(fd);return 0;}
         for(ssize_t i=0;i<n;++i)h=(h^b[i])*16777619u;
     }
     close(fd);
-    return n==0 && ((count==CAPTURE_MONITOR_BYTES && h==CAPTURE_MONITOR_FNV) || (count==6776u && h==0xa92e7557u));
+    if(n!=0)return 0;
+    if((count==CAPTURE_MONITOR_BYTES && h==CAPTURE_MONITOR_FNV) ||
+       (count==6776u && h==0xa92e7557u))return 1;
+    /* Cross-FW A6400/A6100 fallback: accept any genuine root-owned ARM32 ELF
+     * /usr/bin/mpr_monio.elf on Sony's read-only /usr rootfs without rebuild. */
+    if(!strcmp(CAPTURE_MONITOR,"/usr/bin/mpr_monio.elf") &&
+       stat_ok && S_ISREG(fmode) && fuid==0 && (fmode&0022u)==0 &&
+       count>=1024u && count<=262144u && probe_elf32_arm_exec(ehdr,ehdr_have) &&
+       probe_path_dev("/usr",&udev)==0 && fdev==udev && probe_usr_ro_mounted()) {
+        return 1;
+    }
+    return 0;
 }
 static void transport_stop(struct transport *t) {
     if(t->in>=0)close(t->in);

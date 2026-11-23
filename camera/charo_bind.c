@@ -92,10 +92,14 @@ int main(int argc, char **argv, char **envp) {
             continue;
         }
         long dst_sz = file_size(p->dst);
-        if (src_sz != p->expected_bytes || dst_sz != p->expected_bytes) {
+        if (dst_sz < 0) {
+            printf("CHARO_BIND_MISSING dst=%s\n", p->dst);
+            continue;
+        }
+        if (src_sz != p->expected_bytes || dst_sz <= 0) {
             printf("CHARO_BIND_SIZE_MISMATCH dst=%s src=%d dst_sz=%d exp=%d\n",
                    p->dst, (int)src_sz, (int)dst_sz, (int)p->expected_bytes);
-            failed = 2;
+            if (p->required) failed = 2;
             continue;
         }
         long rc = sys_call(NR_MOUNT, (long)p->src, (long)p->dst, 0, MS_BIND, 0, 0);

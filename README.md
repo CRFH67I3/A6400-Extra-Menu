@@ -10,7 +10,7 @@
 
 - **V3.9 SSLF 主機端加速與穩定性升級**：
   - **`vendor/picojpeg.c` 位元等價倍速最佳化（無 NEON）**：實作 32-bit MSB 位元緩衝、暫存器快取 AC 解碼、DC-only EOB 快速通道與 `rt.c` 32-bit 字組 `memset`，`6MP` 解碼 CPU 於主機 `A6409675-original.JPG` 實測 **`decode_ms: 249 ms → 138 ms`**（全流程 `304 ms → 194 ms`，與 V3.5.1 輸出 JPEG 位元 100% 一致）。
-  - **免依賴藍牙開機 & `/etc/a6400-autoexec.so`**：`HOOK_STUB` 與 `bootstrap-local.sh` 在 `/tmp_bt` 為唯讀時自動掛載 `size=2048k` `tmpfs`（無須再強迫保持 Bluetooth 開啟），並於鎖建立失敗時留存 `/tmp/a6400-hook-err.log` 單行診斷。
+  - **開機掛載與必開藍牙說明（`/etc/a6400-autoexec.so`）**：`HOOK_STUB` 與 `bootstrap-local.sh` 內建 `/tmp_bt` 掛載備援與 `/tmp/a6400-hook-err.log` 單行診斷；**實機確認 Sony A6400 / A6100 仍必須開啟「藍牙功能 = 開」（飛航模式 = 關，無需配對手機）**，開機時系統才會啟動藍牙子進程觸發 `/etc/ld.so.preload`（同時須開啟「觸控操作 = 開」）。
   - **多組自訂快門音（Sony 24 kHz SDS ADPCM）／佇列 HUD／防截斷與 A6100/Windows 安全部署工具**：選用支援三組音檔槽位循環切換（`0x33 日文 Charo`、`0x34 Bling Bling / SD自訂`、`0x35 iPhone 快門`）與 `A:/A6400/CHARO.PCM`（須為 Sony 24 kHz SDS 32-byte ADPCM、`<= 29,760` B 原地安全覆寫）；新增 `a6400_ui_status_v1` 顯示即時轉檔數／`1024` 佇列進度；`pmca_deploy_v3_clite.py` 全命令 `<= 180` 字元分塊、掛載獨立 `2048k tmpfs` 並保護 `/etc` 與 `/tmp` 共享 `/dev/nflasha10` Inode，並內建 Windows 自動啟用（亦可用 `--safe-serial` 手動啟用）之 **`100 B / 20 ms` 分片寫入、`echo` + `wc -l` 冪等防重複寫入與 `__B64_L__` 行數校對**（實測支援 Sony A6100，含 `--rollback`、`--diag` 與 `/disable_hook` 升級指引）。
 - **V3.5.1 Fast SP（最近一期實機實拍數據）**：
   - **`1.7MP 極速 (1616×1080)` 實測**：`RAM_JOB_TIMING = 5,650 ~ 5,950 ms`（V3.5 Fast 為 `8.16 s`）
@@ -84,7 +84,7 @@
 | CPU 硬體實測（`/proc/cpuinfo`） | **`ARMv7 Cortex-A5`（`0xc05`）**，`Features: vfpv3 vfpv3d16 tls vfpv4` — **實機無 NEON SIMD** |
 | Host Benchmark（位元正確性驗證） | 預設 `grain=2 halation=1` 下，`1.7MP`（`bb3936f2...`）與 `6MP`（`708edf69...`）輸出與 V3.5 Fast **100% SHA-256 一致** |
 | 連拍寫卡競態安全保護（`stage=source_size`） | 實拍 `A6409841` 時遇到最後 `64 KiB` 延遲寫入（`8,388,608 != 8,454,144`），安全中止且無損原片與記憶卡，下一張自動恢復 |
-| **V3.9 SSLF 開機自動掛載 `/tmp_bt`** | V3.9 起已不再強制依賴開啟藍牙；若系統尚未掛載 `/tmp_bt`，開機掛勾 `/etc/a6400-autoexec.so` 與 `bootstrap-local.sh` 會自動掛載 `size=2048k tmpfs`（失敗則記錄於 `/tmp/a6400-hook-err.log`），並仍以安全模式等待 `im.elf` 喚醒（歷史 V3.5.1 與之前版本須保持 `Bluetooth 功能 = 開`） |
+| **開機自動觸發前提（必開藍牙＋觸控）** | **務必保持相機 `藍牙功能 = 開`（`飛航模式 = 關`，無需配對手機）與 `觸控操作 = 開`**：Sony A6400 / A6100 主程式 `im.elf` 啟動早於 `/etc` 掛載，須依賴開機藍牙子進程觸發 `/etc/ld.so.preload`；若關閉藍牙，開機過程完全不會觸發載入腳本。 |
 | 即時取景套色、影片 LUT、任意 `.cube` 匯入 | 本專案不提供 |
 
 > **Windows 10 / 11 與部署排雷必看**：因 Windows 11 核心隔離與驅動簽章經常導致原生 Zadig / `libusb-win32` 失效，**Windows 10 以上一律建議改用 `WSL2 + usbipd-win --auto-attach` 進行安裝**（免改 Windows 驅動、刷完自動維持讀卡機）。完整步驟與所有實機排雷（`054C:0CA8 → 054C:0336` 重枚舉、`USBTimeoutError` 與 `/disable_hook`、`--install-hook`、`/etc` 與 `/tmp` 共享 `/dev/nflasha10` Inode 防誤刪、空間清理、冷開機與 `--diag`）請見 [`docs/部署與操作規範.md`](docs/部署與操作規範.md#六完整實戰排雷手冊部署過程中所有常見異常與解決對策)。

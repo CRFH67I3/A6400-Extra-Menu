@@ -2,6 +2,7 @@
 setlocal EnableExtensions EnableDelayedExpansion
 
 set "WSL_UTF8=1"
+chcp 65001 >nul 2>&1
 set "ACTION=%~1"
 if "!ACTION!"=="" set "ACTION=install"
 set "LANG_ARG=%~2"
@@ -43,6 +44,7 @@ echo   1. Camera: USB Connection = Mass Storage, LUN = Multi
 echo   2. SD Card: /A6400/TEST/ folder created
 echo   3. Power on camera, plug USB cable, wait 8 seconds
 echo ========================================================
+call :warn_bt_red
 echo.
 
 echo [Check 1/6] Admin and Windows Build...
@@ -375,12 +377,26 @@ if "!DEPLOY_RC!"=="0" (
     echo.
     echo ========================================================
     echo   [+] SUCCESS! Windows card reader restored.
-    echo   Next: Unplug USB -^> Power off -^> Pull battery 10s -^>
-    echo         Power on, wait 5-10s -^> Tap screen once -^>
-    echo         Wait 2s -^> Hold MENU + Magnifier for 2s!
+    echo ========================================================
+    call :warn_bt_red
+    echo   Next: Unplug USB -^> Make sure Bluetooth=ON ^& Touch=ON -^>
+    echo         Power off -^> Pull battery 10s -^> Power on -^>
+    echo         Wait 10s -^> Tap screen once -^> Wait 2s -^>
+    echo         Hold MENU + Magnifier (AEL) for 2s!
     echo ========================================================
 )
 exit /b !DEPLOY_RC!
+
+:warn_bt_red
+powershell -NoProfile -EncodedCommand VwByAGkAdABlAC0ASABvAHMAdAAgACcAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACcAIAAtAEYAbwByAGUAZwByAG8AdQBuAGQAQwBvAGwAbwByACAAUgBlAGQAOwBXAHIAaQB0AGUALQBIAG8AcwB0ACAAJwAgACAAWwDNkYGJxV+LlSEAXQAgAPh2X2oATppbgYmLlV9VDDDNhVlyn1L9gCAAPQAgAIuVDTAoANuYKoIhag9fIAA9ACAA3JUpACEAJwAgAC0ARgBvAHIAZQBnAHIAbwB1AG4AZABDAG8AbABvAHIAIABSAGUAZAA7AFcAcgBpAHQAZQAtAEgAbwBzAHQAIAAnACAAIABbAEkATQBQAE8AUgBUAEEATgBUAF0AIABDAEEATQBFAFIAQQAgAEIATABVAEUAVABPAE8AVABIACAATQBVAFMAVAAgAEIARQAgAE8ATgAgACgAQQBpAHIAcABsAGEAbgBlAD0ATwBGAEYAKQAhACcAIAAtAEYAbwByAGUAZwByAG8AdQBuAGQAQwBvAGwAbwByACAAUgBlAGQAOwBXAHIAaQB0AGUALQBIAG8AcwB0ACAAJwAgACAALQAgAIxbaFENTih1TZENXEtiX2oM/+pTgYkHUjBSDDCLlQ0wG/8NTouVzYVZciAAMQAwADAAJQAgAJJseJCuVQH/JwAgAC0ARgBvAHIAZQBnAHIAbwB1AG4AZABDAG8AbABvAHIAIABSAGUAZAA7AFcAcgBpAHQAZQAtAEgAbwBzAHQAIAAnACAAIAAtACAADFRCZrp4jYoMMPiJp2PNZFxPIAA9ACAAi5UNMAz/N1KMW9Ri+5ZgbCAAMQAwACAA0nmNURWP+Imih1VeAf8nACAALQBGAG8AcgBlAGcAcgBvAHUAbgBkAEMAbwBsAG8AcgAgAFIAZQBkADsAVwByAGkAdABlAC0ASABvAHMAdAAgACcAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACEAIQAhACcAIAAtAEYAbwByAGUAZwByAG8AdQBuAGQAQwBvAGwAbwByACAAUgBlAGQA 2>nul
+if errorlevel 1 (
+    echo !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    echo   [IMPORTANT] CAMERA BLUETOOTH MUST BE ON (Airplane=OFF)!
+    echo   No phone pairing needed. Without Bluetooth=ON, NO MENU!
+    echo   Also make sure Touch Operation = ON, pull battery 10s!
+    echo !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+)
+exit /b 0
 
 :run_python_deployer
 if /i "!ACTION!"=="rollback" (

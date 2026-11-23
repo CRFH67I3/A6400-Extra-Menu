@@ -201,6 +201,8 @@ def build_diag_commands():
         ("SHA256", f'/bin/busybox sha256sum {HOOK_CAMERA_PATH} /tmp/autoexec.sh /tmp/a6400-film-boot-v15.tar 2>&1'),
         ("HOOK_ERR", "/bin/busybox cat /tmp/a6400-hook-err.log 2>&1 || true"),
         ("BOOT_LOG", "/bin/busybox cat /tmp_bt/a6400-film-boot.log 2>&1 || true"),
+        ("TMP_BT_LS", "/bin/busybox ls -la /tmp_bt /tmp_bt/a6400-film-runtime.lock 2>&1 || true"),
+        ("PS", "/bin/busybox ps 2>&1 || true"),
         ("RUNTIME_LOG", "/bin/busybox tail -n 80 /tmp_bt/a6400-film-capture.runtime.log 2>&1 || true"),
         ("MANIFEST", "/bin/busybox cat /tmp_bt/a6400-film-capture.manifest 2>&1 || true"),
         ("JOB_LOG", "/bin/busybox tail -n 60 /tmp_bt/a6400-film-capture.job.log 2>&1 || true"),

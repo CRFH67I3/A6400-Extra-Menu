@@ -1,6 +1,6 @@
 # Windows WSL2 全離線一鍵包 — 常見問題與排錯指南 (FAQ)
 
-> 適用版本：`A6400-A6100-v4.1-SLEM-hany-Win-WSL-Offline.zip`（含內建微軟官方 `wsl.2.4.13.0.x64.msi`、`usbipd-win.msi` 與極輕量 Alpine Linux）。
+> 適用版本：`A6400-A6100-v4.3-SLEM-*-Public-Win-WSL-Lite.zip`（亦相容舊版 `v4.1` / `v4.2.1` WSL2 一鍵包，內建 `usbipd-win.msi` 與極輕量 Alpine Linux）。
 
 ---
 

@@ -6,14 +6,19 @@
 
 以 **MENU＋放大鏡** 召喚自製觸控浮層選單，在 Sony A6400 / A6100（`ILCE-6400` / `ILCE-6100`）機身上純 RAM 掛載管理 LUT 開關、10 款膠片模擬、**`1.7MP 極速` / `6MP 高清` / `12MP 超清` 三段畫質切換**、**「膠片細節」顆粒強度 (`0–3`) 與底片光暈 (`開/關`) 獨立調節**、**100% 保留 Sony 原廠相簿＋原生零閃屏即時預覽小窗與專屬套色相冊**，以及 **原生 MENU 全觸控（MTF2）** 的研究專案。
 
-**最新版本：V4.1 SLEM (`hany`)（2026-11-23）**
+**最新版本：V4.3 SLEM (`hany`)（2026-11-25）**
 
-- **V4.1 SLEM (`hany`) 重點升級**：
+- **V4.3 SLEM (`hany`) 重點升級（雙版本：`With Touch` / `With no Touch` 穩定番）**：
+  - **雙版本自由選擇**：`With Touch` 版啟用自製選單觸控 ＋ Sony 原生系統 MENU 全觸控（MTF2）；`With no Touch` 穩定番保留自製選單／相冊／雙重曝光完整觸控，但不介入 Sony 原生 MENU 觸控，極致穩定。
+  - **SD 卡永久「套色相冊」＋ 16 槽位 RAM 極速快取秒開（PR #15 + 效能升級）**：改讀 SD 卡 `/A6400/TEST/F*.JPG` 最多 `1,024` 張（拔電池重開不消失），`448×400` 3:2 比例顯示並依 EXIF 自動轉正直拍；內建 16 張 `tmpfs` LRU 秒開快取、開機預熱最新 1 張、瀏覽背景預抓相鄰 4 張、12MP 大圖 `1/8` DC 極速預覽（`~25 ms`），並加入相冊背景讀回行程群組回收、`umount2` 延遲卸載重試與殘留掛載自癒。
+  - **雙重曝光（DEXP）1.7MP 防 OOM 修復 ＋ 一鍵「取消雙曝 1/2」**：支援濾色（Screen）／變亮（Lighten）／平均（Average）三種混合模式，固定採用 `1.7MP` 內嵌預覽（`1616×1080`）合成避免 `6MP/12MP` 同時解碼爆 RAM；拍完第 1 張進入 `1/2` 時，首頁右上角自動變為橘底「取消雙曝 1/2」一鍵重拍。
+  - **開機包 `gzip` 瘦身 52% ＋ 穩定性與 Windows 升級修復**：RAM 開機包以 `gzip` 壓縮（`~120 KB`、`tar -xzf` 解壓）；新增開機右上角 1.2 秒綠色微提示 `V4.3 SLEM 已就緒`、防剛呼出假死（`tid` 自癒 ＋ `ticker_layer` 重啟）、慢速記憶卡 180 秒掃描防逾時，並修復 Windows WSL2 `sync_deployer_scripts` 延遲展開問題，確保從 V4.1/V4.2 升級時自動切換最新 V4.3 部署腳本。
+  - **同步收錄 V4.3 Sound Lite 純淨快門音分支版（原始碼建置）**：透過 [`tools/build_sound_lite.sh`](tools/build_sound_lite.sh)（`A6400_SOUND_LITE=1`）建置極簡奶油白＋霧黑 Sound Deck 純快門音介面（16 槽位、真實 SDS 波形視覺化、SD 卡 `/A6400/SOUNDS/*.pcm` 透過 Sony MPR + IFSYS 載入並綁定獨立 Sony APP BeepID、全觸控翻頁／試聽／Hi+ 連拍開關），並附帶 Windows 拖曳轉檔腳本 [`tools/convert_sound_to_pcm.ps1`](tools/convert_sound_to_pcm.ps1)（WAV/MP3 → 24 kHz Sony SDS ADPCM）。
+- **V4.1 SLEM (`hany`) 基準（前代大改版）**：
   - **哈蘇瑞士工業風 2×2 田字格選單（無自動隱藏）**：左上 `LUT 設定`、右上 `套色相冊`、左下 `快門聲`／`細節設定`、右下 `畫質`，操作直覺且不再 20 秒自動收合。
-  - **100% 保留原廠回看相簿（`▶`）＋ 原生零閃屏 `RGBA4444` 預覽**：徹底不挾持 Sony 原廠播放鍵；已套色照片由選單右上角「套色相冊」（`608×400`）專屬瀏覽，拍完右下角自動彈出 `240×160` 即時預覽小窗。
-  - **新增 `12MP 超清`（`4240×2826`）＋ 原生 MENU 全觸控（MTF2）＋ 零冷卻 Hi+ 連拍快門音**：支援 `1.7MP / 6MP / 12MP` 三段畫質切換與 Sony 原生 MENU 全頁觸控開關（基於相對 RVA 與 10 組機器碼指紋驗證，安全自適應）。
-  - **A6400 / A6100 跨韌體相容性強化 & WSL2 一鍵包修復**：動態掃描 `libObj.so` 觸控掛載點與 `BMP_*`/`GEN_CacheInsImg` 介面、唯讀 `/usr` ARM32 ELF 驗證、真原廠回滾清除 `.pre-v3c-backup`、修復 `usbipd` 重複 `bind --force` 斷線，並於安裝器與 FAQ 加入**亮紅字「必開相機藍牙功能 = 開（飛航模式 = 關，無需配對手機）＋ 觸控操作 = 開」**提醒。
-- **V3.9 SSLF 基準（前代穩定版）**：
+  - **100% 保留原廠回看相簿（`▶`）＋ 原生零閃屏 `RGBA4444` 預覽**：徹底不挾持 Sony 原廠播放鍵；拍完右下角自動彈出 `240×160` 即時預覽小窗。
+  - **新增 `12MP 超清`（`4240×2826`）＋ 原生 MENU 全觸控（MTF2）＋ 零冷卻 Hi+ 連拍快門音**，並強化 A6400 / A6100 跨韌體動態掃描相容性與真原廠回滾。
+- **V3.9 SSLF 基準（歷史穩定版）**：
   - **`vendor/picojpeg.c` 位元等價倍速最佳化（無 NEON）**：實作 32-bit MSB 位元緩衝、暫存器快取 AC 解碼、DC-only EOB 快速通道與 `rt.c` 32-bit 字組 `memset`，`6MP` 解碼 CPU 於主機 `A6409675-original.JPG` 實測 **`decode_ms: 249 ms → 138 ms`**（全流程 `304 ms → 194 ms`，與 V3.5.1 輸出 JPEG 位元 100% 一致）。
   - **開機掛載與必開藍牙說明（`/etc/a6400-autoexec.so`）**：`HOOK_STUB` 與 `bootstrap-local.sh` 內建 `/tmp_bt` 掛載備援與 `/tmp/a6400-hook-err.log` 單行診斷；**實機確認 Sony A6400 / A6100 仍必須開啟「藍牙功能 = 開」（飛航模式 = 關，無需配對手機）**，開機時系統才會啟動藍牙子進程觸發 `/etc/ld.so.preload`（同時須開啟「觸控操作 = 開」）。
   - **多組自訂快門音（Sony 24 kHz SDS ADPCM）／佇列 HUD／防截斷與 A6100/Windows 安全部署工具**：選用支援三組音檔槽位循環切換（`0x33 日文 Charo`、`0x34 Bling Bling / SD自訂`、`0x35 iPhone 快門`）與 `A:/A6400/CHARO.PCM`（須為 Sony 24 kHz SDS 32-byte ADPCM、`<= 29,760` B 原地安全覆寫）；新增 `a6400_ui_status_v1` 顯示即時轉檔數／`1024` 佇列進度；`pmca_deploy_v3_clite.py` 全命令 `<= 180` 字元分塊、掛載獨立 `2048k tmpfs` 並保護 `/etc` 與 `/tmp` 共享 `/dev/nflasha10` Inode，並內建 Windows 自動啟用（亦可用 `--safe-serial` 手動啟用）之 **`100 B / 20 ms` 分片寫入、`echo` + `wc -l` 冪等防重複寫入與 `__B64_L__` 行數校對**（實測支援 Sony A6100，含 `--rollback`、`--diag` 與 `/disable_hook` 升級指引）。
@@ -23,14 +28,14 @@
 
 > **本專案仍在持續開發與演進。** 主要文件使用繁體中文，採 **PolyForm Noncommercial 1.0.0**（非商業用途之原始碼公開授權，正式條款見 [LICENSE](LICENSE)，中文重點見 [授權說明](docs/授權說明.md)）。已驗證的功能、硬體限制（含 Cortex-A5 無 NEON 實測確認）與操作邊界請參閱 [功能狀態與限制](docs/功能狀態.md) 與 [開發與架構細節](docs/開發與架構細節.md)。
 
-> ### 📘 快速入口：從 GitHub 原始碼完整建置／部署 V4.1 SLEM (`hany`) ＋ 開發細節
+> ### 📘 快速入口：從 GitHub 原始碼完整建置／部署 V4.3 SLEM (`hany`) ＋ 開發細節
 > - **[Windows WSL2 全離線一鍵包 — 常見問題與排錯指南（docs/WINDOWS-WSL2-FAQ.md）](docs/WINDOWS-WSL2-FAQ.md)** — 收錄 **必開相機「藍牙功能 = 開」與「觸控操作 = 開」**、Win11 `HCS_E_SERVICE_NOT_AVAILABLE`（TIA Portal / `hypervisorlaunchtype off` / `vmcompute 1060`）、`DISM` / `OptionalFeatures` 卡「正在尋找所需文件」（`/LimitAccess` 解法）、資料夾含 `(1)` 括號提權閃退與 `usbipd unbind --all` 復原讀卡機等實戰排錯。
 > - **[從原始碼建置、部署與操作規範（docs/部署與操作規範.md）](docs/部署與操作規範.md)** — 收錄從源碼交叉編譯、全自動 PMCA 寫入（自動偵測並修補全新機身開機掛勾 `/etc/a6400-autoexec.so`）、`--rollback` / `--diag` 一鍵救援、**SD 卡 `/A6400/CHARO.PCM` 自訂音效**、**日常使用限制（最新資料夾 1,024 張上限／15.94 MiB／exFAT 與 FAT32 皆可用／`/A6400/TEST/`）**，以及 **[第六節完整實戰排雷手冊](docs/部署與操作規範.md#六完整實戰排雷手冊部署過程中所有常見異常與解決對策)**。
-> - **[更新日誌（CHANGELOG.md）](CHANGELOG.md)** — 完整記錄 V0 → V4.1 SLEM (`hany`) 的版本演進、效能數據與實機修復項目。
-> - **[開發與架構細節（docs/開發與架構細節.md）](docs/開發與架構細節.md)** — 完整記錄 V3.1 → V4.1 演進脈絡、硬體 `/proc/cpuinfo`（無 NEON）、解碼/編碼/Shell 各階段拆解、`1120-byte` UI 快照 ABI 與 `manifest.json` 欄位說明。
+> - **[更新日誌（CHANGELOG.md）](CHANGELOG.md)** — 完整記錄 V0 → V4.3 SLEM (`hany`) 與 Sound Lite 的版本演進、效能數據與實機修復項目。
+> - **[開發與架構細節（docs/開發與架構細節.md）](docs/開發與架構細節.md)** — 完整記錄 V3.1 → V4.3 演進脈絡、硬體 `/proc/cpuinfo`（無 NEON）、解碼/編碼/Shell 各階段拆解、`1120-byte` UI 快照 ABI 與 `manifest.json` 欄位說明。
 > - **[社群實戰指南：A6400-V3.x 升級工作流程與經驗教訓（docs/A6400-V3.x升級工作流程與經驗教訓.md）](docs/A6400-V3.x升級工作流程與經驗教訓.md)** — 感謝 **阿杰** 貢獻同一台 A6400 連續四次升級實戰筆記（Windows 驅動包累積排查、SCSI INQUIRY 判據、上傳確認機制與排錯速查表）。
-> - **📦 [前往 GitHub Releases 下載最新預編譯包（V4.1 SLEM `hany` 公開雙語版 `v4.1-slem-hany`）](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/latest)**（內含繁簡雙語 Windows WSL2 全離線一鍵包及 TC/SC 開機包；**請注意：繁體版須將相機系統語言設為「繁體中文」，簡體版須設為「简体中文」以免原廠字型缺字，並務必開啟相機「藍牙功能 = 開」與「觸控操作 = 開」**）
-> - **🔊 自訂快門音效（公開版預設不含音效，`charo=0`）**：公開倉庫與 Release 預設未隨附私人 `.pcm` 音效檔；**AI 或操作者在部署前應先詢問使用者是否需要導入快門音效（最多 3 個 `.mp3`）**——不需要則直接跳過，需要則由 AI 自動轉成 **單聲道 24 kHz Sony 32-byte SDS ADPCM**（`<= 29,760 / 24,768 / 18,560 B`）並完成重建與無需人工干預的一鍵刷入（詳見 [`docs/部署與操作規範.md`](docs/部署與操作規範.md#步驟-0ai部署前必問是否導入自訂快門音效最多-3-個確認後全程自動部署)）。
+> - **📦 [前往 GitHub Releases 下載最新預編譯包（V4.3 SLEM `hany` 雙版本 `v4.3-slem`）](https://github.com/PCIEARIA/A6400-Extra-Menu/releases/latest)**（提供 `WithTouch` 與 `WithNoTouch` 兩版，皆含 Windows WSL2 輕量雙語包、Windows 免 WSL2 雙語包與 macOS/Linux 繁簡單包；**請注意：繁體版須將相機系統語言設為「繁體中文」，簡體版須設為「简体中文」以免原廠字型缺字，並務必開啟相機「藍牙功能 = 開」與「觸控操作 = 開」**）
+> - **🔊 自訂快門音效（公開版預設不含音效，`charo=0`）**：公開倉庫與 Release 預設未隨附私人 `.pcm` 音效檔；**AI 或操作者在部署前應先詢問使用者是否需要導入快門音效（最多 3 個 `.mp3`）**——不需要則直接跳過，需要則由 AI 自動轉成 **單聲道 24 kHz Sony 32-byte SDS ADPCM**（`<= 29,760 / 24,768 / 18,560 B`）並完成重建與無需人工干預的一鍵刷入（詳見 [`docs/部署與操作規範.md`](docs/部署與操作規範.md#步驟-0ai部署前必問是否導入自訂快門音效最多-3-個確認後全程自動部署)）。若僅需純快門音功能，亦可使用 **V4.3 Sound Lite**（[`tools/build_sound_lite.sh`](tools/build_sound_lite.sh) ＋ [`tools/convert_sound_to_pcm.ps1`](tools/convert_sound_to_pcm.ps1)）。
 
 ---
 
@@ -38,7 +43,9 @@
 
 | 版本 | 重點里程碑與數據 |
 | --- | --- |
-| **V4.1 SLEM (`hany`)（最新實機驗收版）**<br>`Sony LUT Extra Menu` | 1. **哈蘇 2×2 田字格選單（無自動隱藏）＋ 100% 保留原廠相簿（`▶`）**：專屬「套色相冊」（`608×400`）與右下 `240×160` 原生 `RGBA4444` 零閃屏即時預覽小窗。<br>2. **`12MP 超清`（`4240×2826`）＋ 原生 MENU 全觸控（MTF2）＋ 零冷卻 Hi+ 連拍快門音**。<br>3. **A6400 / A6100 跨韌體相容性強化 & WSL2 真原廠回滾**：動態掃描 `libObj.so` 掛載點、`BMP_*` thunk、唯讀 `/usr` ELF 驗證；修復 `usbipd` 重複 `bind --force` 與回滾殘留 `.pre-v3c-backup`；安裝器與 FAQ 醒目紅字提示必開「藍牙功能 = 開」與「觸控操作 = 開」。 |
+| **V4.3 SLEM (`hany`)（最新實機驗收版）**<br>`With Touch / With no Touch` + `Sound Lite` | 1. **雙版本可選（`With Touch` / `With no Touch`）**：新增 `A6400_MTF2_ENABLE=0` 穩定番，自製選單與相冊可觸控且完全不介入 Sony 原生 MENU。<br>2. **SD 卡永久「套色相冊」＋ 16 槽位 RAM 極速快取（PR #15 + 效能升級）**：改讀 SD `/A6400/TEST/F*.JPG` 最多 `1,024` 張（拔電池不消失）、`448×400` 3:2 比例＋EXIF 直拍自動轉正、16 張 LRU 快取＋相鄰 4 張背景預抓＋12MP `1/8` DC 極速預覽（`~25 ms`），並強化行程群組回收、`umount2` 延遲卸載與殘留掛載自癒。<br>3. **雙重曝光 1.7MP 防 OOM ＋ 一鍵「取消雙曝 1/2」**：固定 `1.7MP` 合成避免爆 RAM，待拍第 2 張時首頁右上角變為橘底「取消雙曝 1/2」。<br>4. **開機包 `gzip` 瘦身 52% ＋ 穩定性與 WSL2 升級修復**：開機包壓縮至 `~120 KB`（`tar -xzf`）、新增右上角 1.2 秒 `V4.3 SLEM 已就緒` 提示、`tid`/`ticker_layer` 防剛呼出假死、180 秒慢卡掃描上限，並修復 Win WSL2 `sync_deployer_scripts` 跨版升級問題。<br>5. **新增 V4.3 Sound Lite 純淨快門音分支**：奶油白＋霧黑極簡 Sound Deck UI、16 槽位＋SDS 波形顯示、SD 卡 `/A6400/SOUNDS/*.pcm` 獨立 BeepID 綁定與 WAV/MP3 拖曳轉檔腳本。 |
+| **V4.2.1 DEXP (`hany`)**<br>`雙重曝光 ＋ MTF2 自動重測` | 1. **新增「雙重曝光」（濾色 / 變亮 / 平均）**：純整數快速混合並與 LUT 嚴格互斥。<br>2. **MTF2 原生 MENU 觸控自動重測**：解決 A6400 `v2.00` 開機慢載入 `CautionConfig.so` 誤判不支援問題，`--diag` 新增 `IM_MAPS` 診斷。 |
+| **V4.1 SLEM (`hany`)**<br>`Sony LUT Extra Menu` | 1. **哈蘇 2×2 田字格選單（無自動隱藏）＋ 100% 保留原廠相簿（`▶`）**：專屬「套色相冊」（`608×400`）與右下 `240×160` 原生 `RGBA4444` 零閃屏即時預覽小窗。<br>2. **`12MP 超清`（`4240×2826`）＋ 原生 MENU 全觸控（MTF2）＋ 零冷卻 Hi+ 連拍快門音**。<br>3. **A6400 / A6100 跨韌體相容性強化 & WSL2 真原廠回滾**：動態掃描 `libObj.so` 掛載點、`BMP_*` thunk、唯讀 `/usr` ELF 驗證；修復 `usbipd` 重複 `bind --force` 與回滾殘留 `.pre-v3c-backup`；安裝器與 FAQ 醒目紅字提示必開「藍牙功能 = 開」與「觸控操作 = 開」。 |
 | **V3.9 SSLF**<br>`Sony Super LUT FILM` | 1. **開機掛載 `/tmp_bt` 備援 ＋ 共享 Inode 防護**：`HOOK_STUB` 與 `bootstrap-local.sh` 內建 `size=2048k tmpfs` 備援與 `/tmp/a6400-hook-err.log` 診斷；`pmca_deploy_v3_clite.py` 全數分塊 `<= 180` 字元、以 `/tmp_bt/v3c_up` 避開 1MiB `/tmp_bt` 上限、保護 `/etc` 與 `/tmp` 共享 `/dev/nflasha10` 不誤刪掛勾，並提供 `--rollback` / `--diag`。<br>2. **位元等價 `picojpeg.c` 加速 + `rt.c` 字組 `memset`**：32-bit 位元流與 register AC 解碼使主機 6MP `decode_ms` 降至 `138 ms`（較原版 `249 ms` 降幅 44.6%，位元完全一致）。<br>3. **守護行程與 MPR 相容性補強**：`CAPTURE_WAIT_MS=4000u`、`CAPTURE_BASELINE_INTERVAL_MS=750u`、`CAPTURE_STABLE_MS=800u`；略過非錯誤 `[AVIMMGR]`／`[MprCnv]` 雜訊；修正 `RAM_JOB_READ_RETRY` 後 `uncertain=1` 誤停，並於 `scan == -2`（`media_unavailable`）主動 `transport_stop` 釋放 `mpr_monio.elf`。<br>4. **多組 24 kHz Sony SDS 快門音與即時狀態 HUD**：選單支援多組音效槽位切換及 `IFSYS sound` 讀取 `A:/A6400/CHARO.PCM`（24 kHz Sony SDS ADPCM，`<= 29,760 B`）原地覆寫 `tmpfs`；新增 `a6400_ui_status_v1` 顯示已轉張數與 `1024` 佇列進度。 |
 | **V3.5.1 Fast SP（實機已驗證）**<br>`package=5b079b295c2a7a27` | 1. 浮層新增第 3 列 **「膠片細節」**（`FILM_MENU_DETAILS` 子分頁）：獨立調整 **顆粒強度 `0–3`**（`無 (加速)`／`輕微`／`標準`／`濃厚`）與 **底片光暈 `開 / 關`**（關光暈時直接略過模糊遮罩計算 `mask_kib=0`）＋ 一鍵 `恢復細節預設`。<br>2. `vendor/jpge.cpp` 開啟 `-O3`、精簡 `DCT_MUL`、移除子閾值係數 64-bit 乘法、`inline put_bits`、`noinline flush_output_buffer`。<br>3. `camera/author_film.c` 預先縮放 `bell_scaled[256]` 並將光暈水平模糊改為 **`O(1)` 滑動視窗**。<br>4. `camera/film_ram_job.sh` 改用 `busybox ls -ln` 單次 `lstat` 取代 `wc -c`。<br>5. 實機實測：**`1.7MP` `5.65~5.95 s`**、**`6MP` `17.49 s`**。 |
 | **V3.5 Fast**<br>`package=ff85fe8a9a317b68` | 引入 `picojpeg` 8-bit Huffman 快表與 `6MP`（`3000×2000`）真半尺度 IDCT（跳過 8×8 完整運算直接取 DC/半尺度像素），`6MP` 由 `33.41 s` 降至 `20.96 s`，`1.7MP` 實測 `8.16 s`。 |

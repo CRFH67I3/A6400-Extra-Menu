@@ -4,21 +4,28 @@
 
 ---
 
-## [V4.3 SLEM (未釋出)] - 2026-11-24（開發驗證中）
+## [V4.3 SLEM (hany)] - 2026-11-25（雙版本 With Touch / With no Touch ＋ 永久相冊秒開快取 ＋ Sound Lite）
 
+- **雙版本編譯開關（`With Touch` / `With no Touch` 穩定番）**：[`tools/build_v3_clite.sh`](tools/build_v3_clite.sh) 與 [`host-tests/build_ui_trial3.sh`](host-tests/build_ui_trial3.sh) 新增 `A6400_MTF2_ENABLE=0` 開關，提供保留自製選單觸控但不介入 Sony 原生系統 MENU 觸控之穩定番。
 - **雙重曝光穩定性與一鍵取消重拍升級**：
   - 雙重曝光改為固定使用 `1.7MP` 內嵌預覽（`1616×1080`，雙圖合計約 `10 MiB` RAM），徹底解決 `6MP/12MP` 畫質下同時解碼兩張大圖觸發「影像解碼失敗」的問題。
   - 拍完第 1 張進入 `1/2待拍` 時，主選單右上角「套色相冊」自動變為醒目橘底 **「取消雙曝 1/2」**，點擊一鍵捨棄第 1 張並保持雙重曝光模式開啟（可直接重拍第 1 張，不需進細節設定關閉再開）。
 - **防剛呼出假死雙重保護（`tid` 自癒 ＋ `ticker_layer` 重啟）**：[`camera/native_film_ui_trial3.c`](camera/native_film_ui_trial3.c) 於 `animate()` 改為在 `cur_tid != ui.tid` 時自動認領新執行緒 `tid` 不中斷迴圈，並於 `visibility(1)` 剛開啟選單時重新確保 `ui.ticker_layer` 維持啟用與 `set_animate(ui.ticker, 1)`，降低系統切換圖層導致選單停留畫面卻無響應的機率。
-- **開機包 `gzip` 壓縮瘦身 52.6%**：[`host-tests/build_film_native_boot_package.py`](host-tests/build_film_native_boot_package.py) 改以 `gzip`（level 9、`mtime=0`）壓縮 `/tmp/a6400-film-boot-v15.tar`（`245,760 B` → `116,517 B`，省下 `129,243 B`），[`host-tests/film-runtime-v2-templates/bootstrap-local.sh`](host-tests/film-runtime-v2-templates/bootstrap-local.sh) 改以 BusyBox `tar -xzf` 解壓並保留 `tar -xf` 備援。
+- **開機包 `gzip` 壓縮瘦身 52.6%**：[`host-tests/build_film_native_boot_package.py`](host-tests/build_film_native_boot_package.py) 改以 `gzip`（level 9、`mtime=0`）壓縮 `/tmp/a6400-film-boot-v15.tar`（`245,760 B` → `116,517 B`，省下 `129,243 B`），[`host-tests/film-runtime-v2-templates/bootstrap-local.sh`](host-tests/film-runtime-v2-templates/bootstrap-local.sh) 與 [`tools/pmca_deploy_v3_clite.py`](tools/pmca_deploy_v3_clite.py) 改以 BusyBox `tar -xzf` 解壓並保留 `tar -xf` 備援。
 - **開機右上角「已就緒」微提示 ＋ 版號升級 `V4.3 SLEM`**：[`camera/native_film_ui_trial3.c`](camera/native_film_ui_trial3.c) 於開機首次掛載進入 UI 時在右上角閃出 1.2 秒綠色提示 `V4.3 SLEM 已就緒`（不影響 `a6400_ui_toast_v1.seq`）。
 - **MPR 掃描抗雜訊與慢速大卡 `scan_timeout` 修復**：[`camera/native_capture_probe.c`](camera/native_capture_probe.c) 新增 `timing_trace_line()` 過濾穿插於 `MPR FileIf FFirst` 回應中的 `line=..., time=..., diff=...` 除錯追蹤行；[`host-tests/build_film_capture_daemon.sh`](host-tests/build_film_capture_daemon.sh) 將常駐模式單次目錄總掃描上限 `SCAN_MS` 與開機基準等待由 `45s/60s` 放寬至 `180s`（單筆指令卡死仍維持 `4s` 保護），並於 [`camera/film_capture_daemon.c`](camera/film_capture_daemon.c) `inventory_test_album()` 重設 `t->scan_started`，解決慢速卡／多照片資料夾開機誤觸 `scan_timeout` 退出問題。
-- **套色相冊改讀 TEST 目錄 ＋ 16 槽位 RAM 秒開快取與預抓加速（PR #15 + 效能極速優化）**：
+- **套色相冊改讀 TEST 目錄 ＋ 16 槽位 RAM 秒開快取、預抓加速與掛載自癒（PR #15 + 效能與穩定性升級）**：
   - 套色相冊張數改為 SD 卡 `/A6400/TEST/F` + 7 位數字 + `.JPG` 的檔名索引，最多 1024 筆；超過時首頁顯示 `1024張+`。取電池後重新列出，不再只留本次開機的 16 張記憶體預覽。
   - **16 張 LRU RAM 秒開快取（`/tmp_bt/a6400-pv/c_*.bin`）＋ 智慧背景預抓**：剛拍完轉檔（含雙重曝光）直接寫入 10 MiB tmpfs 快取，開機掃描後自動預熱最新 1 張，瀏覽時自動預抓前後相鄰 4 張，並不重啟 `mpr_monio`／不重複掃描 `TEST` 與 `DCIM`；12MP 大圖預覽改走 `1/8` DC 極速解碼（`~25 ms`），實現 **0 秒秒開與零延遲連翻**。
-  - 未命中快取之舊圖使用 `/tmp_bt/a6400-film-job` 臨時掛載 32 MiB 私有 tmpfs 解碼、完成或退出即卸載清除，並檢查 JPEG EOI（連續失敗 3 次顯示「讀取失敗」）。
+  - 未命中快取之舊圖使用 `/tmp_bt/a6400-film-job` 臨時掛載 32 MiB 私有 tmpfs 解碼、完成或退出即卸載清除，並檢查 JPEG EOI（連續失敗 3 次顯示「讀取失敗」）；取消／切換讀回時以行程群組 `kill(-pid)` 終止子行程、重試 `umount2(..., MNT_DETACH)` 延遲卸載，並於每次轉檔任務前自動清理殘留掛載點。
   - 修正 16:9 液晶 `640×480` 比例，改以 `448×400` 顯示 3:2 照片（左右留黑邊）並依 EXIF 方向自動轉正直拍；修正重進相冊 `album_view_seq` 單調遞增防序號碰撞。
   - 保留 `dexp_mode`、`dexp_seq`、`dexp_pending` 欄位偏移與雙重曝光狀態，互不衝突。
+- **Windows WSL2 跨版升級同步修復**：修復 [`tools/wsl_deploy.cmd`](tools/wsl_deploy.cmd) 與 [`tools/wsl_deploy.ps1`](tools/wsl_deploy.ps1) 中 `sync_deployer_scripts` 延遲展開損毀問題，確保舊版 V4.1/V4.2 使用者升級 V4.3 時一律自動更新至支援 `tar -xzf` 的最新部署腳本。
+- **新增 V4.3 Sound Lite 純淨快門音分支版（原始碼建置）**：
+  - 新增 [`tools/build_sound_lite.sh`](tools/build_sound_lite.sh)（共用 V4.3 驗證過之開機鏈，透過 `A6400_SOUND_LITE=1` 切換）與 [`camera/sound_lite_ui.h`](camera/sound_lite_ui.h)，提供奶油白＋霧黑極簡 Sound Deck UI（輕量元件池 60fps 無延遲、16 槽位、真實 24 kHz Sony SDS ADPCM 波形解碼視覺化、100% 全觸控翻頁／試聽／Hi+ 連拍開關／關閉）。
+  - [`camera/film_capture_daemon.c`](camera/film_capture_daemon.c)、[`camera/native_capture_probe.c`](camera/native_capture_probe.c) 與 [`camera/film_native_command.c`](camera/film_native_command.c) 支援透過 Sony MPR + IFSYS 掃描並載入 SD 卡 `/A6400/SOUNDS/*.pcm` 至 RAM `/tmp_bt/a6400-sounds`，每組自訂音效各自綁定獨立 Sony APP BeepID（免重啟立即生效）。
+  - 新增 [`tools/convert_sound_to_pcm.ps1`](tools/convert_sound_to_pcm.ps1) 與強化 [`tools/encode_sony_sds_adpcm.py`](tools/encode_sony_sds_adpcm.py)，Windows 拖曳 WAV/MP3 即可轉換為相機原生 24 kHz Sony SDS ADPCM `.pcm`。
+- **CI 單元測試與文件同步**：修正 [`test_film_album_index.py`](test_film_album_index.py) 適配 `__attribute__((unused))` 函式宣告，並更新 [`README.md`](README.md) 與 [`docs/WINDOWS-WSL2-FAQ.md`](docs/WINDOWS-WSL2-FAQ.md) 至 V4.3 SLEM。
 
 ## [V4.2.1 DEXP (hany)] - 2026-11-23（雙重曝光 ＋ MTF2 自動重測）
 

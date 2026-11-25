@@ -38,7 +38,7 @@ class FilmAlbumIndexTests(unittest.TestCase):
 
     def test_album_loading_prompt_is_centered_over_a_solid_background(self):
         text = (ROOT / 'camera/native_film_ui_trial3.c').read_text(encoding='utf-8')
-        view = text.split('static void v4_album_sync_view', 1)[1].split('static void v4_exit_album', 1)[0]
+        view = text.split('v4_album_sync_view(void)', 1)[1].split('static void v4_exit_album', 1)[0]
         self.assertIn('v4_draw_album_hud(top,bot,1)', view)
         self.assertIn('UI_S_ALB_LOADING', view)
         self.assertIn('place(ui.labels[1],1,240,210,160,36)', view)

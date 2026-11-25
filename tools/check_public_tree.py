@@ -26,8 +26,6 @@ APPROVED_IMAGES = {
         'd482ea9be4ae9b6049651cc4a3e92bb37166be7419de3b07785faf30c2eb993f',
     'docs/images/a6400-extra-menu-v39-sslf.jpg':
         '54af54b01c15b0eb6c208102abc001919b6d6a028477fa146b942599ca118428',
-    'docs/images/sponsor-wechat.jpg':
-        '0f069a8b81c054daab52bce48ac5fde15b90fd42828f5beba3540019c66bd008',
     'docs/images/sample-bougainvillea-sky.jpg':
         '5c72bc9f173b3968b582ba05566f32f080536a7328e71d770ac6256dca7b19a0',
     'docs/images/sample-clouds-sunlight.jpg':

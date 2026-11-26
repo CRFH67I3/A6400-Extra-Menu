@@ -40,6 +40,7 @@ class SoundLiteTests(unittest.TestCase):
 
             harness = d / 'harness.c'
             harness.write_text(
+                '#define _GNU_SOURCE\n'
                 '#include <assert.h>\n'
                 '#include <stdio.h>\n'
                 '#include <stdlib.h>\n'
@@ -74,12 +75,12 @@ class SoundLiteTests(unittest.TestCase):
                 encoding='utf-8',
             )
             bin_p = d / 'sl_test'
-            subprocess.run(
+            comp = subprocess.run(
                 ['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-I', str(d), str(harness), '-o', str(bin_p)],
-                check=True,
                 capture_output=True,
                 text=True,
             )
+            self.assertEqual(comp.returncode, 0, comp.stdout + comp.stderr)
             res = subprocess.run([str(bin_p)], check=True, capture_output=True, text=True)
             self.assertIn('SOUND_LITE_C_OK', res.stdout)
 

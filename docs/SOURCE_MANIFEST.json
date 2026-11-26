@@ -308,8 +308,8 @@
     },
     {
       "path": "camera/sound_lite_ui.h",
-      "source_sha256": "88ce8a6916fd6d16faedf3cc42cdd81b2be9cd181552acb8ec25380e618594c0",
-      "release_sha256": "88ce8a6916fd6d16faedf3cc42cdd81b2be9cd181552acb8ec25380e618594c0",
+      "source_sha256": "cc23103b929efebb444b9e5f93b95559637f3907aaf1fd4f18f0bd774fd2c7fd",
+      "release_sha256": "cc23103b929efebb444b9e5f93b95559637f3907aaf1fd4f18f0bd774fd2c7fd",
       "release_adjustments": []
     },
     {
@@ -518,8 +518,8 @@
     },
     {
       "path": "test_sound_lite.py",
-      "source_sha256": "bbb5d51a9f67b01feb2d55e5e187e7e80b95494907515093ee872a5640cc698b",
-      "release_sha256": "bbb5d51a9f67b01feb2d55e5e187e7e80b95494907515093ee872a5640cc698b",
+      "source_sha256": "3bd1163f0b7847346c0579a28455fd7abb60273ba8a230f75fec46b0439c6e2d",
+      "release_sha256": "3bd1163f0b7847346c0579a28455fd7abb60273ba8a230f75fec46b0439c6e2d",
       "release_adjustments": []
     },
     {

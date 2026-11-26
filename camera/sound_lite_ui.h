@@ -117,7 +117,11 @@ static void sl_analyze_sds(const unsigned char *raw, int bytes, unsigned char ou
     if (active_samples < 31) active_samples = idx;
     int centisec = (active_samples * 100 + 12000) / 24000;
     if (centisec < 1) centisec = 1;
-    snprintf(out_dur, 10, "%d.%02ds", centisec / 100, centisec % 100);
+    if (centisec > 9999) centisec = 9999;
+    {
+        unsigned cs = (unsigned)centisec;
+        snprintf(out_dur, 10, "%u.%02us", (cs / 100u) % 100u, cs % 100u);
+    }
 
     int step = active_samples / SL_WAVE_BARS;
     if (step < 1) step = 1;
@@ -418,7 +422,7 @@ static void sl_draw_deck(void) {
             paint(sl.row_acc, c_cream);
             acc_drawn = 1;
         }
-        char line[48];
+        char line[64];
         snprintf(line, sizeof(line), "%02d  %s (%s)", idx, s->name, s->dur);
         place(sl.row_lbl[r], 1, 50, ry + 10, 296, 26);
         write_lbl(sl.row_lbl[r], line);

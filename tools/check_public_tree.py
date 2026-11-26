@@ -26,6 +26,8 @@ APPROVED_IMAGES = {
         'd482ea9be4ae9b6049651cc4a3e92bb37166be7419de3b07785faf30c2eb993f',
     'docs/images/a6400-extra-menu-v39-sslf.jpg':
         '54af54b01c15b0eb6c208102abc001919b6d6a028477fa146b942599ca118428',
+    'docs/images/a6400-extra-menu-v43-slem.jpg':
+        '1915403ba18cc3ea655e3895927bd3451f8add0f7ffc43d20b1dc8c8e2729e17',
     'docs/images/sample-bougainvillea-sky.jpg':
         '5c72bc9f173b3968b582ba05566f32f080536a7328e71d770ac6256dca7b19a0',
     'docs/images/sample-clouds-sunlight.jpg':

@@ -1,8 +1,8 @@
 # A6400 Extra-Menu
 
-![A6400 V3.9 SSLF 機身實拍：半透明深色浮動卡片、即時已轉與佇列計數、4 列設定與繁體中文介面](docs/images/a6400-extra-menu-v39-sslf.jpg)
+![A6400 V4.3 SLEM 機身實拍：哈蘇 2×2 田字格選單、LUT Portra 400、專屬套色相冊、Charo 快門與 1.7MP 極速畫質](docs/images/a6400-extra-menu-v43-slem.jpg)
 
-*Sony A6400 V3.9 SSLF 自製觸控浮層選單：頂部顯示即時已轉張數與 `/1024` 佇列進度、Sony Alpha 橘金高亮、膠片細節與快門聲切換、繁體中文介面與左下角即時處理進度提示條（Toast HUD）。*
+*Sony A6400 **V4.3 SLEM (`hany`)** 實機觸控浮層選單：哈蘇 2×2 田字格佈局（無自動隱藏），頂部顯示即時已轉張數與 `/1024` 佇列進度，左上 `LUT`、右上 `套色相冊 (7張)`、左下 `快門／細節設定`、右下 `畫質 (1.7MP/6MP/12MP)` 與獨立 `關閉` 鈕。*
 
 以 **MENU＋放大鏡** 召喚自製觸控浮層選單，在 Sony A6400 / A6100（`ILCE-6400` / `ILCE-6100`）機身上純 RAM 掛載管理 LUT 開關、10 款膠片模擬、**`1.7MP 極速` / `6MP 高清` / `12MP 超清` 三段畫質切換**、**「膠片細節」顆粒強度 (`0–3`) 與底片光暈 (`開/關`) 獨立調節**、**100% 保留 Sony 原廠相簿＋原生零閃屏即時預覽小窗與專屬套色相冊**，以及 **原生 MENU 全觸控（MTF2）** 的研究專案。
 
@@ -67,6 +67,8 @@
 
 | 版本 | 說明與實機畫面 |
 | --- | --- |
+| **V4.3 SLEM (`hany`，2×2 田字格最新外觀）** | 哈蘇瑞士工業風 2×2 田字格佈局（無自動隱藏），整合 SD 卡永久 `套色相冊`（16 槽位 RAM 秒開）、`12MP 超清`、雙重曝光（`取消雙曝 1/2`）與 `With Touch / With no Touch` 雙版本。<br><img src="docs/images/a6400-extra-menu-v43-slem.jpg" alt="A6400 V4.3 SLEM 2×2 田字格實機觸控選單" width="460"> |
+| **V3.9 SSLF（4 列卡片與狀態 HUD 外觀）** | 頂部顯示即時已轉張數與 `/1024` 佇列進度、第 3 列「膠片細節」顆粒／光暈、第 4 列多組快門聲與左下角 Toast HUD。<br><img src="docs/images/a6400-extra-menu-v39-sslf.jpg" alt="A6400 V3.9 SSLF 4列設定選單實機畫面" width="460"> |
 | **V3.1 CLite（半透明卡片基礎外觀）** | 半透明深色浮動卡片、頂部 Sony Alpha 橘條、`LUT 濾鏡` 與 `膠片風格` 橘金側條高亮、右下角獨立 `關閉`／`返回` 按鈕、繁體中文顯示與左下角 Toast HUD；**V3.4～V3.5.1 Fast SP** 均沿用此卡片視覺規範並擴充第 3 列與左下角畫質切換鈕。<br><img src="docs/images/a6400-extra-menu-v3-clite.jpg" alt="A6400 V3 CLite 繁體中文半透明浮動卡片選單" width="460"> |
 | **V3.2 CLite（個人自訂快門音效擴充畫面）** | 於主選單加入 `快門聲: Charo (開啟)` 開關（音檔屬個人資產不隨本公開倉庫附帶；`tools/build_v3_clite.sh` 會於存在 `assets/a6400-charo-shutter.pcm` 時自動啟用，無音檔時自動編譯為無音效之標準 **V3.5.1 Fast SP**）。<br><img src="docs/images/a6400-extra-menu-v32-charo.jpg" alt="A6400 V3.2 CLite 自訂快門聲選單實拍畫面" width="460"> |
 | **V1 Beta（早期初版）** | 早期實機驗證版本，採全屏深色不透明背景、等寬純英文條狀按鈕（`LUT: ON/OFF`、`Film`、`Close`）。<br><img src="docs/images/a6400-extra-menu-camera.jpg" alt="A6400 V1 Beta 早期實機觸控選單" width="460"> |

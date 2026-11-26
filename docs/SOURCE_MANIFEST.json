@@ -669,6 +669,10 @@
       "release_sha256": "54af54b01c15b0eb6c208102abc001919b6d6a028477fa146b942599ca118428"
     },
     {
+      "path": "docs/images/a6400-extra-menu-v43-slem.jpg",
+      "release_sha256": "1915403ba18cc3ea655e3895927bd3451f8add0f7ffc43d20b1dc8c8e2729e17"
+    },
+    {
       "path": "docs/images/a6600-extra-menu-camera.jpg",
       "release_sha256": "d482ea9be4ae9b6049651cc4a3e92bb37166be7419de3b07785faf30c2eb993f"
     },

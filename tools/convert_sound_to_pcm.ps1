@@ -1,6 +1,8 @@
 ﻿param(
     [Parameter(Mandatory = $true, ValueFromRemainingArguments = $true)]
-    [string[]]$Files
+    [string[]]$Files,
+    [string]$OutDir = "",
+    [switch]$NoPause
 )
 
 $ErrorActionPreference = "Stop"
@@ -198,15 +200,61 @@ if (-not $ffmpeg) {
     if (Test-Path $localFfmpeg) { $ffmpeg = Get-Command $localFfmpeg }
 }
 
+function Get-SafeSoundStem([string]$RawName) {
+    $stem = [System.IO.Path]::GetFileNameWithoutExtension($RawName)
+    $stem = ($stem -replace '[\\/:*?"<>|\s;\x24`''|&()\[\]{}!]+', '_').Trim('._')
+    $stem = ($stem -replace '_+', '_').Trim('._')
+    if ([string]::IsNullOrWhiteSpace($stem)) { $stem = "custom_shutter" }
+    # Camera sound_path()/sound_component() caps filename at 44 UTF-8 bytes (<stem>.pcm <= 44B)
+    $sb = New-Object System.Text.StringBuilder
+    $used = 0
+    foreach ($ch in $stem.ToCharArray()) {
+        $b = [System.Text.Encoding]::UTF8.GetByteCount(@($ch))
+        if ($used + $b -gt 40) { break }
+        [void]$sb.Append($ch)
+        $used += $b
+    }
+    $res = $sb.ToString().Trim('._')
+    if ([string]::IsNullOrWhiteSpace($res)) { return "custom_shutter" }
+    return $res
+}
+
+$converted = 0
+$usedNames = @{}
+
 foreach ($inPath in $Files) {
     if (-not (Test-Path $inPath)) {
         Write-Host "[!] 找不到檔案：$inPath" -ForegroundColor Yellow
         continue
     }
     $item = Get-Item $inPath
-    $base = [System.IO.Path]::GetFileNameWithoutExtension($item.Name) -replace '[\\/:*?"<>|\s]+', '_'
-    if ([string]::IsNullOrWhiteSpace($base)) { $base = "custom_shutter" }
-    $outPath = Join-Path $item.DirectoryName "$base.pcm"
+    $base = Get-SafeSoundStem $item.Name
+    $n = 2
+    $cand = $base
+    while ($usedNames.ContainsKey($cand.ToLowerInvariant())) {
+        $suffix = "_$n"
+        $maxStem = 40 - $suffix.Length
+        $sb = New-Object System.Text.StringBuilder
+        $u = 0
+        foreach ($ch in $base.ToCharArray()) {
+            $b = [System.Text.Encoding]::UTF8.GetByteCount(@($ch))
+            if ($u + $b -gt $maxStem) { break }
+            [void]$sb.Append($ch)
+            $u += $b
+        }
+        $cand = ($sb.ToString().Trim('._')) + $suffix
+        $n++
+    }
+    $usedNames[$cand.ToLowerInvariant()] = $true
+    $targetDir = if ([string]::IsNullOrWhiteSpace($OutDir)) {
+        Join-Path $item.DirectoryName "A6400\SOUNDS"
+    } else {
+        $OutDir
+    }
+    if (-not (Test-Path $targetDir)) {
+        New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+    }
+    $outPath = Join-Path $targetDir "$cand.pcm"
 
     $tmpWav = $null
     try {
@@ -229,6 +277,7 @@ foreach ($inPath in $Files) {
         $activeSec = 0.0
         $sdsBytes = [SonySdsEncoder]::EncodeSonySds($samples, [ref]$activeSec)
         [System.IO.File]::WriteAllBytes($outPath, $sdsBytes)
+        $converted++
         $secStr = $activeSec.ToString("0.00")
         Write-Host "[+] 完成 (Sony 24kHz SDS ADPCM)：$outPath ($($sdsBytes.Length) bytes, 有效長度 ${secStr}s)" -ForegroundColor Green
     } catch {
@@ -238,4 +287,14 @@ foreach ($inPath in $Files) {
             Remove-Item -Force $tmpWav -ErrorAction SilentlyContinue
         }
     }
+}
+
+Write-Host ""
+Write-Host "[*] 已輸出 $converted 個 Sound Lite .pcm 檔。請將整個 A6400 資料夾複製到相機記憶卡根目錄（即 /A6400/SOUNDS/*.pcm）。" -ForegroundColor Cyan
+if ($converted -gt 12) {
+    Write-Host "[!] 提醒：相機端 Sound Lite 最多同時載入 12 個 SD 卡自訂 .pcm 檔（超過的檔名排序靠後者將不載入）。" -ForegroundColor Yellow
+}
+if (-not $NoPause -and $Host.Name -eq "ConsoleHost") {
+    Write-Host "按 Enter 鍵結束..."
+    [void][System.Console]::ReadLine()
 }

@@ -274,15 +274,34 @@ void film_mask_blur(unsigned char *mask, unsigned char *tmp, int gw, int gh) {
                 }
             }
         }
-        for (int y = 0; y < gh; ++y) {
-            int y0 = y < 3 ? 0 : y - 3;
-            int y1 = y + 3 >= gh ? gh - 1 : y + 3;
-            unsigned recip = blur_recip[y1 - y0 + 1];
-            unsigned char *mrow = mask + y * gw;
-            for (int x = 0; x < gw; ++x) {
-                int sum = 0;
-                for (int k = y0; k <= y1; ++k) sum += tmp[k * gw + x];
-                mrow[x] = (unsigned char)((unsigned)(sum * (int)recip) >> 16);
+        for (int bx = 0; bx < gw; bx += 64) {
+            int cols = gw - bx;
+            if (cols > 64) cols = 64;
+            int col_sum[64];
+            int init_end = gh > 4 ? 4 : gh;
+            for (int dx = 0; dx < cols; ++dx) col_sum[dx] = 0;
+            for (int k = 0; k < init_end; ++k) {
+                const unsigned char *tr = tmp + k * gw + bx;
+                for (int dx = 0; dx < cols; ++dx) col_sum[dx] += tr[dx];
+            }
+            for (int y = 0; y < gh; ++y) {
+                if (y > 0) {
+                    if (y + 3 < gh) {
+                        const unsigned char *add_row = tmp + (y + 3) * gw + bx;
+                        for (int dx = 0; dx < cols; ++dx) col_sum[dx] += add_row[dx];
+                    }
+                    if (y - 4 >= 0) {
+                        const unsigned char *sub_row = tmp + (y - 4) * gw + bx;
+                        for (int dx = 0; dx < cols; ++dx) col_sum[dx] -= sub_row[dx];
+                    }
+                }
+                int y0 = y < 3 ? 0 : y - 3;
+                int y1 = y + 3 >= gh ? gh - 1 : y + 3;
+                unsigned recip = blur_recip[y1 - y0 + 1];
+                unsigned char *mrow = mask + y * gw + bx;
+                for (int dx = 0; dx < cols; ++dx) {
+                    mrow[dx] = (unsigned char)((unsigned)(col_sum[dx] * (int)recip) >> 16);
+                }
             }
         }
     }

@@ -18,7 +18,35 @@ SLOT_SPECS = {
     "connect": ("a6400-charo-connect.pcm", 774),  # 0x33 Dslr_Emnt_WPS_Connect.bin (24,768 B, ~1.00s)
     "push": ("a6400-charo-push.pcm", 580),        # 0x35 Dslr_Emnt_WPS_Push.bin (18,560 B, ~0.75s)
     "sd": ("CHARO.PCM", 930),                     # SD card override A:/A6400/CHARO.PCM (29,760 B)
+    "sound-lite": ("CUSTOM.PCM", 930),            # Sound Lite SD slot A:/A6400/SOUNDS/*.pcm (<=29,760 B)
 }
+
+
+def sanitize_sound_lite_stem(stem, max_stem_bytes=40):
+    """Sanitize a Sound Lite filename stem to satisfy camera sound_path() and <=44B UTF-8 rules."""
+    cleaned = []
+    for ch in stem:
+        o = ord(ch)
+        if o <= 0x20 or ch in '/\\"\';$`|&<>?*()[]{}!':
+            cleaned.append('_')
+        else:
+            cleaned.append(ch)
+    s = ''.join(cleaned).strip('._')
+    while '__' in s:
+        s = s.replace('__', '_')
+    if not s:
+        s = 'custom_shutter'
+    # Trim by UTF-8 byte budget so <stem>.pcm <= 44 bytes (40 + 4)
+    out = []
+    used = 0
+    for ch in s:
+        b = len(ch.encode('utf-8'))
+        if used + b > max_stem_bytes:
+            break
+        out.append(ch)
+        used += b
+    res = ''.join(out).rstrip('._')
+    return res or 'custom_shutter'
 
 
 def _read_wav_mono_24k_s16(wav_path):
@@ -181,6 +209,7 @@ def verify_sds_bytes(raw):
     out = []
     prev = 0
     bad_hdr = 0
+    active_samples = 0
     for i in range(0, len(raw), 32):
         hdr = raw[i]
         mode = (hdr >> 4) & 0xF
@@ -193,32 +222,56 @@ def verify_sds_bytes(raw):
             s = max(-32768, min(32767, pred + (v << sh)))
             out.append(s)
             prev = s
+            if abs(s) > 120:
+                active_samples = len(out)
     if bad_hdr != 0:
         raise ValueError(f"Found {bad_hdr} invalid Sony SDS frame headers")
     peak = max((abs(x) for x in out), default=0)
-    return {"bytes": len(raw), "frames": len(raw) // 32, "bad_hdr": bad_hdr, "peak": peak}
+    if active_samples < 31:
+        active_samples = len(out)
+    return {
+        "bytes": len(raw),
+        "frames": len(raw) // 32,
+        "bad_hdr": bad_hdr,
+        "peak": peak,
+        "active_sec": active_samples / SAMPLE_RATE,
+    }
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("input_audio", help="Path to source MP3 / WAV / M4A file")
+    parser.add_argument("input_audio", help="Path to source MP3 / WAV / M4A (or .pcm with --inspect)")
     parser.add_argument(
         "--slot",
         choices=sorted(SLOT_SPECS.keys()),
         default="shutter",
-        help="Target slot: shutter (<=29760B), connect (<=24768B), push (<=18560B), or sd (CHARO.PCM)",
+        help="Target slot: shutter (<=29760B), connect (<=24768B), push (<=18560B), sd (CHARO.PCM), or sound-lite",
     )
     parser.add_argument("-o", "--out", default="", help="Output .pcm path (defaults to assets/<slot_filename>)")
     parser.add_argument("--no-trim-lead", action="store_true", help="Do not trim leading silence")
     parser.add_argument("--tail-fade-ms", type=int, default=10, help="Fade-out length in ms (default: 10)")
     parser.add_argument("--truncate", action="store_true", help="Truncate audio if longer than slot max duration")
+    parser.add_argument("--inspect", action="store_true", help="Verify an existing Sony 24 kHz SDS .pcm file")
     args = parser.parse_args()
+
+    if args.inspect:
+        raw = Path(args.input_audio).read_bytes()
+        ver_info = verify_sds_bytes(raw)
+        print(
+            f"INSPECT_SDS_OK file={args.input_audio} active={ver_info['active_sec']:.3f}s "
+            f"bytes={ver_info['bytes']} frames={ver_info['frames']} bad_hdr={ver_info['bad_hdr']} "
+            f"peak={ver_info['peak']}"
+        )
+        return
 
     default_name, frames = SLOT_SPECS[args.slot]
     if args.out:
         out_path = Path(args.out)
     elif args.slot == "sd":
         out_path = Path(default_name)
+    elif args.slot == "sound-lite":
+        stem = sanitize_sound_lite_stem(Path(args.input_audio).stem)
+        out_path = Path("A6400") / "SOUNDS" / f"{stem}.pcm"
     else:
         out_path = Path(__file__).resolve().parent.parent / "assets" / default_name
 
